@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Device } from '../types';
-import { useDevice } from '../hooks/useDevice';
+import { useDeviceSocket } from '../hooks/useDeviceSocket';
 import { StatusReadings } from './StatusReadings';
 import { OutputControl } from './OutputControl';
 import { DigitSpinner } from './DigitSpinner';
@@ -16,108 +16,123 @@ interface DevicePanelProps {
 
 export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanelProps) {
   const {
-    status,
-    history,
-    isConnected,
-    connect,
-    disconnect,
+    state,
+    connectionState,
+    isSubscribed,
+    error,
+    subscribe,
+    unsubscribe,
     setMode,
     setOutput,
     setValue,
-    setHistoryWindow,
-  } = useDevice(device);
+  } = useDeviceSocket(device.id);
 
-  const [historyWindow, setHistoryWindowState] = useState(2);
+  const [historyWindow, setHistoryWindow] = useState(2);
 
-  const handleConnect = async () => {
-    try {
-      await connect();
+  // Auto-subscribe on mount
+  useEffect(() => {
+    subscribe();
+    return () => {
+      unsubscribe();
+    };
+  }, [subscribe, unsubscribe]);
+
+  // Handle errors from websocket
+  useEffect(() => {
+    if (error) {
+      onError(error);
+    }
+  }, [error, onError]);
+
+  // Notify on subscription state change
+  useEffect(() => {
+    if (isSubscribed) {
       onSuccess('Connected');
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Connection failed');
     }
+  }, [isSubscribed, onSuccess]);
+
+  const handleModeChange = (mode: string) => {
+    // Safety: turn off output before changing mode
+    if (state?.outputEnabled) {
+      setOutput(false);
+    }
+    setMode(mode);
   };
 
-  const handleDisconnect = () => {
-    disconnect();
-    onSuccess('Disconnected');
+  const handleOutputToggle = (enabled: boolean) => {
+    setOutput(enabled);
   };
 
-  const handleModeChange = async (mode: string) => {
-    try {
-      // Safety: turn off output before changing mode
-      if (status?.outputEnabled) {
-        await setOutput(false);
-      }
-      await setMode(mode);
-      // Status polling will automatically fetch new setpoint
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to set mode');
-    }
-  };
-
-  const handleOutputToggle = async (enabled: boolean) => {
-    try {
-      await setOutput(enabled);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to toggle output');
-    }
-  };
-
-  const handleValueChange = async (name: string, value: number) => {
-    try {
-      await setValue(name, value);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to set value');
-    }
+  const handleValueChange = (name: string, value: number) => {
+    setValue(name, value);
   };
 
   const handleHistoryWindowChange = (minutes: number) => {
-    setHistoryWindowState(minutes);
     setHistoryWindow(minutes);
   };
 
   // Get current output descriptor based on mode
   const getCurrentOutput = () => {
-    if (!status) return null;
+    if (!state) return null;
     return device.capabilities.outputs.find(
-      o => !o.modes || o.modes.includes(status.mode)
+      o => !o.modes || o.modes.includes(state.mode)
     );
   };
 
   const currentOutput = getCurrentOutput();
-  const deviceClass = device.info.type === 'power-supply' ? 'device-psu' : 'device-load';
+
+  // Determine if we're connected (either websocket connected or subscribed with state)
+  const isConnected = isSubscribed && state !== null;
+
+  // Create status object compatible with existing components
+  const status = state ? {
+    mode: state.mode,
+    outputEnabled: state.outputEnabled,
+    setpoints: state.setpoints,
+    measurements: state.measurements,
+    listRunning: state.listRunning,
+  } : null;
+
+  // Create history object from state
+  const history = state?.history ?? {
+    timestamps: [],
+    voltage: [],
+    current: [],
+    power: [],
+  };
 
   return (
-    <div className={deviceClass}>
+    <div>
       {/* Header */}
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2 className="panel-title">
-              {device.info.manufacturer} {device.info.model}
-            </h2>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {device.info.type === 'power-supply' ? 'Power Supply' : 'Electronic Load'}
-              {device.info.serial && ` • ${device.info.serial}`}
+      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg">
+              {device.info.type === 'power-supply' ? '⚡' : '📊'}
+            </span>
+            <div>
+              <div className="font-semibold text-sm">
+                {device.info.manufacturer} {device.info.model}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-muted)]">
+                {device.info.type === 'power-supply' ? 'PSU' : 'Load'}
+                {device.info.serial && ` · ${device.info.serial}`}
+              </div>
             </div>
           </div>
-          <div className="controls-row">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
-              <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
-            </div>
-            {isConnected ? (
-              <button className="btn btn-secondary" onClick={handleDisconnect}>
-                Disconnect
-              </button>
-            ) : (
-              <button className="btn btn-primary" onClick={handleConnect}>
-                Connect
-              </button>
-            )}
-            <button className="btn btn-secondary" onClick={onClose}>
-              Close
+          <div className="flex items-center gap-2">
+            <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
+            <span className="text-xs">
+              {connectionState === 'connected' && isSubscribed ? 'Connected' :
+               connectionState === 'connecting' || connectionState === 'reconnecting' ? 'Connecting...' :
+               'Disconnected'}
+            </span>
+            <button
+              className="w-6 h-6 flex items-center justify-center text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-secondary)] hover:opacity-90"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              ×
             </button>
           </div>
         </div>
@@ -126,46 +141,45 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
       {/* Status & Controls - only when connected */}
       {isConnected && status && (
         <>
-          {/* Chart - first for visibility */}
-          <LiveChart
-            history={history}
-            capabilities={device.capabilities}
-            status={status}
-            historyWindow={historyWindow}
-            onHistoryWindowChange={handleHistoryWindowChange}
-          />
-
-          {/* Readings */}
-          <div className="panel">
-            <h3 className="panel-title" style={{ marginBottom: 12 }}>
-              Measurements
-            </h3>
-            <StatusReadings status={status} capabilities={device.capabilities} />
-            <OutputControl
-              enabled={status.outputEnabled}
-              mode={status.mode}
-              onToggle={handleOutputToggle}
-            />
+          {/* Chart + Live Data in responsive row */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 h-[320px]">
+            <div className="flex flex-col lg:flex-row gap-3 h-full">
+              <div className="flex-1 min-w-0 h-full">
+                <LiveChart
+                  history={history}
+                  capabilities={device.capabilities}
+                  status={status}
+                  historyWindow={historyWindow}
+                  onHistoryWindowChange={handleHistoryWindowChange}
+                />
+              </div>
+              <div className="lg:w-48 shrink-0">
+                <StatusReadings status={status} capabilities={device.capabilities} />
+              </div>
+            </div>
           </div>
 
-          {/* Setpoint Controls */}
-          <div className="panel">
-            <h3 className="panel-title" style={{ marginBottom: 12 }}>
-              Setpoint
-            </h3>
+          {/* Output + Setpoint Controls */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 min-h-[72px]">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Output control */}
+              <OutputControl
+                enabled={status.outputEnabled}
+                mode={status.mode}
+                onToggle={handleOutputToggle}
+              />
 
-            {/* Value controls */}
-            {device.info.type === 'power-supply' ? (
-              // PSU: Always show voltage and current
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {device.capabilities.outputs.map(output => {
-                  const setpointValue = status.setpoints[output.name] ?? 0;
-                  return (
-                    <div key={output.name}>
-                      <div className="reading-label" style={{ marginBottom: 8 }}>
-                        {output.name}
-                      </div>
+              <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
+
+              {/* Setpoint controls */}
+              {device.info.type === 'power-supply' ? (
+                // PSU: Horizontal voltage and current setpoints
+                <div className="flex items-center gap-4 flex-wrap">
+                  {device.capabilities.outputs.map(output => {
+                    const setpointValue = status.setpoints[output.name] ?? 0;
+                    return (
                       <DigitSpinner
+                        key={output.name}
                         value={setpointValue}
                         decimals={output.decimals}
                         min={output.min ?? 0}
@@ -173,32 +187,32 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                         unit={output.unit}
                         onChange={v => handleValueChange(output.name, v)}
                       />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              // Load: Mode selector and setpoint on same row
-              <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-                {device.capabilities.modesSettable && (
-                  <ModeSelector
-                    modes={device.capabilities.modes}
-                    currentMode={status.mode}
-                    onChange={handleModeChange}
-                  />
-                )}
-                {currentOutput && (
-                  <DigitSpinner
-                    value={status.setpoints[currentOutput.name] ?? 0}
-                    decimals={currentOutput.decimals}
-                    min={currentOutput.min ?? 0}
-                    max={currentOutput.max ?? 100}
-                    unit={currentOutput.unit}
-                    onChange={v => handleValueChange(currentOutput.name, v)}
-                  />
-                )}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              ) : (
+                // Load: Mode selector and setpoint
+                <div className="flex items-center gap-3 flex-wrap">
+                  {device.capabilities.modesSettable && (
+                    <ModeSelector
+                      modes={device.capabilities.modes}
+                      currentMode={status.mode}
+                      onChange={handleModeChange}
+                    />
+                  )}
+                  {currentOutput && (
+                    <DigitSpinner
+                      value={status.setpoints[currentOutput.name] ?? 0}
+                      decimals={currentOutput.decimals}
+                      min={currentOutput.min ?? 0}
+                      max={currentOutput.max ?? 100}
+                      unit={currentOutput.unit}
+                      onChange={v => handleValueChange(currentOutput.name, v)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

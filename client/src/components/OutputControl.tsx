@@ -7,34 +7,25 @@ interface OutputControlProps {
 
 export function OutputControl({ enabled, mode, onToggle, disabled }: OutputControlProps) {
   return (
-    <div className="controls-row" style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span className={`status-dot ${enabled ? 'on' : 'off'}`} />
-        <span style={{ fontWeight: 600, fontSize: 18 }}>
-          {enabled ? 'ON' : 'OFF'}
-        </span>
-      </div>
-
+    <div className="flex items-center gap-3">
       <span className={`mode-badge ${mode.toLowerCase()}`}>{mode}</span>
-
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-        <button
-          className="btn btn-success"
-          onClick={() => onToggle(true)}
-          disabled={disabled || enabled}
-          style={{ opacity: enabled ? 0.5 : 1 }}
-        >
-          ON
-        </button>
-        <button
-          className="btn btn-danger"
-          onClick={() => onToggle(false)}
-          disabled={disabled || !enabled}
-          style={{ opacity: !enabled ? 0.5 : 1 }}
-        >
-          OFF
-        </button>
-      </div>
+      <button
+        className={`relative w-11 h-6 rounded-full transition-colors ${
+          enabled ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border-dark)]'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        onClick={() => !disabled && onToggle(!enabled)}
+        disabled={disabled}
+        aria-label={enabled ? 'Turn off' : 'Turn on'}
+      >
+        <span
+          className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${
+            enabled ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </button>
+      <span className="text-xs font-medium w-6">
+        {enabled ? 'ON' : 'OFF'}
+      </span>
     </div>
   );
 }

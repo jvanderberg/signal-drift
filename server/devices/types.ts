@@ -25,6 +25,7 @@ export interface DeviceDriver {
   getStatus(): Promise<DeviceStatus>;
   setMode(mode: string): Promise<void>;
   setValue(name: string, value: number): Promise<void>;
+  getValue?(name: string): Promise<number>;
   setOutput(enabled: boolean): Promise<void>;
 
   uploadList?(mode: string, steps: ListStep[], repeat?: number): Promise<void>;

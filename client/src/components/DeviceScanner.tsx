@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { api } from '../api';
+import { useDeviceList } from '../hooks/useDeviceList';
 import type { Device } from '../types';
 
 interface DeviceScannerProps {
@@ -7,86 +6,75 @@ interface DeviceScannerProps {
 }
 
 export function DeviceScanner({ onDeviceSelect }: DeviceScannerProps) {
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const scan = async () => {
-    setScanning(true);
-    setError(null);
-    try {
-      const result = await api.scanDevices();
-      setDevices(result.devices);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed');
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  // Initial scan on mount
-  useEffect(() => {
-    const loadDevices = async () => {
-      try {
-        const result = await api.getDevices();
-        setDevices(result.devices);
-        if (result.devices.length === 0) {
-          scan();
-        }
-      } catch {
-        scan();
-      }
-    };
-    loadDevices();
-  }, []);
+  const { devices, isLoading, error, scan } = useDeviceList();
 
   const getDeviceIcon = (type: string) => {
     return type === 'power-supply' ? '⚡' : '📊';
   };
 
+  // Convert DeviceSummary to Device for compatibility
+  const handleDeviceSelect = (summary: typeof devices[0]) => {
+    const device: Device = {
+      id: summary.id,
+      info: summary.info,
+      capabilities: summary.capabilities,
+      connected: summary.connectionStatus === 'connected',
+    };
+    onDeviceSelect(device);
+  };
+
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <h2 className="panel-title">Devices</h2>
-        <button className="btn btn-secondary" onClick={scan} disabled={scanning}>
-          {scanning ? 'Scanning...' : 'Rescan'}
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
+          Devices
+        </h2>
+        <button
+          className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
+          onClick={scan}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Scanning...' : 'Rescan'}
         </button>
       </div>
 
       {error && (
-        <div style={{ color: 'var(--color-danger)', marginBottom: 16 }}>
+        <div className="text-xs text-[var(--color-danger)] mb-2">
           {error}
         </div>
       )}
 
-      {devices.length === 0 && !scanning && (
-        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>
+      {devices.length === 0 && !isLoading && (
+        <div className="text-xs text-[var(--color-text-muted)] text-center py-4">
           No devices found. Connect a device and click Rescan.
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex flex-col gap-1.5">
         {devices.map(device => (
           <button
             key={device.id}
-            className="btn btn-secondary"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: 16,
-              textAlign: 'left',
-            }}
-            onClick={() => onDeviceSelect(device)}
+            className="flex items-center gap-2.5 p-2.5 text-left rounded bg-[var(--color-border-light)] hover:opacity-90"
+            onClick={() => handleDeviceSelect(device)}
           >
-            <span style={{ fontSize: 24 }}>{getDeviceIcon(device.info.type)}</span>
+            <span className="text-lg">{getDeviceIcon(device.info.type)}</span>
             <div>
-              <div style={{ fontWeight: 600 }}>
+              <div className="font-semibold text-[13px]">
                 {device.info.manufacturer} {device.info.model}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {device.info.type === 'power-supply' ? 'Power Supply' : 'Electronic Load'}
-                {device.info.serial && ` • ${device.info.serial}`}
+              <div className="text-[11px] text-[var(--color-text-muted)]">
+                {device.info.type === 'power-supply' ? 'PSU' : 'Load'}
+                {device.info.serial && ` · ${device.info.serial}`}
+                <span
+                  className="ml-1.5"
+                  style={{
+                    color: device.connectionStatus === 'connected'
+                      ? 'var(--color-success)'
+                      : 'var(--color-text-muted)'
+                  }}
+                >
+                  · {device.connectionStatus}
+                </span>
               </div>
             </div>
           </button>

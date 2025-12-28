@@ -7,43 +7,83 @@ import { DevicePanel } from './components/DevicePanel';
 import { ToastContainer } from './components/ToastContainer';
 
 function App() {
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [openDevices, setOpenDevices] = useState<Device[]>([]);
+  const [showScanner, setShowScanner] = useState(true);
   const { theme, setTheme } = useTheme();
   const { toasts, success, error } = useToast();
 
+  const handleDeviceSelect = (device: Device) => {
+    // Don't add if already open
+    if (openDevices.some(d => d.id === device.id)) {
+      return;
+    }
+    setOpenDevices(prev => [...prev, device]);
+    setShowScanner(false);
+  };
+
+  const handleDeviceClose = (deviceId: string) => {
+    setOpenDevices(prev => prev.filter(d => d.id !== deviceId));
+  };
+
+  const handleAddDevice = () => {
+    setShowScanner(true);
+  };
+
   return (
-    <div className="container">
+    <div className="px-4 py-3">
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-        }}
-      >
-        <h1 style={{ fontSize: 24, fontWeight: 600 }}>Lab Controller</h1>
-        <select
-          value={theme}
-          onChange={e => setTheme(e.target.value as 'light' | 'dark' | 'system')}
-          style={{ fontSize: 12 }}
-        >
-          <option value="system">System Theme</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-lg font-semibold">Lab Controller</h1>
+        <div className="flex items-center gap-2">
+          {!showScanner && (
+            <button
+              className="w-7 h-7 flex items-center justify-center text-lg font-light rounded bg-[var(--color-border-light)] text-[var(--color-text-secondary)] hover:opacity-90"
+              onClick={handleAddDevice}
+              aria-label="Add device"
+            >
+              +
+            </button>
+          )}
+          <select
+            className="px-2 py-1 text-xs rounded"
+            value={theme}
+            onChange={e => setTheme(e.target.value as 'light' | 'dark' | 'system')}
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
       </div>
 
-      {/* Device Scanner or Device Panel */}
-      {selectedDevice ? (
-        <DevicePanel
-          device={selectedDevice}
-          onClose={() => setSelectedDevice(null)}
-          onError={error}
-          onSuccess={success}
-        />
-      ) : (
-        <DeviceScanner onDeviceSelect={setSelectedDevice} />
+      {/* Device Scanner */}
+      {showScanner && (
+        <div className="mb-4">
+          <DeviceScanner onDeviceSelect={handleDeviceSelect} />
+          {openDevices.length > 0 && (
+            <button
+              className="mt-2 px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
+              onClick={() => setShowScanner(false)}
+            >
+              Done
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Device Panels */}
+      {openDevices.length > 0 && (
+        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
+          {openDevices.map(device => (
+            <DevicePanel
+              key={device.id}
+              device={device}
+              onClose={() => handleDeviceClose(device.id)}
+              onError={error}
+              onSuccess={success}
+            />
+          ))}
+        </div>
       )}
 
       {/* Toast Notifications */}

@@ -88,10 +88,18 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
       // Output state: "1" = on, "0" = off
       const outputEnabled = outputStr.trim() === '1';
 
-      // Mode cannot be queried on this PSU - it auto-switches between CV/CC
-      // We can infer it: if actual current equals limit, probably CC mode
-      // But this is unreliable, so we just report 'CV' as default
-      const mode = 'CV';
+      // Infer mode from measurements vs setpoints
+      // CC mode: current is at limit AND voltage is below setpoint
+      // CV mode: voltage is at setpoint OR current is below limit (default)
+      let mode = 'CV';
+      if (outputEnabled && currentLimit > 0.001 && voltageSetpoint > 0.001) {
+        const currentAtLimit = currentActual >= currentLimit * 0.98;
+        const voltageAtSetpoint = voltageActual >= voltageSetpoint * 0.98;
+        // CC mode: hitting current limit while voltage droops
+        if (currentAtLimit && !voltageAtSetpoint) {
+          mode = 'CC';
+        }
+      }
 
       return {
         mode,
@@ -119,6 +127,14 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
         throw new Error(`Invalid value name: ${name}. Valid names: ${Object.keys(VALUE_COMMANDS).join(', ')}`);
       }
       await transport.write(`${command} ${value}`);
+
+      // Verify the value was accepted by querying it back
+      const actualStr = await transport.query(`${command}?`);
+      const actual = parseFloat(actualStr);
+      // Allow small tolerance for floating point differences
+      if (Math.abs(actual - value) > 0.01) {
+        throw new Error(`Value rejected: requested ${value}, device reports ${actual}`);
+      }
     },
 
     async setOutput(enabled: boolean): Promise<void> {

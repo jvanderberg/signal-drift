@@ -1,15 +1,7 @@
-// Re-export shared types
+// Re-export shared types (includes HistoryData, DeviceSessionState, etc.)
 export * from '../../shared/types';
 
 // Client-only types
-
-export interface HistoryData {
-  timestamps: number[];
-  voltage: number[];
-  current: number[];
-  power: number[];
-  resistance?: number[];
-}
 
 export interface SafetyLimits {
   maxPower: number;

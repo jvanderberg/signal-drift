@@ -78,6 +78,19 @@ export function createUSBTMCTransport(device: usb.Device): Transport {
   let iface: usb.Interface | null = null;
   let opened = false;
 
+  // Mutex to prevent concurrent command/response interleaving
+  let commandLock: Promise<void> = Promise.resolve();
+
+  // Acquire lock for exclusive command access
+  function withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previousLock = commandLock;
+    let releaseLock: () => void;
+    commandLock = new Promise<void>(resolve => {
+      releaseLock = resolve;
+    });
+    return previousLock.then(fn).finally(() => releaseLock());
+  }
+
   function transferOut(data: Buffer): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!bulkOutEndpoint) {
@@ -158,23 +171,27 @@ export function createUSBTMCTransport(device: usb.Device): Transport {
     },
 
     async query(cmd: string): Promise<string> {
-      // Send command
-      const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
-      await transferOut(outBuf);
+      return withLock(async () => {
+        // Send command
+        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+        await transferOut(outBuf);
 
-      // Request response
-      const reqBuf = buildRequestDevDepMsgIn(1024, nextTag());
-      await transferOut(reqBuf);
+        // Request response
+        const reqBuf = buildRequestDevDepMsgIn(1024, nextTag());
+        await transferOut(reqBuf);
 
-      // Read response
-      const response = await transferIn(1024);
+        // Read response
+        const response = await transferIn(1024);
 
-      return parseDevDepMsgIn(response);
+        return parseDevDepMsgIn(response);
+      });
     },
 
     async write(cmd: string): Promise<void> {
-      const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
-      await transferOut(outBuf);
+      return withLock(async () => {
+        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+        await transferOut(outBuf);
+      });
     },
 
     isOpen(): boolean {

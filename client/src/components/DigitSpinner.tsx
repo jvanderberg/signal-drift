@@ -93,15 +93,7 @@ export function DigitSpinner({
       elements.push(
         <div
           key="decimal"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            fontSize: 28,
-            fontWeight: 'bold',
-            color: 'var(--text-primary)',
-            marginLeft: -4,
-            marginRight: -4,
-          }}
+          className="flex items-center text-xl font-bold text-[var(--color-text-primary)] -mx-0.5"
         >
           .
         </div>
@@ -109,41 +101,23 @@ export function DigitSpinner({
     }
 
     elements.push(
-      <div key={index} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div key={index} className="flex flex-col items-center">
         <button
-          className="btn btn-secondary"
-          style={{
-            padding: '2px 8px',
-            fontSize: 12,
-            minWidth: 28,
-          }}
+          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px]"
           onClick={() => adjustDigit(index, 1)}
           disabled={disabled}
         >
           +
         </button>
         <div
-          style={{
-            fontFamily: "'Courier New', monospace",
-            fontSize: 28,
-            fontWeight: 'bold',
-            padding: '4px 6px',
-            minWidth: 28,
-            textAlign: 'center',
-            backgroundColor: flashIndex === index ? 'var(--accent-load)' : 'transparent',
-            borderRadius: 4,
-            transition: 'background-color 0.1s',
-          }}
+          className={`font-mono text-xl font-bold px-1 py-0.5 min-w-[22px] text-center rounded transition-colors ${
+            flashIndex === index ? 'bg-[var(--color-accent-load)]' : ''
+          }`}
         >
           {digit}
         </div>
         <button
-          className="btn btn-secondary"
-          style={{
-            padding: '2px 8px',
-            fontSize: 12,
-            minWidth: 28,
-          }}
+          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px]"
           onClick={() => adjustDigit(index, -1)}
           disabled={disabled}
         >
@@ -154,15 +128,9 @@ export function DigitSpinner({
   });
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+    <div className="flex items-center gap-0.5">
       {elements}
-      <span
-        style={{
-          fontSize: 16,
-          color: 'var(--text-secondary)',
-          marginLeft: 8,
-        }}
-      >
+      <span className="text-xs text-[var(--color-text-secondary)] ml-1">
         {unit}
       </span>
     </div>

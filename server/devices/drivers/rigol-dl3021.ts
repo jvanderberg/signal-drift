@@ -26,6 +26,13 @@ const VALUE_COMMANDS: Record<string, string> = {
   power: ':SOUR:POW:LEV',
 };
 
+const VALUE_QUERIES: Record<string, string> = {
+  current: ':SOUR:CURR:LEV?',
+  voltage: ':SOUR:VOLT:LEV?',
+  resistance: ':SOUR:RES:LEV?',
+  power: ':SOUR:POW:LEV?',
+};
+
 export function createRigolDL3021(transport: Transport): DeviceDriver {
   const info: DeviceInfo = {
     id: '',
@@ -150,6 +157,21 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
         throw new Error(`Invalid value name: ${name}. Valid names: ${Object.keys(VALUE_COMMANDS).join(', ')}`);
       }
       await transport.write(`${command} ${value}`);
+
+      // Check SCPI error queue
+      const errResp = await transport.query(':SYST:ERR?');
+      if (!errResp.startsWith('0,') && !errResp.startsWith('+0,')) {
+        throw new Error(`Device error: ${errResp}`);
+      }
+    },
+
+    async getValue(name: string): Promise<number> {
+      const query = VALUE_QUERIES[name];
+      if (!query) {
+        throw new Error(`Invalid value name: ${name}. Valid names: ${Object.keys(VALUE_QUERIES).join(', ')}`);
+      }
+      const response = await transport.query(query);
+      return parseFloat(response);
     },
 
     async setOutput(enabled: boolean): Promise<void> {

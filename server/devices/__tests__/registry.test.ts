@@ -182,19 +182,19 @@ describe('Device Registry', () => {
       expect(device).toBeUndefined();
     });
 
-    it('should remove device by id', () => {
+    it('should remove device by id', async () => {
       const driver = createMockDriver('device-1');
       registry.addDevice(driver);
 
-      registry.removeDevice('device-1');
+      await registry.removeDevice('device-1');
       expect(registry.getDevices().length).toBe(0);
     });
 
-    it('should clear all devices', () => {
+    it('should clear all devices', async () => {
       registry.addDevice(createMockDriver('device-1'));
       registry.addDevice(createMockDriver('device-2'));
 
-      registry.clearDevices();
+      await registry.clearDevices();
       expect(registry.getDevices().length).toBe(0);
     });
   });

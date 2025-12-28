@@ -12,7 +12,7 @@ export interface DeviceRegistry {
   matchSerialPort(path: string): DriverRegistration | undefined;
 
   addDevice(driver: DeviceDriver): void;
-  removeDevice(id: string): void;
+  removeDevice(id: string): Promise<void>;
   getDevice(id: string): DeviceDriver | undefined;
   getDevices(): DeviceDriver[];
   clearDevices(): Promise<void>;
@@ -52,8 +52,17 @@ export function createDeviceRegistry(): DeviceRegistry {
       devices.set(driver.info.id, driver);
     },
 
-    removeDevice(id: string): void {
-      devices.delete(id);
+    async removeDevice(id: string): Promise<void> {
+      const device = devices.get(id);
+      if (device) {
+        try {
+          await device.disconnect();
+          console.log(`[Registry] Disconnected device: ${id}`);
+        } catch (err) {
+          console.error(`[Registry] Failed to disconnect ${id}:`, err);
+        }
+        devices.delete(id);
+      }
     },
 
     getDevice(id: string): DeviceDriver | undefined {

@@ -5,11 +5,16 @@
 ```
 lab-controller/
 ├── shared/              # Shared types (single source of truth)
-│   └── types.ts
+│   └── types.ts         # Device, WebSocket message types, etc.
 ├── server/
-│   ├── index.ts         # Express server entry
+│   ├── index.ts         # HTTP + WebSocket server entry
 │   ├── api/
-│   │   └── devices.ts   # REST API routes
+│   │   └── devices.ts   # REST API routes (deprecated, for backward compat)
+│   ├── sessions/
+│   │   ├── DeviceSession.ts    # Per-device polling & state management
+│   │   └── SessionManager.ts   # Manages all device sessions
+│   ├── websocket/
+│   │   └── WebSocketHandler.ts # WebSocket connection & message routing
 │   └── devices/
 │       ├── types.ts     # Re-exports shared + server-only types
 │       ├── registry.ts  # Device discovery & lifecycle
@@ -23,8 +28,10 @@ lab-controller/
 ├── client/
 │   ├── src/
 │   │   ├── types.ts     # Re-exports shared + client-only types
-│   │   ├── api.ts       # Fetch wrapper
+│   │   ├── websocket.ts # WebSocket connection manager (singleton)
 │   │   ├── hooks/
+│   │   │   ├── useDeviceSocket.ts  # Device state via WebSocket
+│   │   │   └── useDeviceList.ts    # Device discovery via WebSocket
 │   │   └── components/
 │   └── vite.config.ts
 └── electron/            # Future
@@ -270,9 +277,172 @@ const setpointDatasets = Object.entries(status.setpoints)
 4. **Mode changes affect setpoints** - Fetch new setpoint after mode change API call
 5. **SCPI command timing** - Serial devices need delay between commands (50ms typical)
 
+## WebSocket Architecture
+
+### Key Principles
+
+- **Server is single source of truth** - All state lives on server
+- **Client is dumb cache** - Receives full state on connect, accumulates incremental updates
+- **Pure WebSocket for everything** - Discovery, actions, updates all via WebSocket
+- **Multi-device subscription** - Client can subscribe to multiple devices, all messages tagged with deviceId
+
+### Server Components
+
+**DeviceSession** (`server/sessions/DeviceSession.ts`)
+- One per device, starts polling immediately when created
+- Polls device every 250ms via `driver.getStatus()`
+- Maintains history buffer (configurable window, default 30 min)
+- Continues polling regardless of subscriber count
+- Notifies subscribers on state changes
+- Handles server-side debounce for setValue calls
+
+**SessionManager** (`server/sessions/SessionManager.ts`)
+- Creates and manages DeviceSession instances
+- One session per device
+- Provides device summaries for listing
+- Routes client subscriptions and actions to sessions
+
+**WebSocketHandler** (`server/websocket/WebSocketHandler.ts`)
+- Handles WebSocket connections and message routing
+- Manages client subscriptions (client -> Set<deviceId>)
+- Routes client messages to appropriate DeviceSession
+- Cleans up on client disconnect
+
+### Client Components
+
+**WebSocket Manager** (`client/src/websocket.ts`)
+- Singleton managing WebSocket connection
+- Reconnection with exponential backoff (1s, 2s, 4s... max 30s)
+- Message queuing during reconnection
+
+**useDeviceSocket Hook** (`client/src/hooks/useDeviceSocket.ts`)
+- Replaces useDevice with dumb mirror of server state
+- No local state management, just mirrors what server pushes
+- Returns: state, connectionState, isSubscribed, error, and action methods
+
+**useDeviceList Hook** (`client/src/hooks/useDeviceList.ts`)
+- Device discovery via WebSocket
+- Returns: devices, isLoading, error, refresh, scan
+
+### Message Protocol
+
+Client -> Server:
+- `getDevices` - Request device list
+- `scan` - Trigger device rescan
+- `subscribe { deviceId }` - Subscribe to device updates
+- `unsubscribe { deviceId }` - Unsubscribe from device
+- `setMode { deviceId, mode }` - Change device mode
+- `setOutput { deviceId, enabled }` - Enable/disable output
+- `setValue { deviceId, name, value, immediate? }` - Set value (debounced by default)
+
+Server -> Client:
+- `deviceList { devices }` - List of available devices
+- `subscribed { deviceId, state }` - Full state on subscription
+- `unsubscribed { deviceId }` - Unsubscribe confirmation
+- `measurement { deviceId, update }` - Incremental measurement update
+- `field { deviceId, field, value }` - Single field changed
+- `error { deviceId?, code, message }` - Error notification
+
+### Data Flow
+
+```
+[On Subscribe]
+Client                          Server                         Device
+   |-- subscribe(deviceId) -->    |                               |
+   |<-- subscribed(full state) -- |  (includes complete history)  |
+
+[Ongoing - Server polls device, pushes to clients]
+Client                          Server                         Device
+   |                              |<-- poll status (250ms) ------>|
+   |<-- measurement(delta) -----  |                               |
+
+[State Changes - Server does optimistic update]
+Client                          Server                         Device
+   |-- setMode(CC) ------------>  |                               |
+   |                              | (1) Update local state        |
+   |<-- field(mode, CC) --------  | (2) Broadcast immediately     |
+   |                              | (3) Send SCPI command ------->|
+```
+
 ## Testing Strategy
 
 - Mock transports for driver unit tests
 - Mock API for React component tests
-- Real hardware for integration tests (manual)
+- Real hardware for integration tests (automated)
 - Type safety enforced by shared types
+
+### WebSocket Integration Testing
+
+**Test Client Utility** (`server/websocket/__tests__/TestClient.ts`)
+
+A typed test client for WebSocket communication that provides:
+- `connect()` / `close()` - Connection management
+- `send(ClientMessage)` - Type-safe message sending
+- `waitFor(type, timeoutMs)` - Wait for specific message type
+- `waitForMatch(predicate, timeoutMs)` - Wait for message matching predicate
+- `request(message, responseType, timeoutMs)` - Send and wait pattern
+
+```typescript
+const client = createTestClient('ws://localhost:3001/ws');
+await client.connect();
+
+// Request-response pattern
+const response = await client.request({ type: 'getDevices' }, 'deviceList');
+expect(response.devices.length).toBeGreaterThan(0);
+
+// Subscribe and wait for streaming data
+client.send({ type: 'subscribe', deviceId: device.id });
+const subscribed = await client.waitFor('subscribed');
+const measurement = await client.waitFor('measurement', 1000);
+
+client.close();
+```
+
+**Integration Test Setup**
+
+Tests run against a live server with real hardware:
+1. Start server with `npm run dev` in background
+2. Tests connect to `ws://localhost:3001/ws`
+3. Tests use actual Rigol DL3021 and Matrix WPS300S devices
+
+**Key Testing Patterns**
+
+1. **Safe value testing** - When testing setValue, use values within device limits:
+   ```typescript
+   const safeValue = capabilities.modes[mode].min + 0.01;
+   ```
+
+2. **Timing considerations** - Measurements stream at 250ms intervals:
+   - Use `waitFor('measurement', 500)` to catch at least one update
+   - Don't add arbitrary delays - understand the underlying timing
+
+3. **Subscription lifecycle** - Always unsubscribe in test cleanup:
+   ```typescript
+   afterEach(async () => {
+     client.send({ type: 'unsubscribe', deviceId: subscribedDevice });
+     await client.waitFor('unsubscribed');
+     client.close();
+   });
+   ```
+
+4. **Error scenario testing** - Hardware may handle invalid values differently:
+   - Some devices clamp values silently
+   - Some return errors
+   - Test for both outcomes
+
+### Test File Structure
+
+```
+server/websocket/__tests__/
+├── TestClient.ts          # Typed WebSocket test client
+├── TestClient.test.ts     # Unit tests for test client (mock WebSocket)
+└── integration.test.ts    # Live hardware integration tests
+```
+
+**Integration Test Coverage**:
+- Device Discovery: getDevices, scan
+- Subscription Lifecycle: subscribe, unsubscribe, full state receipt
+- Measurement Streaming: continuous updates, stop on unsubscribe
+- Device Actions: setMode, setOutput, setValue (immediate + debounced)
+- Error Handling: unknown device, invalid message format
+- Multi-client: simultaneous connections, independent subscriptions

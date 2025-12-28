@@ -16,6 +16,43 @@ import type { HistoryData, DeviceCapabilities, DeviceStatus } from '../types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
+// Hook to detect dark mode
+function useIsDarkMode(): boolean {
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const theme = document.documentElement.getAttribute('data-theme');
+    if (theme) return theme === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const observer = new MutationObserver(() => {
+      const theme = document.documentElement.getAttribute('data-theme');
+      if (theme) {
+        setIsDark(theme === 'dark');
+      } else {
+        setIsDark(mediaQuery.matches);
+      }
+    });
+
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      const theme = document.documentElement.getAttribute('data-theme');
+      if (!theme) setIsDark(e.matches);
+    };
+    mediaQuery.addEventListener('change', handleChange);
+
+    return () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  return isDark;
+}
+
 interface LiveChartProps {
   history: HistoryData;
   capabilities: DeviceCapabilities;
@@ -39,8 +76,13 @@ export function LiveChart({
   onHistoryWindowChange,
 }: LiveChartProps) {
   const chartRef = useRef<ChartJS<'line'>>(null);
+  const isDarkMode = useIsDarkMode();
   // Use array to preserve selection order
   const [visibleSeries, setVisibleSeries] = useState<string[]>(['voltage', 'current']);
+
+  // Theme-aware colors
+  const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.15)';
+  const tickColor = isDarkMode ? '#9090a0' : '#666666';
 
   const toggleSeries = (name: string) => {
     setVisibleSeries(prev => {
@@ -53,6 +95,23 @@ export function LiveChart({
   };
 
   const isVisible = (name: string) => visibleSeries.includes(name);
+
+  // Filter history to selected time window
+  const filterToWindow = <T,>(arr: T[], timestamps: number[]): T[] => {
+    const cutoff = Date.now() - historyWindow * 60 * 1000;
+    const startIdx = timestamps.findIndex(t => t >= cutoff);
+    if (startIdx === -1) return [];
+    return arr.slice(startIdx);
+  };
+
+  const filteredTimestamps = filterToWindow(history.timestamps, history.timestamps);
+  const filteredHistory = {
+    timestamps: filteredTimestamps,
+    voltage: filterToWindow(history.voltage, history.timestamps),
+    current: filterToWindow(history.current, history.timestamps),
+    power: filterToWindow(history.power, history.timestamps),
+    resistance: history.resistance ? filterToWindow(history.resistance, history.timestamps) : undefined,
+  };
 
   const formatTime = (timestamp: number): string => {
     const date = new Date(timestamp);
@@ -74,16 +133,16 @@ export function LiveChart({
       let values: number[] = [];
       switch (measurement.name) {
         case 'voltage':
-          values = history.voltage;
+          values = filteredHistory.voltage;
           break;
         case 'current':
-          values = history.current;
+          values = filteredHistory.current;
           break;
         case 'power':
-          values = history.power;
+          values = filteredHistory.power;
           break;
         case 'resistance':
-          values = history.resistance ?? [];
+          values = filteredHistory.resistance ?? [];
           break;
       }
 
@@ -103,7 +162,7 @@ export function LiveChart({
   const setpointDatasets = Object.entries(status.setpoints)
     .filter(([name]) => isVisible(name))
     .map(([name, value]) => {
-      const setpointValues = history.timestamps.map(() => value);
+      const setpointValues = filteredHistory.timestamps.map(() => value);
 
       return {
         label: `${name} setpoint`,
@@ -119,7 +178,7 @@ export function LiveChart({
     });
 
   const data: ChartData<'line'> = {
-    labels: history.timestamps.map(formatTime),
+    labels: filteredHistory.timestamps.map(formatTime),
     datasets: [...measurementDatasets, ...setpointDatasets],
   };
 
@@ -129,10 +188,10 @@ export function LiveChart({
       x: {
         display: true,
         grid: {
-          color: 'var(--border-dark)',
+          color: gridColor,
         },
         ticks: {
-          color: 'var(--text-muted)',
+          color: tickColor,
           maxTicksLimit: 6,
         },
       },
@@ -153,7 +212,8 @@ export function LiveChart({
         display: isVisible,
         position: idx === 0 ? 'left' : 'right',
         grid: {
-          drawOnChartArea: idx === 0, // Only first axis draws grid
+          drawOnChartArea: idx === 0,
+          color: gridColor,
         },
         ticks: {
           color,
@@ -199,46 +259,40 @@ export function LiveChart({
   }, []);
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <h3 className="panel-title">Live Chart</h3>
-        <div className="controls-row">
-          <select
-            value={historyWindow}
-            onChange={e => onHistoryWindowChange(Number(e.target.value))}
-            style={{ fontSize: 12 }}
-          >
-            <option value={2}>2 min</option>
-            <option value={5}>5 min</option>
-            <option value={10}>10 min</option>
-            <option value={20}>20 min</option>
-          </select>
-        </div>
+    <div className="flex flex-col h-full">
+      {/* Controls row with toggles and time window */}
+      <div className="flex items-center gap-1.5 mb-2 flex-wrap shrink-0">
+        {capabilities.measurements.map(m => {
+          const color = SERIES_COLORS[m.name as keyof typeof SERIES_COLORS] ?? '#888';
+          const active = isVisible(m.name);
+          return (
+            <button
+              key={m.name}
+              className="px-1.5 py-0.5 text-[10px] font-medium rounded transition-opacity"
+              style={{
+                backgroundColor: active ? color : 'var(--color-border-light)',
+                color: active ? 'white' : 'var(--color-text-muted)',
+                opacity: active ? 1 : 0.6,
+              }}
+              onClick={() => toggleSeries(m.name)}
+            >
+              {m.name}
+            </button>
+          );
+        })}
+        <select
+          className="ml-auto px-1.5 py-0.5 text-xs rounded"
+          value={historyWindow}
+          onChange={e => onHistoryWindowChange(Number(e.target.value))}
+        >
+          <option value={2}>2m</option>
+          <option value={5}>5m</option>
+          <option value={10}>10m</option>
+          <option value={20}>20m</option>
+        </select>
       </div>
 
-      {/* Legend with toggle */}
-      <div className="controls-row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
-        {capabilities.measurements.map(m => (
-          <button
-            key={m.name}
-            className="btn"
-            style={{
-              padding: '4px 8px',
-              fontSize: 12,
-              backgroundColor: isVisible(m.name)
-                ? SERIES_COLORS[m.name as keyof typeof SERIES_COLORS] ?? '#888'
-                : 'var(--border-light)',
-              color: isVisible(m.name) ? 'white' : 'var(--text-muted)',
-              opacity: isVisible(m.name) ? 1 : 0.6,
-            }}
-            onClick={() => toggleSeries(m.name)}
-          >
-            {m.name} ({m.unit})
-          </button>
-        ))}
-      </div>
-
-      <div style={{ height: 250 }}>
+      <div className="flex-1 min-h-0">
         <Line ref={chartRef} data={data} options={options} />
       </div>
     </div>
