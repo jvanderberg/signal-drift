@@ -135,6 +135,66 @@ export function createWebSocketHandler(
         handleScopeGetScreenshot(clientState, message.deviceId);
         break;
 
+      // Oscilloscope channel settings
+      case 'scopeSetChannelEnabled':
+        handleScopeSetChannelEnabled(clientState, message.deviceId, message.channel, message.enabled);
+        break;
+
+      case 'scopeSetChannelScale':
+        handleScopeSetChannelScale(clientState, message.deviceId, message.channel, message.scale);
+        break;
+
+      case 'scopeSetChannelOffset':
+        handleScopeSetChannelOffset(clientState, message.deviceId, message.channel, message.offset);
+        break;
+
+      case 'scopeSetChannelCoupling':
+        handleScopeSetChannelCoupling(clientState, message.deviceId, message.channel, message.coupling);
+        break;
+
+      case 'scopeSetChannelProbe':
+        handleScopeSetChannelProbe(clientState, message.deviceId, message.channel, message.ratio);
+        break;
+
+      case 'scopeSetChannelBwLimit':
+        handleScopeSetChannelBwLimit(clientState, message.deviceId, message.channel, message.enabled);
+        break;
+
+      // Oscilloscope timebase settings
+      case 'scopeSetTimebaseScale':
+        handleScopeSetTimebaseScale(clientState, message.deviceId, message.scale);
+        break;
+
+      case 'scopeSetTimebaseOffset':
+        handleScopeSetTimebaseOffset(clientState, message.deviceId, message.offset);
+        break;
+
+      // Oscilloscope trigger settings
+      case 'scopeSetTriggerSource':
+        handleScopeSetTriggerSource(clientState, message.deviceId, message.source);
+        break;
+
+      case 'scopeSetTriggerLevel':
+        handleScopeSetTriggerLevel(clientState, message.deviceId, message.level);
+        break;
+
+      case 'scopeSetTriggerEdge':
+        handleScopeSetTriggerEdge(clientState, message.deviceId, message.edge);
+        break;
+
+      case 'scopeSetTriggerSweep':
+        handleScopeSetTriggerSweep(clientState, message.deviceId, message.sweep);
+        break;
+
+      // Oscilloscope streaming
+      case 'scopeStartStreaming':
+        handleScopeStartStreaming(clientState, message.deviceId, message.channels, message.intervalMs);
+        break;
+
+      case 'scopeStopStreaming':
+        handleScopeStopStreaming(clientState, message.deviceId);
+        break;
+
       default:
         send(clientState.ws, {
           type: 'error',
@@ -369,6 +429,254 @@ export function createWebSocketHandler(
         deviceId,
         code: 'SCOPE_SCREENSHOT_FAILED',
         message: err instanceof Error ? err.message : 'Failed to get screenshot',
+      });
+    }
+  }
+
+  // Oscilloscope channel settings handlers
+  async function handleScopeSetChannelEnabled(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    enabled: boolean
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelEnabled(deviceId, channel, enabled);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_ENABLED_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel enabled',
+      });
+    }
+  }
+
+  async function handleScopeSetChannelScale(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    scale: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelScale(deviceId, channel, scale);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_SCALE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel scale',
+      });
+    }
+  }
+
+  async function handleScopeSetChannelOffset(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    offset: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelOffset(deviceId, channel, offset);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_OFFSET_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel offset',
+      });
+    }
+  }
+
+  async function handleScopeSetChannelCoupling(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    coupling: 'AC' | 'DC' | 'GND'
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelCoupling(deviceId, channel, coupling);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_COUPLING_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel coupling',
+      });
+    }
+  }
+
+  async function handleScopeSetChannelProbe(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    ratio: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelProbe(deviceId, channel, ratio);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_PROBE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel probe ratio',
+      });
+    }
+  }
+
+  async function handleScopeSetChannelBwLimit(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    enabled: boolean
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetChannelBwLimit(deviceId, channel, enabled);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_CHANNEL_BW_LIMIT_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set channel bandwidth limit',
+      });
+    }
+  }
+
+  // Oscilloscope timebase settings handlers
+  async function handleScopeSetTimebaseScale(
+    clientState: ClientState,
+    deviceId: string,
+    scale: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTimebaseScale(deviceId, scale);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TIMEBASE_SCALE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set timebase scale',
+      });
+    }
+  }
+
+  async function handleScopeSetTimebaseOffset(
+    clientState: ClientState,
+    deviceId: string,
+    offset: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTimebaseOffset(deviceId, offset);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TIMEBASE_OFFSET_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set timebase offset',
+      });
+    }
+  }
+
+  // Oscilloscope trigger settings handlers
+  async function handleScopeSetTriggerSource(
+    clientState: ClientState,
+    deviceId: string,
+    source: string
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTriggerSource(deviceId, source);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TRIGGER_SOURCE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set trigger source',
+      });
+    }
+  }
+
+  async function handleScopeSetTriggerLevel(
+    clientState: ClientState,
+    deviceId: string,
+    level: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTriggerLevel(deviceId, level);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TRIGGER_LEVEL_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set trigger level',
+      });
+    }
+  }
+
+  async function handleScopeSetTriggerEdge(
+    clientState: ClientState,
+    deviceId: string,
+    edge: 'rising' | 'falling' | 'either'
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTriggerEdge(deviceId, edge);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TRIGGER_EDGE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set trigger edge',
+      });
+    }
+  }
+
+  async function handleScopeSetTriggerSweep(
+    clientState: ClientState,
+    deviceId: string,
+    sweep: 'auto' | 'normal' | 'single'
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSetTriggerSweep(deviceId, sweep);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SET_TRIGGER_SWEEP_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set trigger sweep mode',
+      });
+    }
+  }
+
+  // Oscilloscope streaming handlers
+  async function handleScopeStartStreaming(
+    clientState: ClientState,
+    deviceId: string,
+    channels: string[],
+    intervalMs: number
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeStartStreaming(deviceId, channels, intervalMs);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_START_STREAMING_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to start waveform streaming',
+      });
+    }
+  }
+
+  async function handleScopeStopStreaming(
+    clientState: ClientState,
+    deviceId: string
+  ): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeStopStreaming(deviceId);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_STOP_STREAMING_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to stop waveform streaming',
       });
     }
   }

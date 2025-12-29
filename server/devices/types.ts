@@ -110,6 +110,7 @@ export interface OscilloscopeDriver {
   setChannelOffset(channel: string, offset: number): Promise<void>;
   setChannelCoupling(channel: string, coupling: string): Promise<void>;
   setChannelProbe(channel: string, ratio: number): Promise<void>;
+  setChannelBwLimit(channel: string, enabled: boolean): Promise<void>;
 
   // Timebase
   setTimebaseScale(scale: number): Promise<void>;

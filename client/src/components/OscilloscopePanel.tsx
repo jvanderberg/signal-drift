@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import type { Device } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
+import { WaveformDisplay } from './WaveformDisplay';
+import { StatsBar } from './StatsBar';
+import { StreamingControls } from './StreamingControls';
+import { TriggerSlider } from './TriggerSlider';
+import { TriggerSettings } from './TriggerSettings';
+import { ChannelSettings } from './ChannelSettings';
 
 interface OscilloscopePanelProps {
   device: Device;
@@ -16,7 +22,10 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     isSubscribed,
     error,
     waveform,
+    waveforms,
+    measurements,
     screenshot,
+    isStreaming,
     subscribe,
     unsubscribe,
     run,
@@ -26,10 +35,27 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     getWaveform,
     getScreenshot,
     clearError,
+    setChannelEnabled,
+    setChannelScale,
+    setChannelOffset,
+    setChannelCoupling,
+    setChannelProbe,
+    setChannelBwLimit,
+    // setTimebaseScale, // Not used in UI yet
+    // setTimebaseOffset, // Not used in UI yet
+    setTriggerSource,
+    setTriggerLevel,
+    setTriggerEdge,
+    setTriggerSweep,
+    startStreaming,
+    stopStreaming,
   } = useOscilloscopeSocket(device.id);
 
   const [selectedChannel, setSelectedChannel] = useState('CHAN1');
   const [isLoadingScreenshot, setIsLoadingScreenshot] = useState(false);
+  const [showTriggerSettings, setShowTriggerSettings] = useState(false);
+  const [showChannelSettings, setShowChannelSettings] = useState<string | null>(null);
+  const [enabledChannels, setEnabledChannels] = useState<string[]>(['CHAN1']);
 
   // Auto-subscribe on mount
   useEffect(() => {
@@ -61,6 +87,18 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     }
   }, [screenshot]);
 
+  // Sync enabled channels from status
+  useEffect(() => {
+    if (state?.status?.channels) {
+      const enabled = Object.entries(state.status.channels)
+        .filter(([_, ch]) => ch.enabled)
+        .map(([name]) => name);
+      if (enabled.length > 0) {
+        setEnabledChannels(enabled);
+      }
+    }
+  }, [state?.status?.channels]);
+
   const handleRun = () => run();
   const handleStop = () => stop();
   const handleSingle = () => single();
@@ -75,6 +113,25 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     getScreenshot();
   };
 
+  const handleStreamingToggle = (enabled: boolean) => {
+    if (enabled) {
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200);
+    } else {
+      stopStreaming();
+    }
+  };
+
+  const handleChannelToggle = (channel: string, enabled: boolean) => {
+    setChannelEnabled(channel, enabled);
+    setEnabledChannels(prev =>
+      enabled ? [...prev, channel] : prev.filter(c => c !== channel)
+    );
+  };
+
+  const handleTriggerLevelChange = (level: number) => {
+    setTriggerLevel(level);
+  };
+
   const isConnected = isSubscribed && state !== null;
   const deviceConnectionStatus = state?.connectionStatus ?? 'disconnected';
   const status = state?.status;
@@ -82,6 +139,18 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   // Channel buttons based on capabilities
   const channelCount = state?.capabilities?.channels ?? 2;
   const channels = Array.from({ length: channelCount }, (_, i) => `CHAN${i + 1}`);
+
+  // Get waveform data for display
+  const displayWaveforms = waveforms.length > 0 ? waveforms : (waveform ? [waveform] : []);
+  const triggerLevel = status?.trigger?.level ?? 0;
+  const triggerEdge = status?.trigger?.edge as 'rising' | 'falling' | 'either' ?? 'rising';
+
+  // Calculate voltage range for trigger slider based on selected channel
+  const selectedChannelStatus = status?.channels?.[selectedChannel];
+  const scale = selectedChannelStatus?.scale ?? 1;
+  const offset = selectedChannelStatus?.offset ?? 0;
+  const minVoltage = offset - (scale * 4);
+  const maxVoltage = offset + (scale * 4);
 
   return (
     <div>
@@ -95,31 +164,17 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
       {/* Status & Controls - only when connected */}
       {isConnected && (
         <>
-          {/* Trigger Status */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className={`status-dot ${status?.running ? 'connected' : 'disconnected'}`} />
-                  <span className="text-sm font-medium">
-                    {status?.running ? 'Running' : 'Stopped'}
-                  </span>
-                </div>
-                {status?.triggerStatus && (
-                  <span className="text-xs text-[var(--color-text-muted)] uppercase">
-                    Trigger: {status.triggerStatus}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-                {status?.sampleRate && (
-                  <span>{formatSampleRate(status.sampleRate)}</span>
-                )}
-                {status?.memoryDepth && (
-                  <span>{formatMemoryDepth(status.memoryDepth)}</span>
-                )}
-              </div>
-            </div>
+          {/* Streaming Controls Bar */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
+            <StreamingControls
+              isStreaming={isStreaming}
+              scopeRunning={status?.running ?? false}
+              channels={channels}
+              enabledChannels={enabledChannels}
+              intervalMs={enabledChannels.length > 1 ? 350 : 200}
+              onStreamingToggle={handleStreamingToggle}
+              onChannelToggle={handleChannelToggle}
+            />
           </div>
 
           {/* Run/Stop Controls */}
@@ -149,67 +204,136 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
               >
                 Auto
               </button>
+              <div className="flex-1" />
+              <div className="flex items-center gap-2">
+                <span className={`status-dot ${status?.running ? 'connected' : 'disconnected'}`} />
+                <span className="text-sm font-medium">
+                  {status?.running ? 'Running' : 'Stopped'}
+                </span>
+                {status?.triggerStatus && (
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase ml-2">
+                    {status.triggerStatus}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Channel Selection and Waveform */}
+          {/* Waveform Display with Trigger Slider */}
           <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex items-center gap-2 mb-3">
-              {channels.map((ch) => (
-                <button
-                  key={ch}
-                  className={`px-3 py-1.5 text-xs font-medium rounded ${
-                    selectedChannel === ch
-                      ? 'bg-[var(--color-accent)] text-white'
-                      : 'bg-[var(--color-border-light)] text-[var(--color-text-primary)]'
-                  } hover:opacity-90`}
-                  onClick={() => setSelectedChannel(ch)}
-                >
-                  {ch.replace('CHAN', 'CH')}
-                </button>
-              ))}
-              <div className="flex-1" />
+            <div className="flex gap-2">
+              {/* Main waveform area */}
+              <div className="flex-1">
+                <WaveformDisplay
+                  waveforms={displayWaveforms}
+                  waveform={displayWaveforms[0]}
+                  triggerLevel={triggerLevel}
+                  showGrid={true}
+                  width={600}
+                  height={300}
+                />
+              </div>
+
+              {/* Trigger slider on right */}
+              <div className="flex flex-col items-center">
+                <TriggerSlider
+                  triggerLevel={triggerLevel}
+                  minVoltage={minVoltage}
+                  maxVoltage={maxVoltage}
+                  triggerEdge={triggerEdge}
+                  onTriggerLevelChange={handleTriggerLevelChange}
+                  onSettingsClick={() => setShowTriggerSettings(!showTriggerSettings)}
+                />
+              </div>
+            </div>
+
+            {/* Trigger Settings Popover */}
+            {showTriggerSettings && (
+              <div className="absolute right-4 mt-2 z-10">
+                <TriggerSettings
+                  sources={channels}
+                  currentSource={status?.trigger?.source ?? 'CHAN1'}
+                  currentEdge={triggerEdge}
+                  currentSweep={status?.trigger?.sweep as 'auto' | 'normal' | 'single' ?? 'auto'}
+                  onSourceChange={setTriggerSource}
+                  onEdgeChange={setTriggerEdge}
+                  onSweepChange={setTriggerSweep}
+                  onClose={() => setShowTriggerSettings(false)}
+                />
+              </div>
+            )}
+
+            {/* Manual waveform fetch */}
+            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--color-border-dark)]">
               <button
                 className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
                 onClick={handleGetWaveform}
               >
-                Get Waveform
+                Fetch {selectedChannel.replace('CHAN', 'CH')}
               </button>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {displayWaveforms.length > 0 && `${displayWaveforms[0]?.points?.length ?? 0} points`}
+              </span>
             </div>
+          </div>
 
-            {/* Channel Status */}
-            {status?.channels?.[selectedChannel] && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Scale: </span>
-                  <span>{formatVoltage(status.channels[selectedChannel].scale)}/div</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Offset: </span>
-                  <span>{formatVoltage(status.channels[selectedChannel].offset)}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Coupling: </span>
-                  <span>{status.channels[selectedChannel].coupling}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Probe: </span>
-                  <span>{status.channels[selectedChannel].probe}x</span>
-                </div>
-              </div>
-            )}
+          {/* Stats Bar - Measurements */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md mb-2">
+            <StatsBar measurements={measurements} />
+          </div>
 
-            {/* Waveform Display */}
-            {waveform && waveform.channel === selectedChannel && (
-              <div className="border border-[var(--color-border-dark)] rounded bg-[var(--color-bg)] p-2">
-                <div className="text-xs text-[var(--color-text-muted)] mb-1">
-                  {waveform.points.length} points
-                  {' | '}
-                  {formatTime(waveform.xIncrement)}/pt
-                </div>
-                <WaveformCanvas waveform={waveform} height={150} />
-              </div>
-            )}
+          {/* Channel Settings */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+            <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
+              Channels
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {channels.map((ch) => {
+                const chStatus = status?.channels?.[ch];
+                return (
+                  <div key={ch} className="relative">
+                    <button
+                      className={`px-3 py-1.5 text-xs font-medium rounded ${
+                        selectedChannel === ch
+                          ? 'bg-[var(--color-accent)] text-white'
+                          : 'bg-[var(--color-border-light)] text-[var(--color-text-primary)]'
+                      } hover:opacity-90`}
+                      onClick={() => {
+                        setSelectedChannel(ch);
+                        setShowChannelSettings(showChannelSettings === ch ? null : ch);
+                      }}
+                    >
+                      {ch.replace('CHAN', 'CH')}
+                      {chStatus && (
+                        <span className="ml-1 text-[10px] opacity-75">
+                          {formatVoltage(chStatus.scale)}/div
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Channel Settings Popover */}
+                    {showChannelSettings === ch && chStatus && (
+                      <div className="absolute top-full left-0 mt-1 z-10">
+                        <ChannelSettings
+                          channel={ch}
+                          currentScale={chStatus.scale}
+                          currentOffset={chStatus.offset}
+                          currentCoupling={chStatus.coupling as 'AC' | 'DC' | 'GND'}
+                          currentProbeRatio={chStatus.probe}
+                          currentBwLimit={chStatus.bwLimit}
+                          onScaleChange={(scale) => setChannelScale(ch, scale)}
+                          onOffsetChange={(offset) => setChannelOffset(ch, offset)}
+                          onCouplingChange={(coupling) => setChannelCoupling(ch, coupling)}
+                          onProbeRatioChange={(ratio) => setChannelProbe(ch, ratio)}
+                          onBwLimitChange={(enabled) => setChannelBwLimit(ch, enabled)}
+                          onClose={() => setShowChannelSettings(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Timebase Info */}
@@ -230,33 +354,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                 <div>
                   <span className="text-[var(--color-text-muted)]">Mode: </span>
                   <span className="uppercase">{status.timebase.mode}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Trigger Info */}
-          {status?.trigger && (
-            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-              <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-                Trigger
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Source: </span>
-                  <span>{status.trigger.source}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Level: </span>
-                  <span>{formatVoltage(status.trigger.level)}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Edge: </span>
-                  <span className="capitalize">{status.trigger.edge}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Sweep: </span>
-                  <span className="uppercase">{status.trigger.sweep}</span>
                 </div>
               </div>
             </div>
@@ -289,41 +386,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   );
 }
 
-// Simple waveform canvas renderer
-function WaveformCanvas({ waveform, height }: { waveform: { points: number[] }; height: number }) {
-  const points = waveform.points;
-  if (points.length === 0) return null;
-
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
-
-  // Create SVG path
-  const width = 100; // Use viewBox for scaling
-  const pathData = points.map((y, i) => {
-    const x = (i / (points.length - 1)) * width;
-    const normalizedY = height - ((y - min) / range) * height;
-    return i === 0 ? `M ${x} ${normalizedY}` : `L ${x} ${normalizedY}`;
-  }).join(' ');
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      className="w-full"
-      style={{ height }}
-    >
-      <path
-        d={pathData}
-        fill="none"
-        stroke="var(--color-accent)"
-        strokeWidth="0.5"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
-
 // Formatting helpers
 function formatVoltage(v: number): string {
   if (Math.abs(v) >= 1) return `${v.toFixed(2)} V`;
@@ -336,17 +398,4 @@ function formatTime(t: number): string {
   if (Math.abs(t) >= 0.001) return `${(t * 1000).toFixed(2)} ms`;
   if (Math.abs(t) >= 1e-6) return `${(t * 1e6).toFixed(2)} us`;
   return `${(t * 1e9).toFixed(1)} ns`;
-}
-
-function formatSampleRate(rate: number): string {
-  if (rate >= 1e9) return `${(rate / 1e9).toFixed(2)} GSa/s`;
-  if (rate >= 1e6) return `${(rate / 1e6).toFixed(1)} MSa/s`;
-  if (rate >= 1e3) return `${(rate / 1e3).toFixed(0)} kSa/s`;
-  return `${rate} Sa/s`;
-}
-
-function formatMemoryDepth(depth: number): string {
-  if (depth >= 1e6) return `${(depth / 1e6).toFixed(1)} Mpts`;
-  if (depth >= 1e3) return `${(depth / 1e3).toFixed(0)} kpts`;
-  return `${depth} pts`;
 }

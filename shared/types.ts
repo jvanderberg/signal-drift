@@ -182,14 +182,32 @@ export type ClientMessage =
   | { type: 'setValue'; deviceId: string; name: string; value: number; immediate?: boolean }
   | { type: 'startList'; deviceId: string }
   | { type: 'stopList'; deviceId: string }
-  // Oscilloscope messages
+  // Oscilloscope messages - queries
   | { type: 'scopeRun'; deviceId: string }
   | { type: 'scopeStop'; deviceId: string }
   | { type: 'scopeSingle'; deviceId: string }
   | { type: 'scopeAutoSetup'; deviceId: string }
   | { type: 'scopeGetWaveform'; deviceId: string; channel: string }
   | { type: 'scopeGetMeasurement'; deviceId: string; channel: string; measurementType: string }
-  | { type: 'scopeGetScreenshot'; deviceId: string };
+  | { type: 'scopeGetScreenshot'; deviceId: string }
+  // Oscilloscope messages - channel settings
+  | { type: 'scopeSetChannelEnabled'; deviceId: string; channel: string; enabled: boolean }
+  | { type: 'scopeSetChannelScale'; deviceId: string; channel: string; scale: number }
+  | { type: 'scopeSetChannelOffset'; deviceId: string; channel: string; offset: number }
+  | { type: 'scopeSetChannelCoupling'; deviceId: string; channel: string; coupling: 'AC' | 'DC' | 'GND' }
+  | { type: 'scopeSetChannelProbe'; deviceId: string; channel: string; ratio: number }
+  | { type: 'scopeSetChannelBwLimit'; deviceId: string; channel: string; enabled: boolean }
+  // Oscilloscope messages - timebase settings
+  | { type: 'scopeSetTimebaseScale'; deviceId: string; scale: number }
+  | { type: 'scopeSetTimebaseOffset'; deviceId: string; offset: number }
+  // Oscilloscope messages - trigger settings
+  | { type: 'scopeSetTriggerSource'; deviceId: string; source: string }
+  | { type: 'scopeSetTriggerLevel'; deviceId: string; level: number }
+  | { type: 'scopeSetTriggerEdge'; deviceId: string; edge: 'rising' | 'falling' | 'either' }
+  | { type: 'scopeSetTriggerSweep'; deviceId: string; sweep: 'auto' | 'normal' | 'single' }
+  // Oscilloscope messages - streaming
+  | { type: 'scopeStartStreaming'; deviceId: string; channels: string[]; intervalMs: number }
+  | { type: 'scopeStopStreaming'; deviceId: string };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner

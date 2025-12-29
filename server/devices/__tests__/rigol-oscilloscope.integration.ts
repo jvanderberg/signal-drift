@@ -144,6 +144,86 @@ async function runBenchmarks(driver: OscilloscopeDriver): Promise<void> {
   }
 }
 
+async function testStreamingPerformance(driver: OscilloscopeDriver): Promise<void> {
+  console.log('\n=== Streaming Performance Test ===\n');
+
+  const iterations = 20;
+  const times: number[] = [];
+
+  // Warm up
+  console.log('Warming up...');
+  await driver.getWaveform('CHAN1');
+  await delay(50);
+
+  // Test sustained waveform fetching
+  console.log(`Fetching ${iterations} waveforms in tight loop...`);
+  const overallStart = Date.now();
+
+  for (let i = 0; i < iterations; i++) {
+    const start = Date.now();
+    try {
+      await driver.getWaveform('CHAN1');
+      const elapsed = Date.now() - start;
+      times.push(elapsed);
+      process.stdout.write(`\r  Iteration ${i + 1}/${iterations}: ${elapsed}ms`);
+    } catch (err) {
+      console.log(`\n  Error on iteration ${i}: ${err}`);
+      break;
+    }
+  }
+
+  const overallTime = Date.now() - overallStart;
+  console.log('\n');
+
+  // Calculate statistics
+  const avg = times.reduce((a, b) => a + b, 0) / times.length;
+  const min = Math.min(...times);
+  const max = Math.max(...times);
+  const fps = 1000 / avg;
+
+  console.log('Results:');
+  console.log(`  Total time: ${overallTime}ms for ${iterations} frames`);
+  console.log(`  Average: ${avg.toFixed(1)}ms per frame`);
+  console.log(`  Min: ${min}ms, Max: ${max}ms`);
+  console.log(`  Achievable FPS: ${fps.toFixed(1)}`);
+  console.log(`  Actual FPS: ${(iterations / (overallTime / 1000)).toFixed(1)}`);
+
+  // Test with minimal delay between fetches
+  console.log('\nTesting with 10ms delay between fetches...');
+  const delayedTimes: number[] = [];
+  const delayedStart = Date.now();
+
+  for (let i = 0; i < iterations; i++) {
+    const start = Date.now();
+    try {
+      await driver.getWaveform('CHAN1');
+      const elapsed = Date.now() - start;
+      delayedTimes.push(elapsed);
+      await delay(10);
+    } catch (err) {
+      console.log(`  Error on iteration ${i}: ${err}`);
+      break;
+    }
+  }
+
+  const delayedTotal = Date.now() - delayedStart;
+  const delayedAvg = delayedTimes.reduce((a, b) => a + b, 0) / delayedTimes.length;
+  console.log(`  With 10ms delays: ${delayedTotal}ms total, ${delayedAvg.toFixed(1)}ms avg fetch`);
+  console.log(`  Effective FPS with delays: ${(iterations / (delayedTotal / 1000)).toFixed(1)}`);
+
+  // Recommendation
+  console.log('\n--- Streaming Recommendation ---');
+  if (fps >= 10) {
+    console.log('✓ 10+ FPS achievable - smooth real-time display possible');
+  } else if (fps >= 5) {
+    console.log('✓ 5-10 FPS achievable - acceptable real-time display');
+  } else if (fps >= 2) {
+    console.log('⚠ 2-5 FPS achievable - noticeable lag but usable');
+  } else {
+    console.log('✗ <2 FPS - manual refresh recommended');
+  }
+}
+
 async function testBasicControl(driver: OscilloscopeDriver): Promise<void> {
   console.log('\n=== Basic Control Tests ===\n');
 
@@ -188,6 +268,9 @@ async function main(): Promise<void> {
   try {
     // Run benchmarks
     await runBenchmarks(driver);
+
+    // Run streaming performance test
+    await testStreamingPerformance(driver);
 
     // Run basic control tests
     await testBasicControl(driver);

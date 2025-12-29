@@ -10,7 +10,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getWebSocketManager, ConnectionState } from '../websocket';
-import type { ServerMessage, OscilloscopeStatus, WaveformData } from '../../../shared/types';
+import type { ServerMessage, OscilloscopeStatus, WaveformData, OscilloscopeMeasurement } from '../../../shared/types';
+
+// Infer measurement unit from type
+function getMeasurementUnit(type: string): string {
+  const upper = type.toUpperCase();
+  if (upper.includes('FREQ') || upper.includes('PERIOD')) return 'Hz';
+  if (upper.includes('TIME') || upper.includes('RISE') || upper.includes('FALL') || upper.includes('DELAY')) return 's';
+  if (upper.includes('DUTY')) return '%';
+  return 'V'; // Default to voltage
+}
 
 export interface OscilloscopeSessionState {
   info: {
@@ -42,7 +51,10 @@ export interface UseOscilloscopeSocketResult {
 
   // Waveform data (last fetched)
   waveform: WaveformData | null;
+  waveforms: WaveformData[];  // Multi-channel waveforms
+  measurements: OscilloscopeMeasurement[];
   screenshot: string | null;  // base64 PNG
+  isStreaming: boolean;
 
   // Actions
   subscribe: () => void;
@@ -55,6 +67,28 @@ export interface UseOscilloscopeSocketResult {
   getMeasurement: (channel: string, type: string) => void;
   getScreenshot: () => void;
   clearError: () => void;
+
+  // Channel settings
+  setChannelEnabled: (channel: string, enabled: boolean) => void;
+  setChannelScale: (channel: string, scale: number) => void;
+  setChannelOffset: (channel: string, offset: number) => void;
+  setChannelCoupling: (channel: string, coupling: 'AC' | 'DC' | 'GND') => void;
+  setChannelProbe: (channel: string, ratio: number) => void;
+  setChannelBwLimit: (channel: string, enabled: boolean) => void;
+
+  // Timebase settings
+  setTimebaseScale: (scale: number) => void;
+  setTimebaseOffset: (offset: number) => void;
+
+  // Trigger settings
+  setTriggerSource: (source: string) => void;
+  setTriggerLevel: (level: number) => void;
+  setTriggerEdge: (edge: 'rising' | 'falling' | 'either') => void;
+  setTriggerSweep: (sweep: 'auto' | 'normal' | 'single') => void;
+
+  // Streaming
+  startStreaming: (channels: string[], intervalMs: number) => void;
+  stopStreaming: () => void;
 }
 
 export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketResult {
@@ -63,7 +97,10 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [waveform, setWaveform] = useState<WaveformData | null>(null);
+  const [waveforms, setWaveforms] = useState<WaveformData[]>([]);
+  const [measurements, setMeasurements] = useState<OscilloscopeMeasurement[]>([]);
   const [screenshot, setScreenshot] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const wsManager = useRef(getWebSocketManager());
   const isSubscribedRef = useRef(false);
@@ -130,6 +167,16 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
         case 'scopeWaveform':
           if (message.deviceId === deviceId) {
             setWaveform(message.waveform);
+            // Update waveforms array (replace if same channel, add if new)
+            setWaveforms(prev => {
+              const idx = prev.findIndex(w => w.channel === message.waveform.channel);
+              if (idx >= 0) {
+                const updated = [...prev];
+                updated[idx] = message.waveform;
+                return updated;
+              }
+              return [...prev, message.waveform];
+            });
           }
           break;
 
@@ -140,7 +187,28 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
           break;
 
         case 'scopeMeasurement':
-          // Could store measurements if needed
+          if (message.deviceId === deviceId && message.value !== null) {
+            // Update or add measurement
+            // Infer unit from measurement type
+            const unit = getMeasurementUnit(message.measurementType);
+            setMeasurements(prev => {
+              const idx = prev.findIndex(m =>
+                m.channel === message.channel && m.type === message.measurementType
+              );
+              const newMeasurement: OscilloscopeMeasurement = {
+                channel: message.channel,
+                type: message.measurementType,
+                value: message.value as number,
+                unit,
+              };
+              if (idx >= 0) {
+                const updated = [...prev];
+                updated[idx] = newMeasurement;
+                return updated;
+              }
+              return [...prev, newMeasurement];
+            });
+          }
           break;
 
         case 'error':
@@ -206,13 +274,78 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     setError(null);
   }, []);
 
+  // Channel settings
+  const setChannelEnabled = useCallback((channel: string, enabled: boolean) => {
+    wsManager.current.send({ type: 'scopeSetChannelEnabled', deviceId, channel, enabled });
+  }, [deviceId]);
+
+  const setChannelScale = useCallback((channel: string, scale: number) => {
+    wsManager.current.send({ type: 'scopeSetChannelScale', deviceId, channel, scale });
+  }, [deviceId]);
+
+  const setChannelOffset = useCallback((channel: string, offset: number) => {
+    wsManager.current.send({ type: 'scopeSetChannelOffset', deviceId, channel, offset });
+  }, [deviceId]);
+
+  const setChannelCoupling = useCallback((channel: string, coupling: 'AC' | 'DC' | 'GND') => {
+    wsManager.current.send({ type: 'scopeSetChannelCoupling', deviceId, channel, coupling });
+  }, [deviceId]);
+
+  const setChannelProbe = useCallback((channel: string, ratio: number) => {
+    wsManager.current.send({ type: 'scopeSetChannelProbe', deviceId, channel, ratio });
+  }, [deviceId]);
+
+  const setChannelBwLimit = useCallback((channel: string, enabled: boolean) => {
+    wsManager.current.send({ type: 'scopeSetChannelBwLimit', deviceId, channel, enabled });
+  }, [deviceId]);
+
+  // Timebase settings
+  const setTimebaseScale = useCallback((scale: number) => {
+    wsManager.current.send({ type: 'scopeSetTimebaseScale', deviceId, scale });
+  }, [deviceId]);
+
+  const setTimebaseOffset = useCallback((offset: number) => {
+    wsManager.current.send({ type: 'scopeSetTimebaseOffset', deviceId, offset });
+  }, [deviceId]);
+
+  // Trigger settings
+  const setTriggerSource = useCallback((source: string) => {
+    wsManager.current.send({ type: 'scopeSetTriggerSource', deviceId, source });
+  }, [deviceId]);
+
+  const setTriggerLevel = useCallback((level: number) => {
+    wsManager.current.send({ type: 'scopeSetTriggerLevel', deviceId, level });
+  }, [deviceId]);
+
+  const setTriggerEdge = useCallback((edge: 'rising' | 'falling' | 'either') => {
+    wsManager.current.send({ type: 'scopeSetTriggerEdge', deviceId, edge });
+  }, [deviceId]);
+
+  const setTriggerSweep = useCallback((sweep: 'auto' | 'normal' | 'single') => {
+    wsManager.current.send({ type: 'scopeSetTriggerSweep', deviceId, sweep });
+  }, [deviceId]);
+
+  // Streaming
+  const startStreaming = useCallback((channels: string[], intervalMs: number) => {
+    wsManager.current.send({ type: 'scopeStartStreaming', deviceId, channels, intervalMs });
+    setIsStreaming(true);
+  }, [deviceId]);
+
+  const stopStreaming = useCallback(() => {
+    wsManager.current.send({ type: 'scopeStopStreaming', deviceId });
+    setIsStreaming(false);
+  }, [deviceId]);
+
   return {
     state,
     connectionState,
     isSubscribed,
     error,
     waveform,
+    waveforms,
+    measurements,
     screenshot,
+    isStreaming,
     subscribe,
     unsubscribe,
     run,
@@ -223,5 +356,19 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     getMeasurement,
     getScreenshot,
     clearError,
+    setChannelEnabled,
+    setChannelScale,
+    setChannelOffset,
+    setChannelCoupling,
+    setChannelProbe,
+    setChannelBwLimit,
+    setTimebaseScale,
+    setTimebaseOffset,
+    setTriggerSource,
+    setTriggerLevel,
+    setTriggerEdge,
+    setTriggerSweep,
+    startStreaming,
+    stopStreaming,
   };
 }

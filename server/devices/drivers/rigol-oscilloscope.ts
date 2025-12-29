@@ -295,6 +295,10 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       await transport.write(`:${channel}:PROB ${ratio}`);
     },
 
+    async setChannelBwLimit(channel: string, enabled: boolean): Promise<void> {
+      await transport.write(`:${channel}:BWL ${enabled ? 'ON' : 'OFF'}`);
+    },
+
     async setTimebaseScale(scale: number): Promise<void> {
       await transport.write(`:TIM:SCAL ${scale}`);
     },
@@ -358,10 +362,10 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       // Set waveform source
       await transport.write(`:WAV:SOUR ${channel}`);
 
-      // Set mode to NORM (screen data, faster)
+      // Set mode to NORM (screen data)
       await transport.write(':WAV:MODE NORM');
 
-      // Set format to BYTE (unsigned 8-bit)
+      // Set format to BYTE (binary, more efficient)
       await transport.write(':WAV:FORM BYTE');
 
       // Set start/stop if provided
@@ -371,23 +375,28 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       }
 
       // Get preamble for scaling
+      // DS1000Z series returns 8 values: format,type,points,count,xinc,xorig,xref,yinc
       const preambleResp = await transport.query(':WAV:PRE?');
       const preambleParts = preambleResp.split(',').map((s) => parseFloat(s.trim()));
+      const [, , , , xIncrement, xOrigin, , yIncrement] = preambleParts;
 
-      // Preamble format: format,type,points,count,xincrement,xorigin,xreference,yincrement,yorigin,yreference
-      const [, , , , xIncrement, xOrigin, , yIncrement, yOrigin, yReference] = preambleParts;
+      // Query yOrigin and yReference separately (not in preamble for DS1000Z)
+      const yOrigin = parseNumber(await transport.query(':WAV:YOR?'));
+      const yReference = parseNumber(await transport.query(':WAV:YREF?'));
 
-      // Get waveform data (binary)
+      // Get waveform data (BYTE format)
       if (!transport.queryBinary) {
         throw new Error('Transport does not support binary queries');
       }
-
       const rawData = await transport.queryBinary(':WAV:DATA?');
 
-      // Parse TMC block format
+      // Parse TMC block format - returns exactly dataLength bytes
       const waveformBytes = parseTmcBlock(rawData);
 
+
       // Convert bytes to voltage values
+      // Formula per Rigol DS1000Z Programming Guide:
+      // voltage = (rawValue - yOrigin - yReference) * yIncrement
       const points: number[] = [];
       for (let i = 0; i < waveformBytes.length; i++) {
         const rawValue = waveformBytes[i];
