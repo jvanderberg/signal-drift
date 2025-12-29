@@ -70,7 +70,7 @@ export interface OscilloscopeSession {
   getScreenshot(): Promise<Buffer>;
 
   // Streaming
-  startStreaming(channels: string[], intervalMs: number): Promise<void>;
+  startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
   stopStreaming(): Promise<void>;
 
   // Lifecycle
@@ -100,10 +100,218 @@ export function createOscilloscopeSession(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let streamingTimer: ReturnType<typeof setInterval> | null = null;
   let streamingChannels: string[] = [];
+  let streamingMeasurements: string[] = [];  // Measurements to fetch during streaming
   let streamingIntervalMs = 200;
   let isRunning = true;
   let isFetching = false;  // Guard against concurrent fetches
   let streamingGeneration = 0;  // Increment when streaming restarts to cancel stale fetches
+  let lastStatusPoll = 0;  // Track when we last polled status
+  const STATUS_POLL_INTERVAL = 500;  // Poll status every 500ms during streaming
+
+  // Default measurements to calculate from waveform data
+  const DEFAULT_STREAMING_MEASUREMENTS = ['VPP', 'FREQ', 'VAVG'];
+
+  // Calculate measurements locally from waveform data (no SCPI round-trip needed)
+  function calculateMeasurement(waveform: WaveformData, type: string): number | null {
+    const points = waveform.points;
+    if (!points || points.length === 0) return null;
+
+    switch (type.toUpperCase()) {
+      case 'VMAX':
+        return Math.max(...points);
+
+      case 'VMIN':
+        return Math.min(...points);
+
+      case 'VPP':
+        return Math.max(...points) - Math.min(...points);
+
+      case 'VAVG': {
+        const sum = points.reduce((a, b) => a + b, 0);
+        return sum / points.length;
+      }
+
+      case 'VRMS': {
+        const sumSq = points.reduce((a, b) => a + b * b, 0);
+        return Math.sqrt(sumSq / points.length);
+      }
+
+      case 'FREQ':
+      case 'PER': {
+        // Find dominant frequency via FFT
+        const n = points.length;
+        if (n < 4) return null;
+
+        // Remove DC offset
+        const avg = points.reduce((a, b) => a + b, 0) / n;
+        const centered = points.map(p => p - avg);
+
+        // Compute FFT magnitude spectrum (real-only input)
+        // Use a simple DFT for the first half of frequencies (sufficient for peak finding)
+        const sampleRate = 1 / waveform.xIncrement;
+        const freqResolution = sampleRate / n;
+
+        let maxMag = 0;
+        let peakBin = 1; // Skip DC (bin 0)
+
+        // Only check up to Nyquist (n/2), skip DC
+        const maxBin = Math.floor(n / 2);
+        for (let k = 1; k < maxBin; k++) {
+          // DFT at bin k
+          let real = 0, imag = 0;
+          const omega = (2 * Math.PI * k) / n;
+          for (let i = 0; i < n; i++) {
+            real += centered[i] * Math.cos(omega * i);
+            imag -= centered[i] * Math.sin(omega * i);
+          }
+          const mag = real * real + imag * imag; // Skip sqrt for comparison
+
+          if (mag > maxMag) {
+            maxMag = mag;
+            peakBin = k;
+          }
+        }
+
+        const freq = peakBin * freqResolution;
+        if (freq <= 0 || !isFinite(freq)) return null;
+        return type.toUpperCase() === 'FREQ' ? freq : 1 / freq;
+      }
+
+      case 'VAMP': {
+        // Amplitude (similar to VPP but sometimes defined differently)
+        return Math.max(...points) - Math.min(...points);
+      }
+
+      case 'VTOP': {
+        // Top value - estimate using histogram or percentile
+        const sorted = [...points].sort((a, b) => b - a);
+        return sorted[Math.floor(sorted.length * 0.1)]; // 90th percentile
+      }
+
+      case 'VBAS': {
+        // Base value - estimate using histogram or percentile
+        const sorted = [...points].sort((a, b) => a - b);
+        return sorted[Math.floor(sorted.length * 0.1)]; // 10th percentile
+      }
+
+      case 'PDUT':
+      case 'NDUT': {
+        // Duty cycle - % of time above/below midpoint
+        const max = Math.max(...points);
+        const min = Math.min(...points);
+        const mid = (max + min) / 2;
+        const aboveCount = points.filter(p => p > mid).length;
+        const duty = aboveCount / points.length * 100;
+        return type.toUpperCase() === 'PDUT' ? duty : 100 - duty;
+      }
+
+      case 'PWID':
+      case 'NWID': {
+        // Pulse width - average time above/below midpoint per cycle
+        const max = Math.max(...points);
+        const min = Math.min(...points);
+        const mid = (max + min) / 2;
+        const totalTime = waveform.xIncrement * points.length;
+
+        // Count transitions to estimate cycles
+        let transitions = 0;
+        for (let i = 1; i < points.length; i++) {
+          if ((points[i-1] <= mid && points[i] > mid) ||
+              (points[i-1] > mid && points[i] <= mid)) {
+            transitions++;
+          }
+        }
+        const cycles = Math.max(1, transitions / 2);
+
+        const aboveCount = points.filter(p => p > mid).length;
+        const aboveTime = (aboveCount / points.length) * totalTime;
+        const belowTime = totalTime - aboveTime;
+
+        return type.toUpperCase() === 'PWID' ? aboveTime / cycles : belowTime / cycles;
+      }
+
+      case 'RISE': {
+        // Rise time - 10% to 90% of amplitude
+        const max = Math.max(...points);
+        const min = Math.min(...points);
+        const amp = max - min;
+        if (amp <= 0) return null;
+        const low = min + amp * 0.1;
+        const high = min + amp * 0.9;
+
+        // Find first rising edge - look for transition from below low to above high
+        for (let i = 1; i < points.length; i++) {
+          // Look for start of rising edge (crossing 10% going up)
+          if (points[i-1] <= low && points[i] > low) {
+            // Now find where it crosses 90%
+            // For fast edges, might be same sample or next
+            for (let j = i; j < points.length; j++) {
+              if (points[j] >= high) {
+                // Interpolate for better accuracy
+                const riseTime = (j - i + 1) * waveform.xIncrement;
+                return Math.max(riseTime, waveform.xIncrement); // At least 1 sample
+              }
+              // If signal drops before reaching 90%, abort this edge
+              if (points[j] < points[j-1] && points[j] < high * 0.5) break;
+            }
+          }
+        }
+        return null;
+      }
+
+      case 'FALL': {
+        // Fall time - 90% to 10% of amplitude
+        const max = Math.max(...points);
+        const min = Math.min(...points);
+        const amp = max - min;
+        if (amp <= 0) return null;
+        const low = min + amp * 0.1;
+        const high = min + amp * 0.9;
+
+        // Find first falling edge - look for transition from above high to below low
+        for (let i = 1; i < points.length; i++) {
+          // Look for start of falling edge (crossing 90% going down)
+          if (points[i-1] >= high && points[i] < high) {
+            // Now find where it crosses 10%
+            for (let j = i; j < points.length; j++) {
+              if (points[j] <= low) {
+                const fallTime = (j - i + 1) * waveform.xIncrement;
+                return Math.max(fallTime, waveform.xIncrement);
+              }
+              // If signal rises before reaching 10%, abort this edge
+              if (points[j] > points[j-1] && points[j] > low * 2 + min) break;
+            }
+          }
+        }
+        return null;
+      }
+
+      case 'OVER': {
+        // Overshoot - % above top value on rising edge
+        const sorted = [...points].sort((a, b) => b - a);
+        const top = sorted[Math.floor(sorted.length * 0.1)];
+        const base = sorted[Math.floor(sorted.length * 0.9)];
+        const max = Math.max(...points);
+        const amp = top - base;
+        if (amp <= 0) return 0;
+        return ((max - top) / amp) * 100;
+      }
+
+      case 'PRES': {
+        // Preshoot - % below base value on rising edge
+        const sorted = [...points].sort((a, b) => b - a);
+        const top = sorted[Math.floor(sorted.length * 0.1)];
+        const base = sorted[Math.floor(sorted.length * 0.9)];
+        const min = Math.min(...points);
+        const amp = top - base;
+        if (amp <= 0) return 0;
+        return ((base - min) / amp) * 100;
+      }
+
+      default:
+        return null; // Unknown or requires 2 channels (RDEL, FDEL, RPH, FPH)
+    }
+  }
 
   function broadcast(message: ServerMessage): void {
     for (const callback of subscribers.values()) {
@@ -235,6 +443,24 @@ export function createOscilloscopeSession(
                 channel,
                 waveform,
               });
+
+              // Calculate measurements locally from waveform data (no SCPI needed!)
+              const measurementsToCalc = streamingMeasurements.length > 0
+                ? streamingMeasurements
+                : DEFAULT_STREAMING_MEASUREMENTS;
+
+              for (const measurementType of measurementsToCalc) {
+                const value = calculateMeasurement(waveform, measurementType);
+                if (value !== null) {
+                  broadcast({
+                    type: 'scopeMeasurement',
+                    deviceId: driver.info.id,
+                    channel,
+                    measurementType,
+                    value,
+                  });
+                }
+              }
             }
             // Reset error count on success
             if (consecutiveErrors > 0) {
@@ -263,6 +489,28 @@ export function createOscilloscopeSession(
             }
           }
         }
+
+        // Interleave status polling during streaming (fast, ~500ms)
+        const now = Date.now();
+        if (now - lastStatusPoll >= STATUS_POLL_INTERVAL && myGeneration === streamingGeneration) {
+          lastStatusPoll = now;
+
+          // Fetch status
+          try {
+            status = await driver.getStatus();
+            lastUpdated = Date.now();
+            broadcast({
+              type: 'field',
+              deviceId: driver.info.id,
+              field: 'oscilloscopeStatus',
+              value: status,
+            });
+          } catch (err) {
+            // Status fetch failed, continue streaming
+          }
+        }
+
+        // Measurements are now calculated locally from waveform data - no SCPI needed!
       } finally {
         isFetching = false;
       }
@@ -397,9 +645,13 @@ export function createOscilloscopeSession(
     },
 
     // Streaming
-    async startStreaming(channels: string[], intervalMs: number): Promise<void> {
+    async startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void> {
       // Increment generation to invalidate any in-flight fetches
       streamingGeneration++;
+
+      // Reset isFetching so new generation can start immediately
+      // (old generation will see generation mismatch and exit cleanly)
+      isFetching = false;
 
       // Stop existing streaming if any
       if (streamingTimer) {
@@ -407,13 +659,17 @@ export function createOscilloscopeSession(
         streamingTimer = null;
       }
 
-      // Pause status polling during streaming to avoid USB congestion
+      // Stop separate status polling timer - we'll poll inline during streaming
       if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
       }
 
+      // Reset poll timer so first streaming iteration polls status immediately
+      lastStatusPoll = 0;
+
       streamingChannels = [...channels];
+      streamingMeasurements = measurements ? [...measurements] : [];
       streamingIntervalMs = intervalMs;
       runStreamingLoop();
     },

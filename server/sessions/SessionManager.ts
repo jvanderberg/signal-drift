@@ -68,7 +68,7 @@ export interface SessionManager {
   oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<void>;
 
   // Oscilloscope streaming
-  oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number): Promise<void>;
+  oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
   oscilloscopeStopStreaming(deviceId: string): Promise<void>;
 
   stop(): void;
@@ -387,10 +387,10 @@ export function createSessionManager(
   }
 
   // Oscilloscope streaming
-  async function oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number): Promise<void> {
+  async function oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<void> {
     const session = oscilloscopeSessions.get(deviceId);
     if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
-    await session.startStreaming(channels, intervalMs);
+    await session.startStreaming(channels, intervalMs, measurements);
   }
 
   async function oscilloscopeStopStreaming(deviceId: string): Promise<void> {

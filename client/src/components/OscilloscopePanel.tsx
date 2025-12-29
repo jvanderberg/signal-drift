@@ -15,6 +15,28 @@ interface OscilloscopePanelProps {
   onSuccess: (message: string) => void;
 }
 
+// Measurement descriptions for tooltips
+const MEASUREMENT_INFO: Record<string, { desc: string; unit: string }> = {
+  VPP: { desc: 'Peak-to-peak voltage difference between max and min', unit: 'V' },
+  VMAX: { desc: 'Maximum voltage in the waveform', unit: 'V' },
+  VMIN: { desc: 'Minimum voltage in the waveform', unit: 'V' },
+  VAMP: { desc: 'Amplitude between top and base levels', unit: 'V' },
+  VTOP: { desc: 'Top voltage level (90th percentile)', unit: 'V' },
+  VBAS: { desc: 'Base voltage level (10th percentile)', unit: 'V' },
+  VAVG: { desc: 'Average voltage across all samples', unit: 'V' },
+  VRMS: { desc: 'Root mean square voltage', unit: 'V' },
+  FREQ: { desc: 'Dominant frequency from FFT analysis', unit: 'Hz' },
+  PER: { desc: 'Period of the dominant frequency', unit: 's' },
+  PDUT: { desc: 'Positive duty cycle - % of time above midpoint', unit: '%' },
+  NDUT: { desc: 'Negative duty cycle - % of time below midpoint', unit: '%' },
+  PWID: { desc: 'Positive pulse width per cycle', unit: 's' },
+  NWID: { desc: 'Negative pulse width per cycle', unit: 's' },
+  RISE: { desc: 'Rise time from 10% to 90% of amplitude', unit: 's' },
+  FALL: { desc: 'Fall time from 90% to 10% of amplitude', unit: 's' },
+  OVER: { desc: 'Overshoot - % signal exceeds top level', unit: '%' },
+  PRES: { desc: 'Preshoot - % signal undershoots base level', unit: '%' },
+};
+
 export function OscilloscopePanel({ device, onClose, onError, onSuccess }: OscilloscopePanelProps) {
   const {
     state,
@@ -55,6 +77,19 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const [showTriggerSettings, setShowTriggerSettings] = useState(false);
   const [showChannelSettings, setShowChannelSettings] = useState<string | null>(null);
   const [enabledChannels, setEnabledChannels] = useState<string[]>(['CHAN1']);
+  const [showMeasurementPicker, setShowMeasurementPicker] = useState(false);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+
+  // Load selected measurements from localStorage
+  const [selectedMeasurements, setSelectedMeasurements] = useState<string[]>(() => {
+    const saved = localStorage.getItem(`scope-measurements-${device.id}`);
+    return saved ? JSON.parse(saved) : ['VPP', 'FREQ', 'VAVG'];
+  });
+
+  // Persist selected measurements to localStorage
+  useEffect(() => {
+    localStorage.setItem(`scope-measurements-${device.id}`, JSON.stringify(selectedMeasurements));
+  }, [selectedMeasurements, device.id]);
 
   // Auto-subscribe on mount
   useEffect(() => {
@@ -78,6 +113,14 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
       onSuccess('Connected');
     }
   }, [isSubscribed, onSuccess]);
+
+  // Auto-start streaming once when first subscribed
+  useEffect(() => {
+    if (isSubscribed && !hasAutoStarted && enabledChannels.length > 0) {
+      setHasAutoStarted(true);
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
+    }
+  }, [isSubscribed, hasAutoStarted, enabledChannels, selectedMeasurements, startStreaming]);
 
   // Reset loading state when screenshot arrives
   useEffect(() => {
@@ -114,7 +157,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
   const handleStreamingToggle = (enabled: boolean) => {
     if (enabled) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200);
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
     } else {
       stopStreaming();
     }
@@ -129,9 +172,21 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
     // Restart streaming with updated channels if currently streaming
     if (isStreaming && newChannels.length > 0) {
-      startStreaming(newChannels, newChannels.length > 1 ? 350 : 200);
+      startStreaming(newChannels, newChannels.length > 1 ? 350 : 200, selectedMeasurements);
     } else if (isStreaming && newChannels.length === 0) {
       stopStreaming();
+    }
+  };
+
+  const handleMeasurementToggle = (measurement: string) => {
+    const newMeasurements = selectedMeasurements.includes(measurement)
+      ? selectedMeasurements.filter(m => m !== measurement)
+      : [...selectedMeasurements, measurement];
+    setSelectedMeasurements(newMeasurements);
+
+    // Restart streaming with updated measurements
+    if (isStreaming && enabledChannels.length > 0) {
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, newMeasurements);
     }
   };
 
@@ -147,11 +202,20 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const channelCount = state?.capabilities?.channels ?? 2;
   const channels = Array.from({ length: channelCount }, (_, i) => `CHAN${i + 1}`);
 
+  // Available measurements from capabilities
+  const supportedMeasurements = state?.capabilities?.supportedMeasurements ?? [
+    'VPP', 'VMAX', 'VMIN', 'VAVG', 'VRMS', 'FREQ', 'PER'
+  ];
+
   // Get waveform data for display
   const displayWaveforms = waveforms.length > 0 ? waveforms : (waveform ? [waveform] : []);
   const triggerLevel = status?.trigger?.level ?? 0;
   const triggerEdge = status?.trigger?.edge as 'rising' | 'falling' | 'either' ?? 'rising';
 
+  // Filter measurements to only show enabled channels and selected types
+  const filteredMeasurements = measurements.filter(
+    m => enabledChannels.includes(m.channel) && selectedMeasurements.includes(m.type)
+  );
 
   return (
     <div>
@@ -273,8 +337,58 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
           </div>
 
           {/* Stats Bar - Measurements */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md mb-2">
-            <StatsBar measurements={measurements} />
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md mb-2 relative">
+            <div className="flex items-center">
+              <div className="flex-1">
+                <StatsBar measurements={filteredMeasurements} />
+              </div>
+              <button
+                className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] rounded transition-colors"
+                onClick={() => setShowMeasurementPicker(!showMeasurementPicker)}
+                title="Select measurements"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Measurement Picker Popover */}
+            {showMeasurementPicker && (
+              <div className="absolute right-0 top-full mt-1 z-20 bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md shadow-lg p-3 min-w-[200px]">
+                <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2 flex items-center justify-between">
+                  <span>Measurements</span>
+                  <button
+                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                    onClick={() => setShowMeasurementPicker(false)}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-1 max-h-[200px] overflow-y-auto">
+                  {supportedMeasurements.map((m) => {
+                    const info = MEASUREMENT_INFO[m];
+                    const tooltip = info ? `${info.desc} (${info.unit})` : m;
+                    return (
+                      <button
+                        key={m}
+                        title={tooltip}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                          selectedMeasurements.includes(m)
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:bg-[var(--color-border-light)]'
+                        }`}
+                        onClick={() => handleMeasurementToggle(m)}
+                      >
+                        {m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Channel Settings */}

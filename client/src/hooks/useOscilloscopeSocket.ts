@@ -15,9 +15,12 @@ import type { ServerMessage, OscilloscopeStatus, WaveformData, OscilloscopeMeasu
 // Infer measurement unit from type
 function getMeasurementUnit(type: string): string {
   const upper = type.toUpperCase();
-  if (upper.includes('FREQ') || upper.includes('PERIOD')) return 'Hz';
-  if (upper.includes('TIME') || upper.includes('RISE') || upper.includes('FALL') || upper.includes('DELAY')) return 's';
-  if (upper.includes('DUTY')) return '%';
+  if (upper === 'FREQ') return 'Hz';
+  if (upper === 'PER' || upper === 'PERIOD') return 's';
+  if (upper.includes('TIM') || upper.includes('RISE') || upper.includes('FALL') || upper.includes('DELAY')) return 's';
+  if (upper.includes('WID')) return 's'; // Pulse width (PWID, NWID)
+  if (upper.includes('DUT')) return '%'; // Duty cycle (PDUT, NDUT)
+  if (upper === 'OVER' || upper === 'PRES') return '%'; // Overshoot/preshoot
   return 'V'; // Default to voltage
 }
 
@@ -87,7 +90,7 @@ export interface UseOscilloscopeSocketResult {
   setTriggerSweep: (sweep: 'auto' | 'normal' | 'single') => void;
 
   // Streaming
-  startStreaming: (channels: string[], intervalMs: number) => void;
+  startStreaming: (channels: string[], intervalMs: number, measurements?: string[]) => void;
   stopStreaming: () => void;
 }
 
@@ -326,8 +329,8 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   }, [deviceId]);
 
   // Streaming
-  const startStreaming = useCallback((channels: string[], intervalMs: number) => {
-    wsManager.current.send({ type: 'scopeStartStreaming', deviceId, channels, intervalMs });
+  const startStreaming = useCallback((channels: string[], intervalMs: number, measurements?: string[]) => {
+    wsManager.current.send({ type: 'scopeStartStreaming', deviceId, channels, intervalMs, measurements });
     setIsStreaming(true);
   }, [deviceId]);
 

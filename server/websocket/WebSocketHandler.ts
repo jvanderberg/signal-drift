@@ -188,7 +188,7 @@ export function createWebSocketHandler(
 
       // Oscilloscope streaming
       case 'scopeStartStreaming':
-        handleScopeStartStreaming(clientState, message.deviceId, message.channels, message.intervalMs);
+        handleScopeStartStreaming(clientState, message.deviceId, message.channels, message.intervalMs, message.measurements);
         break;
 
       case 'scopeStopStreaming':
@@ -651,10 +651,11 @@ export function createWebSocketHandler(
     clientState: ClientState,
     deviceId: string,
     channels: string[],
-    intervalMs: number
+    intervalMs: number,
+    measurements?: string[]
   ): Promise<void> {
     try {
-      await sessionManager.oscilloscopeStartStreaming(deviceId, channels, intervalMs);
+      await sessionManager.oscilloscopeStartStreaming(deviceId, channels, intervalMs, measurements);
     } catch (err) {
       send(clientState.ws, {
         type: 'error',

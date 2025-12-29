@@ -206,7 +206,7 @@ export type ClientMessage =
   | { type: 'scopeSetTriggerEdge'; deviceId: string; edge: 'rising' | 'falling' | 'either' }
   | { type: 'scopeSetTriggerSweep'; deviceId: string; sweep: 'auto' | 'normal' | 'single' }
   // Oscilloscope messages - streaming
-  | { type: 'scopeStartStreaming'; deviceId: string; channels: string[]; intervalMs: number }
+  | { type: 'scopeStartStreaming'; deviceId: string; channels: string[]; intervalMs: number; measurements?: string[] }
   | { type: 'scopeStopStreaming'; deviceId: string };
 
 // setValue behavior:

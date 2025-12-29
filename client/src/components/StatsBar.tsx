@@ -102,12 +102,12 @@ export function StatsBar({ measurements = [], compact = false }: StatsBarProps) 
           <div
             key={`${m.channel}-${m.type}`}
             data-testid={`stat-${m.channel}-${m.type}`}
-            className={`stat-item ${channelClass} flex items-center gap-1 px-2 py-1 rounded bg-gray-800`}
+            className={`stat-item ${channelClass} flex items-center gap-2 px-3 py-1 rounded bg-gray-800 w-[185px]`}
             style={{ borderLeft: `3px solid ${color}` }}
           >
-            <span className="stat-label text-gray-400 font-medium">{m.type}:</span>
+            <span className="stat-label text-gray-400 font-medium w-12 shrink-0">{m.type}:</span>
             <span
-              className={`stat-value font-mono ${isInvalid ? 'text-gray-500' : ''}`}
+              className={`stat-value font-mono flex-1 text-right ${isInvalid ? 'text-gray-500' : ''}`}
               style={{ color: isInvalid ? undefined : color }}
             >
               {formattedValue}

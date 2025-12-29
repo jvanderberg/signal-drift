@@ -58,9 +58,8 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     maxMemoryDepth: 12e6,  // 12M default
     supportedMeasurements: [
       'VPP', 'VMAX', 'VMIN', 'VAMP', 'VTOP', 'VBAS', 'VAVG', 'VRMS',
-      'OVER', 'PRES', 'MAR', 'MPAR', 'PER', 'FREQ',
-      'RTIM', 'FTIM', 'PWID', 'NWID', 'PDUT', 'NDUT',
-      'RISE', 'FALL', 'RDEL', 'FDEL', 'RPH', 'FPH',
+      'FREQ', 'PER', 'PDUT', 'NDUT', 'PWID', 'NWID',
+      'RISE', 'FALL', 'OVER', 'PRES',
     ],
     hasAWG: false,
   };
