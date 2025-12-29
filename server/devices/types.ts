@@ -35,6 +35,13 @@ export interface DeviceDriver {
 
 export type DriverFactory = (transport: Transport) => DeviceDriver;
 
+export interface SerialOptions {
+  baudRate?: number;           // Default: auto-detect or 115200
+  baudRates?: number[];        // Baud rates to try during auto-detect (default: [115200, 9600, 57600, 38400, 19200])
+  commandDelay?: number;       // ms delay between commands (default: 50)
+  timeout?: number;            // Query timeout in ms (default: 2000)
+}
+
 export interface DriverRegistration {
   create: DriverFactory;
   transportType: 'usbtmc' | 'serial';
@@ -43,4 +50,5 @@ export interface DriverRegistration {
     productId?: number;
     pathPattern?: RegExp;
   };
+  serialOptions?: SerialOptions;  // Serial-specific configuration
 }

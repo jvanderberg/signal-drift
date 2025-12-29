@@ -507,4 +507,144 @@ describe('DeviceSession', () => {
       expect(session.getSubscriberCount()).toBe(1);
     });
   });
+
+  describe('Reconnection', () => {
+    it('should wait for in-flight poll to complete before reconnecting', async () => {
+      let pollInProgress = false;
+      let pollCompleted = false;
+      let reconnectAttempted = false;
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollInProgress = true;
+          // Simulate slow poll
+          await new Promise(r => setTimeout(r, 100));
+          pollCompleted = true;
+          pollInProgress = false;
+          return {
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          };
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+
+      // Wait for poll to start
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Poll should be in progress
+      expect(pollInProgress).toBe(true);
+
+      // Create new driver for reconnect
+      const newDriver = createMockDriver();
+
+      // Attempt reconnect while poll is in progress
+      const reconnectPromise = session.reconnect(newDriver).then(() => {
+        reconnectAttempted = true;
+      });
+
+      // Give time for async operations
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Reconnect should wait for poll to complete
+      // (This tests the fix - before the fix, reconnect would happen immediately)
+
+      // Advance time to let poll complete
+      await vi.advanceTimersByTimeAsync(100);
+      await reconnectPromise;
+
+      expect(pollCompleted).toBe(true);
+      expect(reconnectAttempted).toBe(true);
+    });
+
+    it('should use new driver after reconnect', async () => {
+      const oldDriver = createMockDriver();
+      const newDriver = createMockDriver({
+        getStatusImpl: async () => ({
+          mode: 'CV',  // Different mode to verify new driver is used
+          outputEnabled: true,
+          setpoints: { voltage: 5.0 },
+          measurements: { voltage: 5.0, current: 0.5, power: 2.5 },
+        }),
+      });
+
+      session = createDeviceSession(oldDriver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Verify initial state from old driver
+      expect(session.getState().mode).toBe('CC');
+
+      // Reconnect with new driver
+      await session.reconnect(newDriver);
+
+      // Trigger poll with new driver
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should show new driver's state
+      expect(session.getState().mode).toBe('CV');
+    });
+  });
+
+  describe('Optimistic Rollback', () => {
+    it('should rollback setMode on failure', async () => {
+      const driver = createMockDriver({
+        setModeImpl: async () => {
+          throw new Error('Hardware error');
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Initial mode is CC
+      expect(session.getState().mode).toBe('CC');
+
+      // Attempt to set mode - should fail
+      await expect(session.setMode('CV')).rejects.toThrow('Hardware error');
+
+      // Mode should be reverted back to CC
+      expect(session.getState().mode).toBe('CC');
+
+      // Should have broadcast the rollback
+      const modeNotifications = notifications.filter(n => n.field === 'mode');
+      expect(modeNotifications.length).toBe(2); // Optimistic + rollback
+      expect(modeNotifications[0].value).toBe('CV'); // Optimistic
+      expect(modeNotifications[1].value).toBe('CC'); // Rollback
+    });
+
+    it('should rollback setOutput on failure', async () => {
+      const driver = createMockDriver({
+        setOutputImpl: async () => {
+          throw new Error('Hardware error');
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Initial output is false
+      expect(session.getState().outputEnabled).toBe(false);
+
+      // Attempt to enable output - should fail
+      await expect(session.setOutput(true)).rejects.toThrow('Hardware error');
+
+      // Output should be reverted back to false
+      expect(session.getState().outputEnabled).toBe(false);
+
+      // Should have broadcast the rollback
+      const outputNotifications = notifications.filter(n => n.field === 'outputEnabled');
+      expect(outputNotifications.length).toBe(2); // Optimistic + rollback
+      expect(outputNotifications[0].value).toBe(true); // Optimistic
+      expect(outputNotifications[1].value).toBe(false); // Rollback
+    });
+  });
 });

@@ -36,7 +36,7 @@ export interface DeviceSession {
   setMode(mode: string): Promise<void>;
   setOutput(enabled: boolean): Promise<void>;
   setValue(name: string, value: number, immediate?: boolean): Promise<void>;
-  reconnect(newDriver: DeviceDriver): void;
+  reconnect(newDriver: DeviceDriver): Promise<void>;
   stop(): void;
 }
 
@@ -80,6 +80,7 @@ export function createDeviceSession(
   // Polling control
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let isRunning = true;
+  let pollInProgress: Promise<void> | null = null;
 
   // Debounce state for setValue
   const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout> }>();
@@ -130,8 +131,8 @@ export function createDeviceSession(
     trimHistory();
   }
 
-  // Poll the device
-  async function poll(): Promise<void> {
+  // Internal poll implementation
+  async function doPoll(): Promise<void> {
     if (!isRunning) return;
 
     try {
@@ -235,8 +236,25 @@ export function createDeviceSession(
     }
   }
 
+  // Poll wrapper that tracks when poll is in progress
+  function poll(): void {
+    pollInProgress = doPoll().finally(() => {
+      pollInProgress = null;
+    });
+  }
+
+  // Wait for any in-flight poll to complete
+  async function waitForPoll(): Promise<void> {
+    if (pollInProgress) {
+      await pollInProgress;
+    }
+  }
+
   // Actions
   async function setModeAction(newMode: string): Promise<void> {
+    // Save old value for rollback
+    const oldMode = mode;
+
     // Optimistic update - notify before hardware execution
     mode = newMode;
     broadcast({
@@ -250,12 +268,22 @@ export function createDeviceSession(
       await driver.setMode(newMode);
     } catch (err) {
       console.error('setMode error:', err);
-      // Could broadcast correction here if needed
+      // Rollback to previous value
+      mode = oldMode;
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'mode',
+        value: oldMode,
+      });
       throw err;
     }
   }
 
   async function setOutputAction(enabled: boolean): Promise<void> {
+    // Save old value for rollback
+    const oldEnabled = outputEnabled;
+
     // Optimistic update
     outputEnabled = enabled;
     broadcast({
@@ -269,6 +297,14 @@ export function createDeviceSession(
       await driver.setOutput(enabled);
     } catch (err) {
       console.error('setOutput error:', err);
+      // Rollback to previous value
+      outputEnabled = oldEnabled;
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'outputEnabled',
+        value: oldEnabled,
+      });
       throw err;
     }
   }
@@ -377,8 +413,11 @@ export function createDeviceSession(
     pendingValues.set(name, { value, timer });
   }
 
-  function reconnect(newDriver: DeviceDriver): void {
+  async function reconnect(newDriver: DeviceDriver): Promise<void> {
     console.log(`[Session] reconnect() called for ${newDriver.info.id}, pollTimer=${!!pollTimer}, isRunning=${isRunning}`);
+
+    // Wait for any in-flight poll to complete before swapping driver
+    await waitForPoll();
 
     // Replace driver with fresh one
     driver = newDriver;
@@ -418,6 +457,9 @@ export function createDeviceSession(
   }
 
   function getState(): DeviceSessionState {
+    // Note: We return direct references instead of copying since this data
+    // is immediately serialized to JSON for WebSocket transmission.
+    // Callers should not mutate the returned object.
     return {
       info: driver.info,
       capabilities: driver.capabilities,
@@ -425,16 +467,10 @@ export function createDeviceSession(
       consecutiveErrors,
       mode,
       outputEnabled,
-      setpoints: { ...setpoints },
-      measurements: { ...measurements },
+      setpoints,
+      measurements,
       listRunning,
-      history: {
-        timestamps: [...history.timestamps],
-        voltage: [...history.voltage],
-        current: [...history.current],
-        power: [...history.power],
-        resistance: history.resistance ? [...history.resistance] : undefined,
-      },
+      history,
       lastUpdated,
     };
   }

@@ -11,10 +11,11 @@ export interface SerialConfig {
   path: string;
   baudRate: number;
   commandDelay?: number;  // ms delay between commands (default: 50)
+  timeout?: number;       // query timeout in ms (default: 2000)
 }
 
 export function createSerialTransport(config: SerialConfig): Transport {
-  const { path, baudRate, commandDelay = 50 } = config;
+  const { path, baudRate, commandDelay = 50, timeout = 2000 } = config;
 
   let port: SerialPort | null = null;
   let parser: ReadlineParser | null = null;
@@ -76,23 +77,28 @@ export function createSerialTransport(config: SerialConfig): Transport {
     async close(): Promise<void> {
       if (!port) return;
 
-      // Remove all listeners from parser and port before closing
-      if (parser) {
-        parser.removeAllListeners();
-      }
-      port.removeAllListeners();
+      // Acquire lock to wait for any in-flight operations
+      await withLock(async () => {
+        // Remove all listeners from parser and port before closing
+        if (parser) {
+          parser.removeAllListeners();
+        }
+        if (port) {
+          port.removeAllListeners();
+        }
 
-      if (opened && !disconnected) {
-        await new Promise<void>((resolve) => {
-          port!.close(() => resolve());
-        });
-      }
+        if (opened && !disconnected && port) {
+          await new Promise<void>((resolve) => {
+            port!.close(() => resolve());
+          });
+        }
 
-      port = null;
-      parser = null;
-      opened = false;
-      disconnected = false;
-      disconnectError = null;
+        port = null;
+        parser = null;
+        opened = false;
+        disconnected = false;
+        disconnectError = null;
+      });
     },
 
     async query(cmd: string): Promise<string> {
@@ -107,10 +113,12 @@ export function createSerialTransport(config: SerialConfig): Transport {
         const result = await new Promise<string>((resolve, reject) => {
           let settled = false;
 
+          let timeoutId: ReturnType<typeof setTimeout>;
+
           const cleanup = () => {
             if (!settled) {
               settled = true;
-              clearTimeout(timeout);
+              clearTimeout(timeoutId);
               parser?.removeListener('data', onData);
             }
           };
@@ -120,10 +128,10 @@ export function createSerialTransport(config: SerialConfig): Transport {
             resolve(data.trim());
           };
 
-          const timeout = setTimeout(() => {
+          timeoutId = setTimeout(() => {
             cleanup();
             reject(new Error(`Timeout waiting for response to: ${cmd}`));
-          }, 2000);
+          }, timeout);
 
           parser!.once('data', onData);
 

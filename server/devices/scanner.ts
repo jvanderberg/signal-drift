@@ -4,14 +4,92 @@
  *
  * - First discovery: creates new device and session
  * - Reconnection: creates new transport/driver for existing disconnected session
+ * - Uses mutex to prevent concurrent scans
  */
 
 import usb from 'usb';
 import { SerialPort } from 'serialport';
 import type { DeviceRegistry } from './registry.js';
 import type { SessionManager } from '../sessions/SessionManager.js';
+import type { DriverRegistration, SerialOptions } from './types.js';
 import { createUSBTMCTransport } from './transports/usbtmc.js';
-import { createSerialTransport } from './transports/serial.js';
+import { createSerialTransport, SerialConfig } from './transports/serial.js';
+
+// Default baud rates to try during auto-detection (most common first)
+const DEFAULT_BAUD_RATES = [115200, 9600, 57600, 38400, 19200];
+
+/**
+ * Try to probe a serial device at different baud rates
+ * Returns the working config or null if none work
+ */
+async function autoDetectSerialConfig(
+  portPath: string,
+  registration: DriverRegistration
+): Promise<SerialConfig | null> {
+  const serialOpts = registration.serialOptions ?? {};
+  const baudRates = serialOpts.baudRates ?? DEFAULT_BAUD_RATES;
+  const commandDelay = serialOpts.commandDelay ?? 50;
+  const timeout = serialOpts.timeout ?? 2000;
+
+  // If a specific baud rate is set, only try that one
+  if (serialOpts.baudRate) {
+    return {
+      path: portPath,
+      baudRate: serialOpts.baudRate,
+      commandDelay,
+      timeout,
+    };
+  }
+
+  // Try each baud rate
+  for (const baudRate of baudRates) {
+    const config: SerialConfig = {
+      path: portPath,
+      baudRate,
+      commandDelay,
+      timeout: 500, // Use shorter timeout during detection
+    };
+
+    const transport = createSerialTransport(config);
+    const driver = registration.create(transport);
+
+    try {
+      await transport.open();
+      const success = await driver.probe();
+      await transport.close();
+
+      if (success) {
+        console.log(`[Scanner] Auto-detected baud rate ${baudRate} for ${portPath}`);
+        return { ...config, timeout }; // Return with normal timeout
+      }
+    } catch {
+      try {
+        await transport.close();
+      } catch {
+        // Ignore close errors
+      }
+    }
+  }
+
+  return null;
+}
+
+// Mutex to prevent concurrent scans
+let scanLock: Promise<void> = Promise.resolve();
+
+async function withScanLock<T>(fn: () => Promise<T>): Promise<T> {
+  const previousLock = scanLock;
+  let releaseLock: () => void;
+  scanLock = new Promise<void>(resolve => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+  try {
+    return await fn();
+  } finally {
+    releaseLock!();
+  }
+}
 
 export interface ScanResult {
   found: number;
@@ -29,15 +107,17 @@ export async function scanDevices(
   registry: DeviceRegistry,
   sessionManager?: SessionManager
 ): Promise<ScanResult> {
-  const result: ScanResult = {
-    found: 0,
-    added: 0,
-    reconnected: 0,
-    devices: [],
-  };
+  // Use lock to prevent concurrent scans
+  return withScanLock(async () => {
+    const result: ScanResult = {
+      found: 0,
+      added: 0,
+      reconnected: 0,
+      devices: [],
+    };
 
-  // Get existing sessions to check for disconnected devices that need reconnection
-  const existingDevices = registry.getDevices();
+    // Get existing sessions to check for disconnected devices that need reconnection
+    const existingDevices = registry.getDevices();
 
   // Scan USB-TMC devices
   const usbDevices = usb.getDeviceList();
@@ -137,12 +217,17 @@ export async function scanDevices(
           // Check if session is disconnected and needs reconnection
           if (sessionManager?.isSessionDisconnected(existing.info.id)) {
             try {
+              // On macOS, use cu. instead of tty. for outgoing connections
               const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
-              const transport = createSerialTransport({
-                path: portPath,
-                baudRate: 115200,
-                commandDelay: 50,
-              });
+
+              // Use driver-specific serial config or auto-detect
+              const serialConfig = await autoDetectSerialConfig(portPath, registration);
+              if (!serialConfig) {
+                console.error(`[Scanner] No working baud rate found for ${portPath}`);
+                continue;
+              }
+
+              const transport = createSerialTransport(serialConfig);
               const driver = registration.create(transport);
 
               await transport.open();
@@ -174,33 +259,34 @@ export async function scanDevices(
           // On macOS, use cu. instead of tty. for outgoing connections
           const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
 
-          const transport = createSerialTransport({
-            path: portPath,
-            baudRate: 115200,  // Recommended for Matrix PSU polling
-            commandDelay: 50,
-          });
+          // Use driver-specific serial config or auto-detect
+          const serialConfig = await autoDetectSerialConfig(portPath, registration);
+          if (!serialConfig) {
+            console.log(`[Scanner] No working baud rate found for ${portPath}, skipping`);
+            continue;
+          }
+
+          // Create transport with detected config (auto-detect already verified it works)
+          const transport = createSerialTransport(serialConfig);
           const driver = registration.create(transport);
 
           await transport.open();
-          const probeSuccess = await driver.probe();
+          // Probe to populate driver info (like serial number)
+          await driver.probe();
 
-          if (probeSuccess) {
-            // Keep transport open for use
-            registry.addDevice(driver);
-            result.devices.push({
-              id: driver.info.id,
-              type: driver.info.type,
-              manufacturer: driver.info.manufacturer,
-              model: driver.info.model,
-            });
-            result.found++;
-            result.added++;
-            console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
-          } else {
-            await transport.close();
-          }
+          // Keep transport open for use
+          registry.addDevice(driver);
+          result.devices.push({
+            id: driver.info.id,
+            type: driver.info.type,
+            manufacturer: driver.info.manufacturer,
+            model: driver.info.model,
+          });
+          result.found++;
+          result.added++;
+          console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model}) @ ${serialConfig.baudRate} baud`);
         } catch (err) {
-          console.error(`Failed to probe serial port ${port.path}:`, err);
+          console.error(`Failed to connect serial port ${port.path}:`, err);
         }
       }
     }
@@ -208,5 +294,6 @@ export async function scanDevices(
     console.error('Failed to list serial ports:', err);
   }
 
-  return result;
+    return result;
+  });
 }

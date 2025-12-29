@@ -32,10 +32,16 @@ registry.registerDriver({
 });
 
 // Register Matrix WPS300S (Serial)
+// Uses USB-serial adapter (CH340), requires 50ms command delay
 registry.registerDriver({
   create: createMatrixWPS300S,
   transportType: 'serial',
   match: { pathPattern: /usbserial/i },
+  serialOptions: {
+    baudRate: 115200,      // Known baud rate for Matrix PSU
+    commandDelay: 50,      // Required delay between commands
+    timeout: 2000,
+  },
 });
 
 // Create Express app

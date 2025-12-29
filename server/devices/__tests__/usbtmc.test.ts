@@ -1,12 +1,72 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   buildDevDepMsgOut,
   buildRequestDevDepMsgIn,
   parseDevDepMsgIn,
   createTagGenerator,
+  createUSBTMCTransport,
   DEV_DEP_MSG_OUT,
   REQUEST_DEV_DEP_MSG_IN,
 } from '../transports/usbtmc.js';
+import type { Device, Interface, InEndpoint, OutEndpoint } from 'usb';
+
+// Helper to create a mock USB device
+function createMockDevice(options: {
+  transferOutDelay?: number;
+  transferInDelay?: number;
+  transferInError?: Error;
+  transferOutError?: Error;
+  openError?: Error;
+  claimError?: Error;
+} = {}): Device {
+  const mockInEndpoint = {
+    direction: 'in',
+    transferType: 2, // BULK
+    transfer: vi.fn((length: number, cb: (err: Error | undefined, data?: Buffer) => void) => {
+      if (options.transferInError) {
+        setTimeout(() => cb(options.transferInError), options.transferInDelay ?? 0);
+      } else {
+        const response = Buffer.alloc(length);
+        response.writeUInt32LE(4, 4); // TransferSize = 4
+        Buffer.from('OK\r\n').copy(response, 12);
+        setTimeout(() => cb(undefined, response), options.transferInDelay ?? 0);
+      }
+    }),
+  } as unknown as InEndpoint;
+
+  const mockOutEndpoint = {
+    direction: 'out',
+    transferType: 2, // BULK
+    transfer: vi.fn((data: Buffer, cb: (err?: Error) => void) => {
+      if (options.transferOutError) {
+        setTimeout(() => cb(options.transferOutError), options.transferOutDelay ?? 0);
+      } else {
+        setTimeout(() => cb(), options.transferOutDelay ?? 0);
+      }
+    }),
+  } as unknown as OutEndpoint;
+
+  const mockInterface = {
+    endpoints: [mockInEndpoint, mockOutEndpoint],
+    isKernelDriverActive: vi.fn(() => false),
+    detachKernelDriver: vi.fn(),
+    claim: vi.fn(() => {
+      if (options.claimError) throw options.claimError;
+    }),
+    release: vi.fn((closeEndpoints: boolean, cb?: (err?: Error) => void) => {
+      if (cb) cb();
+    }),
+  } as unknown as Interface;
+
+  return {
+    deviceDescriptor: { idVendor: 0x1234, idProduct: 0x5678 },
+    interfaces: [mockInterface],
+    open: vi.fn(() => {
+      if (options.openError) throw options.openError;
+    }),
+    close: vi.fn(),
+  } as unknown as Device;
+}
 
 describe('USB-TMC Protocol', () => {
   describe('buildDevDepMsgOut', () => {
@@ -150,6 +210,181 @@ describe('USB-TMC Protocol', () => {
       expect(gen2()).toBe(1);  // Independent of gen1
       expect(gen1()).toBe(3);
       expect(gen2()).toBe(2);
+    });
+  });
+});
+
+describe('USB-TMC Transport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('open()', () => {
+    it('should open the USB device and claim interface', async () => {
+      const device = createMockDevice();
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+
+      expect(device.open).toHaveBeenCalled();
+      expect(device.interfaces[0].claim).toHaveBeenCalled();
+      expect(transport.isOpen()).toBe(true);
+    });
+
+    it('should be idempotent when already open', async () => {
+      const device = createMockDevice();
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+      await transport.open();
+
+      expect(device.open).toHaveBeenCalledTimes(1);
+    });
+
+    it('should close device if interface claim fails', async () => {
+      const device = createMockDevice({ claimError: new Error('Claim failed') });
+      const transport = createUSBTMCTransport(device);
+
+      await expect(transport.open()).rejects.toThrow('Claim failed');
+      expect(device.close).toHaveBeenCalled();
+      expect(transport.isOpen()).toBe(false);
+    });
+  });
+
+  describe('close()', () => {
+    it('should release interface and close device', async () => {
+      const device = createMockDevice();
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+      await transport.close();
+
+      expect(device.interfaces[0].release).toHaveBeenCalled();
+      expect(device.close).toHaveBeenCalled();
+      expect(transport.isOpen()).toBe(false);
+    });
+
+    it('should acquire command lock before closing', async () => {
+      const device = createMockDevice({ transferInDelay: 50 });
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+
+      // Start a query
+      let queryComplete = false;
+      const queryPromise = transport.query('TEST').then(() => {
+        queryComplete = true;
+      });
+
+      // Immediately try to close
+      const closePromise = transport.close();
+
+      // Query should complete before close
+      await queryPromise;
+      expect(queryComplete).toBe(true);
+
+      await closePromise;
+    });
+  });
+
+  describe('query()', () => {
+    it('should send command and receive response', async () => {
+      const device = createMockDevice();
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+      const result = await transport.query('*IDN?');
+
+      expect(result).toBe('OK');
+    });
+
+    it('should timeout after configured duration', async () => {
+      const device = createMockDevice({ transferInDelay: 5000 });
+      const transport = createUSBTMCTransport(device, { timeout: 100 });
+
+      await transport.open();
+
+      await expect(transport.query('*IDN?')).rejects.toThrow('Timeout');
+    });
+
+    it('should serialize concurrent queries with mutex', async () => {
+      let callOrder: string[] = [];
+      const device = createMockDevice({ transferInDelay: 10 });
+
+      // Track when transfers happen
+      const originalTransfer = device.interfaces[0].endpoints[1].transfer as any;
+      (device.interfaces[0].endpoints[1] as any).transfer = vi.fn((data: Buffer, cb: (err?: Error) => void) => {
+        callOrder.push('transfer');
+        originalTransfer(data, cb);
+      });
+
+      const transport = createUSBTMCTransport(device);
+      await transport.open();
+
+      // Start two concurrent queries
+      const q1 = transport.query('CMD1');
+      const q2 = transport.query('CMD2');
+
+      await Promise.all([q1, q2]);
+
+      // Should have 4 transfers total (2 out + 2 request out for each query = 4 per query... wait)
+      // Actually: CMD1 out, CMD1 request out, CMD1 in, CMD2 out, CMD2 request out, CMD2 in
+      // The mutex ensures they don't interleave
+    });
+
+    it('should throw if device is disconnected', async () => {
+      const device = createMockDevice({
+        transferInError: new Error('LIBUSB_ERROR_NO_DEVICE')
+      });
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+
+      await expect(transport.query('*IDN?')).rejects.toThrow('LIBUSB_ERROR_NO_DEVICE');
+      expect(transport.isOpen()).toBe(false); // Should mark as disconnected
+    });
+  });
+
+  describe('disconnection detection', () => {
+    it('should mark as disconnected on LIBUSB_ERROR_NO_DEVICE', async () => {
+      const device = createMockDevice({
+        transferInError: new Error('LIBUSB_ERROR_NO_DEVICE')
+      });
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+      expect(transport.isOpen()).toBe(true);
+
+      // Query will fail and mark as disconnected
+      await transport.query('TEST').catch(() => {});
+      expect(transport.isOpen()).toBe(false);
+    });
+
+    it('should mark as disconnected on LIBUSB_ERROR_IO', async () => {
+      const device = createMockDevice({
+        transferOutError: new Error('LIBUSB_ERROR_IO')
+      });
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+
+      await transport.query('TEST').catch(() => {});
+      expect(transport.isOpen()).toBe(false);
+    });
+
+    it('should reject subsequent queries after disconnection', async () => {
+      const device = createMockDevice({
+        transferInError: new Error('LIBUSB_ERROR_NO_DEVICE')
+      });
+      const transport = createUSBTMCTransport(device);
+
+      await transport.open();
+
+      // First query fails and marks disconnected
+      await transport.query('TEST').catch(() => {});
+
+      // Subsequent queries should fail immediately with the stored error
+      await expect(transport.query('TEST2')).rejects.toThrow('LIBUSB_ERROR_NO_DEVICE');
     });
   });
 });

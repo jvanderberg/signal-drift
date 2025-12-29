@@ -21,6 +21,7 @@ describe('Rigol DL3021 Driver', () => {
         ':MEAS:CURR?': '1.234',
         ':MEAS:POW?': '15.234',
         ':MEAS:RES?': '10.0',
+        ':SYST:ERR?': '0,No error',
       },
     });
     driver = createRigolDL3021(transport);
