@@ -142,9 +142,10 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
       {isConnected && status && (
         <>
           {/* Chart + Live Data in responsive row */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 h-[320px]">
-            <div className="flex flex-col lg:flex-row gap-3 h-full">
-              <div className="flex-1 min-w-0 h-full">
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+            <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+              {/* Chart - fixed height */}
+              <div className="min-w-0 h-[280px] lg:flex-1">
                 <LiveChart
                   history={history}
                   capabilities={device.capabilities}
@@ -153,10 +154,16 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                   onHistoryWindowChange={handleHistoryWindowChange}
                 />
               </div>
-              <div className="lg:w-48 shrink-0">
+              {/* Status readings - beside chart on large screens only */}
+              <div className="hidden lg:block lg:w-48 shrink-0">
                 <StatusReadings status={status} capabilities={device.capabilities} />
               </div>
             </div>
+          </div>
+
+          {/* Status readings - compact row on small screens only */}
+          <div className="lg:hidden bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
+            <StatusReadings status={status} capabilities={device.capabilities} />
           </div>
 
           {/* Output + Setpoint Controls */}

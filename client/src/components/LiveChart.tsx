@@ -159,8 +159,20 @@ export function LiveChart({
     });
 
   // Build setpoint reference lines (horizontal lines at setpoint value)
+  // Only show setpoints that are relevant to the current mode
   const setpointDatasets = Object.entries(status.setpoints)
-    .filter(([name]) => isVisible(name))
+    .filter(([name]) => {
+      if (!isVisible(name)) return false;
+
+      // Check if this setpoint is associated with a specific mode
+      const output = capabilities.outputs.find(o => o.name === name);
+      if (output?.modes) {
+        // Only show if current mode matches
+        return output.modes.includes(status.mode);
+      }
+      // No mode restriction (e.g., PSU outputs) - always show
+      return true;
+    })
     .map(([name, value]) => {
       const setpointValues = filteredHistory.timestamps.map(() => value);
 

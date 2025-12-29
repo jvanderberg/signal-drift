@@ -107,21 +107,16 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
       const inputResp = await transport.query(':SOUR:INP:STAT?');
       const outputEnabled = inputResp.includes('ON') || inputResp === '1';
 
-      // Query setpoints based on mode
+      // Query all setpoints (so client has them when switching modes)
       const setpoints: Record<string, number> = {};
-      if (mode === 'CC') {
-        const curr = await transport.query(':SOUR:CURR:LEV?');
-        setpoints.current = parseFloat(curr);
-      } else if (mode === 'CV') {
-        const volt = await transport.query(':SOUR:VOLT:LEV?');
-        setpoints.voltage = parseFloat(volt);
-      } else if (mode === 'CR') {
-        const res = await transport.query(':SOUR:RES:LEV?');
-        setpoints.resistance = parseFloat(res);
-      } else if (mode === 'CP') {
-        const pow = await transport.query(':SOUR:POW:LEV?');
-        setpoints.power = parseFloat(pow);
-      }
+      const currResp = await transport.query(':SOUR:CURR:LEV?');
+      setpoints.current = parseFloat(currResp);
+      const voltResp = await transport.query(':SOUR:VOLT:LEV?');
+      setpoints.voltage = parseFloat(voltResp);
+      const resResp = await transport.query(':SOUR:RES:LEV?');
+      setpoints.resistance = parseFloat(resResp);
+      const powResp = await transport.query(':SOUR:POW:LEV?');
+      setpoints.power = parseFloat(powResp);
 
       // Query measurements
       const measurements: Record<string, number> = {};
