@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Device } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
@@ -7,6 +7,7 @@ import { StatsBar } from './StatsBar';
 import { StreamingControls } from './StreamingControls';
 import { TriggerSettings } from './TriggerSettings';
 import { ChannelSettings } from './ChannelSettings';
+import { TimebaseControls } from './TimebaseControls';
 
 interface OscilloscopePanelProps {
   device: Device;
@@ -40,6 +41,7 @@ const MEASUREMENT_INFO: Record<string, { desc: string; unit: string }> = {
 export function OscilloscopePanel({ device, onClose, onError, onSuccess }: OscilloscopePanelProps) {
   const {
     state,
+    connectionState,
     isSubscribed,
     error,
     waveform,
@@ -62,8 +64,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     setChannelCoupling,
     setChannelProbe,
     setChannelBwLimit,
-    // setTimebaseScale, // Not used in UI yet
-    // setTimebaseOffset, // Not used in UI yet
+    setTimebaseScale,
     setTriggerSource,
     setTriggerLevel,
     setTriggerEdge,
@@ -79,6 +80,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const [enabledChannels, setEnabledChannels] = useState<string[]>(['CHAN1']);
   const [showMeasurementPicker, setShowMeasurementPicker] = useState(false);
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedHeight, setExpandedHeight] = useState(500);
+  const waveformContainerRef = useRef<HTMLDivElement>(null);
 
   // Load selected measurements from localStorage
   const [selectedMeasurements, setSelectedMeasurements] = useState<string[]>(() => {
@@ -141,6 +145,20 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     }
   }, [state?.status?.channels]);
 
+  // Calculate available height when expanded
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const updateHeight = () => {
+      // Use viewport height minus space for header and margins
+      setExpandedHeight(Math.max(400, window.innerHeight - 200));
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, [isExpanded]);
+
   const handleRun = () => run();
   const handleStop = () => stop();
   const handleSingle = () => single();
@@ -190,8 +208,13 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     setTriggerLevel(level);
   };
 
-  const isConnected = isSubscribed && state !== null;
-  const deviceConnectionStatus = state?.connectionStatus ?? 'disconnected';
+  // Show UI if we have state data (even if stale)
+  const hasState = state !== null;
+  // Show disconnected if websocket is down, otherwise show device status
+  const wsConnected = connectionState === 'connected';
+  const deviceConnectionStatus = wsConnected
+    ? (state?.connectionStatus ?? 'disconnected')
+    : 'disconnected';
   const status = state?.status;
 
   // Channel buttons based on capabilities
@@ -223,73 +246,108 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
       />
 
       {/* Status & Controls - only when connected */}
-      {isConnected && (
+      {hasState && (
         <>
-          {/* Streaming Controls Bar */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
-            <StreamingControls
-              isStreaming={isStreaming}
-              scopeRunning={status?.running ?? false}
-              channels={channels}
-              enabledChannels={enabledChannels}
-              intervalMs={enabledChannels.length > 1 ? 350 : 200}
-              onStreamingToggle={handleStreamingToggle}
-              onChannelToggle={handleChannelToggle}
-            />
-          </div>
+          {/* Controls hidden when expanded */}
+          {!isExpanded && (
+            <>
+              {/* Streaming Controls Bar */}
+              <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
+                <StreamingControls
+                  isStreaming={isStreaming}
+                  scopeRunning={status?.running ?? false}
+                  channels={channels}
+                  enabledChannels={enabledChannels}
+                  intervalMs={enabledChannels.length > 1 ? 350 : 200}
+                  onStreamingToggle={handleStreamingToggle}
+                  onChannelToggle={handleChannelToggle}
+                />
+              </div>
 
-          {/* Run/Stop Controls */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-success)] text-white hover:opacity-90"
-                onClick={handleRun}
-              >
-                Run
-              </button>
-              <button
-                className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-danger)] text-white hover:opacity-90"
-                onClick={handleStop}
-              >
-                Stop
-              </button>
-              <button
-                className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
-                onClick={handleSingle}
-              >
-                Single
-              </button>
-              <button
-                className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
-                onClick={handleAutoSetup}
-              >
-                Auto
-              </button>
-              <div className="flex-1" />
-              <div className="flex items-center gap-2">
-                <span className={`status-dot ${status?.running ? 'connected' : 'disconnected'}`} />
-                <span className="text-sm font-medium">
-                  {status?.running ? 'Running' : 'Stopped'}
-                </span>
-                {status?.triggerStatus && (
-                  <span className="text-xs text-[var(--color-text-muted)] uppercase ml-2">
-                    {status.triggerStatus}
+              {/* Run/Stop Controls */}
+            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-success)] text-white hover:opacity-90"
+                  onClick={handleRun}
+                >
+                  Run
+                </button>
+                <button
+                  className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-danger)] text-white hover:opacity-90"
+                  onClick={handleStop}
+                >
+                  Stop
+                </button>
+                <button
+                  className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
+                  onClick={handleSingle}
+                >
+                  Single
+                </button>
+                <button
+                  className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
+                  onClick={handleAutoSetup}
+                >
+                  Auto
+                </button>
+                <div className="flex-1" />
+                <div className="flex items-center gap-2">
+                  <span className={`status-dot ${status?.running ? 'connected' : 'disconnected'}`} />
+                  <span className="text-sm font-medium">
+                    {status?.running ? 'Running' : 'Stopped'}
                   </span>
-                )}
+                  {status?.triggerStatus && (
+                    <span className="text-xs text-[var(--color-text-muted)] uppercase ml-2">
+                      {status.triggerStatus}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+            </>
+          )}
 
           {/* Waveform Display with integrated trigger drag */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 relative">
+          <div
+            ref={waveformContainerRef}
+            className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 relative"
+          >
             <WaveformDisplay
               waveforms={displayWaveforms}
               waveform={displayWaveforms[0]}
               triggerLevel={triggerLevel}
               onTriggerLevelChange={handleTriggerLevelChange}
               showGrid={true}
-              height={300}
+              height={isExpanded ? expandedHeight : 300}
             />
+
+            {/* Timebase controls - top center overlay */}
+            {!isExpanded && status?.timebase && (
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
+                <TimebaseControls
+                  currentScale={status.timebase.scale}
+                  onScaleChange={setTimebaseScale}
+                />
+              </div>
+            )}
+
+            {/* Expand/Collapse button */}
+            <button
+              className="absolute top-2 left-2 p-1.5 rounded bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-light)] transition-colors"
+              onClick={() => setIsExpanded(!isExpanded)}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              {isExpanded ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                </svg>
+              )}
+            </button>
 
             {/* Trigger settings button + popover container */}
             <div className="absolute top-2 right-2">
@@ -324,159 +382,144 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
           </div>
 
-          {/* Stats Bar - Measurements */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md mb-2 relative">
-            <div className="flex items-center">
-              <div className="flex-1">
-                <StatsBar measurements={filteredMeasurements} />
-              </div>
-              <button
-                className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] rounded transition-colors"
-                onClick={() => setShowMeasurementPicker(!showMeasurementPicker)}
-                title="Select measurements"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-              </button>
-            </div>
+          {/* Controls hidden when expanded */}
+          {!isExpanded && (
+            <>
+              {/* Stats Bar - Measurements */}
+              <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md mb-2">
+                <div className="flex items-center">
+                  <div className="flex-1">
+                    <StatsBar measurements={filteredMeasurements} />
+                  </div>
+                  <div className="relative">
+                    <button
+                      className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] rounded transition-colors"
+                      onClick={() => setShowMeasurementPicker(!showMeasurementPicker)}
+                      title="Select measurements"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </button>
 
-            {/* Measurement Picker Popover */}
-            {showMeasurementPicker && (
-              <div className="absolute right-0 top-full mt-1 z-20 bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md shadow-lg p-3 min-w-[200px]">
-                <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2 flex items-center justify-between">
-                  <span>Measurements</span>
-                  <button
-                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                    onClick={() => setShowMeasurementPicker(false)}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                    {/* Measurement Picker Popover */}
+                    {showMeasurementPicker && (
+                      <div className="absolute right-0 top-full mt-1 z-20 bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md shadow-lg p-3 min-w-[220px]">
+                        <div className="text-xs text-[var(--color-text-secondary)] uppercase tracking-wide mb-2 flex items-center justify-between">
+                          <span>Measurements</span>
+                          <button
+                            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                            onClick={() => setShowMeasurementPicker(false)}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5 max-h-[200px] overflow-y-auto">
+                          {supportedMeasurements.map((m) => {
+                            const info = MEASUREMENT_INFO[m];
+                            const tooltip = info ? `${info.desc} (${info.unit})` : m;
+                            const isSelected = selectedMeasurements.includes(m);
+                            return (
+                              <button
+                                key={m}
+                                title={tooltip}
+                                className={`px-2 py-1.5 text-xs font-medium rounded border transition-colors ${
+                                  isSelected
+                                    ? 'bg-[var(--color-accent-load)] border-[var(--color-accent-load)] text-white'
+                                    : 'bg-[var(--color-bg-panel)] border-[var(--color-border-dark)] text-[var(--color-text-secondary)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+                                }`}
+                                onClick={() => handleMeasurementToggle(m)}
+                              >
+                                {m}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1 max-h-[200px] overflow-y-auto">
-                  {supportedMeasurements.map((m) => {
-                    const info = MEASUREMENT_INFO[m];
-                    const tooltip = info ? `${info.desc} (${info.unit})` : m;
+              </div>
+
+              {/* Channel Settings */}
+              <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+                <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
+                  Channels
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {channels.map((ch) => {
+                    const chStatus = status?.channels?.[ch];
                     return (
-                      <button
-                        key={m}
-                        title={tooltip}
-                        className={`px-2 py-1 text-xs rounded transition-colors ${
-                          selectedMeasurements.includes(m)
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:bg-[var(--color-border-light)]'
-                        }`}
-                        onClick={() => handleMeasurementToggle(m)}
-                      >
-                        {m}
-                      </button>
+                      <div key={ch} className="relative">
+                        <button
+                          className={`px-3 py-1.5 text-xs font-medium rounded ${
+                            selectedChannel === ch
+                              ? 'bg-[var(--color-accent-load)] text-white'
+                              : 'bg-[var(--color-border-light)] text-[var(--color-text-primary)]'
+                          } hover:opacity-90`}
+                          onClick={() => {
+                            setSelectedChannel(ch);
+                            setShowChannelSettings(showChannelSettings === ch ? null : ch);
+                          }}
+                        >
+                          {ch.replace('CHAN', 'CH')}
+                          {chStatus && (
+                            <span className="ml-1 text-[10px] opacity-75">
+                              {formatVoltage(chStatus.scale)}/div
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Channel Settings Popover */}
+                        {showChannelSettings === ch && chStatus && (
+                          <div className="absolute top-full left-0 mt-1 z-10">
+                            <ChannelSettings
+                              channel={ch}
+                              currentScale={chStatus.scale}
+                              currentOffset={chStatus.offset}
+                              currentCoupling={chStatus.coupling as 'AC' | 'DC' | 'GND'}
+                              currentProbeRatio={chStatus.probe}
+                              currentBwLimit={chStatus.bwLimit}
+                              onScaleChange={(scale) => setChannelScale(ch, scale)}
+                              onOffsetChange={(offset) => setChannelOffset(ch, offset)}
+                              onCouplingChange={(coupling) => setChannelCoupling(ch, coupling)}
+                              onProbeRatioChange={(ratio) => setChannelProbe(ch, ratio)}
+                              onBwLimitChange={(enabled) => setChannelBwLimit(ch, enabled)}
+                              onClose={() => setShowChannelSettings(null)}
+                            />
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Channel Settings */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-              Channels
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {channels.map((ch) => {
-                const chStatus = status?.channels?.[ch];
-                return (
-                  <div key={ch} className="relative">
-                    <button
-                      className={`px-3 py-1.5 text-xs font-medium rounded ${
-                        selectedChannel === ch
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'bg-[var(--color-border-light)] text-[var(--color-text-primary)]'
-                      } hover:opacity-90`}
-                      onClick={() => {
-                        setSelectedChannel(ch);
-                        setShowChannelSettings(showChannelSettings === ch ? null : ch);
-                      }}
-                    >
-                      {ch.replace('CHAN', 'CH')}
-                      {chStatus && (
-                        <span className="ml-1 text-[10px] opacity-75">
-                          {formatVoltage(chStatus.scale)}/div
-                        </span>
-                      )}
-                    </button>
-
-                    {/* Channel Settings Popover */}
-                    {showChannelSettings === ch && chStatus && (
-                      <div className="absolute top-full left-0 mt-1 z-10">
-                        <ChannelSettings
-                          channel={ch}
-                          currentScale={chStatus.scale}
-                          currentOffset={chStatus.offset}
-                          currentCoupling={chStatus.coupling as 'AC' | 'DC' | 'GND'}
-                          currentProbeRatio={chStatus.probe}
-                          currentBwLimit={chStatus.bwLimit}
-                          onScaleChange={(scale) => setChannelScale(ch, scale)}
-                          onOffsetChange={(offset) => setChannelOffset(ch, offset)}
-                          onCouplingChange={(coupling) => setChannelCoupling(ch, coupling)}
-                          onProbeRatioChange={(ratio) => setChannelProbe(ch, ratio)}
-                          onBwLimitChange={(enabled) => setChannelBwLimit(ch, enabled)}
-                          onClose={() => setShowChannelSettings(null)}
-                        />
-                      </div>
-                    )}
+              {/* Screenshot */}
+              <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
+                    onClick={handleGetScreenshot}
+                    disabled={isLoadingScreenshot}
+                  >
+                    {isLoadingScreenshot ? 'Loading...' : 'Capture Screenshot'}
+                  </button>
+                </div>
+                {screenshot && (
+                  <div className="border border-[var(--color-border-dark)] rounded overflow-hidden">
+                    <img
+                      src={`data:image/png;base64,${screenshot}`}
+                      alt="Oscilloscope screenshot"
+                      className="w-full h-auto"
+                    />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Timebase Info */}
-          {status?.timebase && (
-            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-              <div className="text-xs text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-                Timebase
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Scale: </span>
-                  <span>{formatTime(status.timebase.scale)}/div</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Offset: </span>
-                  <span>{formatTime(status.timebase.offset)}</span>
-                </div>
-                <div>
-                  <span className="text-[var(--color-text-muted)]">Mode: </span>
-                  <span className="uppercase">{status.timebase.mode}</span>
-                </div>
-              </div>
-            </div>
+            </>
           )}
-
-          {/* Screenshot */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex items-center gap-2 mb-2">
-              <button
-                className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
-                onClick={handleGetScreenshot}
-                disabled={isLoadingScreenshot}
-              >
-                {isLoadingScreenshot ? 'Loading...' : 'Capture Screenshot'}
-              </button>
-            </div>
-            {screenshot && (
-              <div className="border border-[var(--color-border-dark)] rounded overflow-hidden">
-                <img
-                  src={`data:image/png;base64,${screenshot}`}
-                  alt="Oscilloscope screenshot"
-                  className="w-full h-auto"
-                />
-              </div>
-            )}
-          </div>
         </>
       )}
     </div>
@@ -490,9 +533,3 @@ function formatVoltage(v: number): string {
   return `${(v * 1e6).toFixed(0)} uV`;
 }
 
-function formatTime(t: number): string {
-  if (Math.abs(t) >= 1) return `${t.toFixed(2)} s`;
-  if (Math.abs(t) >= 0.001) return `${(t * 1000).toFixed(2)} ms`;
-  if (Math.abs(t) >= 1e-6) return `${(t * 1e6).toFixed(2)} us`;
-  return `${(t * 1e9).toFixed(1)} ns`;
-}

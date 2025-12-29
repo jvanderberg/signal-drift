@@ -39,6 +39,10 @@ export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
     // Set up connection state tracking
     const unsubscribeState = manager.onStateChange((newState) => {
       setConnectionState(newState);
+      // Re-subscribe when connection is restored
+      if (newState === 'connected' && isSubscribedRef.current) {
+        manager.send({ type: 'subscribe', deviceId });
+      }
     });
 
     // Set initial connection state

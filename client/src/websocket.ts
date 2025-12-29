@@ -30,7 +30,8 @@ export interface WebSocketManager {
 }
 
 const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
-  url: `ws://${window.location.hostname}:3001/ws`,
+  // Use relative URL to go through vite proxy (works for both dev and phone access)
+  url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
   maxReconnectDelay: 30000,
   initialReconnectDelay: 1000,
 };

@@ -112,9 +112,13 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   useEffect(() => {
     const manager = wsManager.current;
 
-    // Set up connection state tracking
+    // Set up connection state tracking and re-subscribe on reconnect
     const unsubscribeState = manager.onStateChange((newState) => {
       setConnectionState(newState);
+      // Re-subscribe when connection is restored
+      if (newState === 'connected' && isSubscribedRef.current) {
+        manager.send({ type: 'subscribe', deviceId });
+      }
     });
 
     // Set initial connection state

@@ -23,7 +23,7 @@ export function useDeviceList(): UseDeviceListResult {
     const wsManager = getWebSocketManager();
 
     // Handle incoming messages
-    const unsubscribe = wsManager.onMessage((message: ServerMessage) => {
+    const unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
       if (message.type === 'deviceList') {
         setDevices(message.devices);
         setIsLoading(false);
@@ -34,12 +34,20 @@ export function useDeviceList(): UseDeviceListResult {
       }
     });
 
+    // Re-request device list when connection is restored
+    const unsubscribeState = wsManager.onStateChange((state) => {
+      if (state === 'connected') {
+        wsManager.send({ type: 'getDevices' });
+      }
+    });
+
     // Connect and request initial device list
     wsManager.connect();
     wsManager.send({ type: 'getDevices' });
 
     return () => {
-      unsubscribe();
+      unsubscribeMessage();
+      unsubscribeState();
     };
   }, []);
 

@@ -74,25 +74,25 @@ function App() {
 
       {/* Device Panels */}
       {openDevices.length > 0 && (
-        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
+        <div className="flex flex-wrap gap-4 items-start">
           {openDevices.map(device => (
-            device.info.type === 'oscilloscope' ? (
-              <OscilloscopePanel
-                key={device.id}
-                device={device}
-                onClose={() => handleDeviceClose(device.id)}
-                onError={error}
-                onSuccess={success}
-              />
-            ) : (
-              <DevicePanel
-                key={device.id}
-                device={device}
-                onClose={() => handleDeviceClose(device.id)}
-                onError={error}
-                onSuccess={success}
-              />
-            )
+            <div key={device.id} className="flex-1 basis-[calc(50%-0.5rem)] min-w-[420px]">
+              {device.info.type === 'oscilloscope' ? (
+                <OscilloscopePanel
+                  device={device}
+                  onClose={() => handleDeviceClose(device.id)}
+                  onError={error}
+                  onSuccess={success}
+                />
+              ) : (
+                <DevicePanel
+                  device={device}
+                  onClose={() => handleDeviceClose(device.id)}
+                  onError={error}
+                  onSuccess={success}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}

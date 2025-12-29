@@ -85,7 +85,8 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   const currentOutput = getCurrentOutput();
 
   // Determine if we're connected (either websocket connected or subscribed with state)
-  const isConnected = isSubscribed && state !== null;
+  // Show UI if we have state data (even if stale)
+  const hasState = state !== null;
 
   // Create status object compatible with existing components
   const status = state ? {
@@ -104,8 +105,11 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
     power: [],
   };
 
-  // Derive connection status from server state, falling back to disconnected
-  const deviceConnectionStatus = state?.connectionStatus ?? 'disconnected';
+  // Show disconnected if websocket is down, otherwise show device status
+  const wsConnected = connectionState === 'connected';
+  const deviceConnectionStatus = wsConnected
+    ? (state?.connectionStatus ?? 'disconnected')
+    : 'disconnected';
 
   return (
     <div>
@@ -117,7 +121,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
       />
 
       {/* Status & Controls - only when connected */}
-      {isConnected && status && (
+      {hasState && status && (
         <>
           {/* Chart + Live Data in responsive row */}
           <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">

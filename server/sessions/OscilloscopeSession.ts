@@ -107,6 +107,7 @@ export function createOscilloscopeSession(
   let streamingGeneration = 0;  // Increment when streaming restarts to cancel stale fetches
   let lastStatusPoll = 0;  // Track when we last polled status
   const STATUS_POLL_INTERVAL = 500;  // Poll status every 500ms during streaming
+  let autoStreamingStarted = false;  // Track if we've auto-started streaming
 
   // Default measurements to calculate from waveform data
   const DEFAULT_STREAMING_MEASUREMENTS = ['VPP', 'FREQ', 'VAVG'];
@@ -348,6 +349,28 @@ export function createOscilloscopeSession(
         field: 'oscilloscopeStatus',
         value: status,
       });
+
+      // Auto-start streaming on first successful status poll
+      if (!autoStreamingStarted && status?.channels) {
+        autoStreamingStarted = true;
+        const enabledChannels = Object.entries(status.channels)
+          .filter(([_, ch]) => ch.enabled)
+          .map(([name]) => name);
+
+        if (enabledChannels.length > 0) {
+          console.log(`[OscilloscopeSession] Auto-starting streaming for: ${enabledChannels.join(', ')}`);
+          streamingChannels = enabledChannels;
+          streamingMeasurements = [...DEFAULT_STREAMING_MEASUREMENTS];
+          streamingIntervalMs = enabledChannels.length > 1 ? 350 : 200;
+          // Stop polling, start streaming loop
+          if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+          }
+          runStreamingLoop();
+          return; // Don't schedule another poll - streaming handles it
+        }
+      }
     } catch (err) {
       consecutiveErrors++;
       lastUpdated = Date.now();
