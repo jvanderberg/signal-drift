@@ -37,7 +37,11 @@ lab-controller/
 │   │   │   └── useDeviceList.ts         # Device discovery via WebSocket
 │   │   └── components/
 │   │       ├── DevicePanel.tsx          # PSU/Load control panel
-│   │       └── OscilloscopePanel.tsx    # Oscilloscope control panel
+│   │       ├── OscilloscopePanel.tsx    # Oscilloscope control panel
+│   │       ├── WaveformDisplay.tsx      # SVG waveform renderer with trigger drag
+│   │       ├── TimebaseControls.tsx     # Compact +/- timebase scale controls
+│   │       ├── ChannelSettings.tsx      # Channel configuration popover
+│   │       └── TriggerSettings.tsx      # Trigger configuration popover
 │   └── vite.config.ts
 └── electron/            # Future
 ```
@@ -474,9 +478,11 @@ const SERIES_COLORS = {
 
 **OscilloscopeSession** (`server/sessions/OscilloscopeSession.ts`)
 - Specialized session for oscilloscopes (different from DeviceSession)
-- Slower status polling (500ms vs 250ms for PSU/Load)
-- On-demand waveform, measurement, and screenshot fetches
-- Broadcasts status updates to subscribers
+- **Auto-streaming**: Automatically starts streaming enabled channels on first status poll
+- Default measurements calculated locally from waveform data (VPP, FREQ, VAVG)
+- Streams continue regardless of subscriber count (like DeviceSession polling)
+- On reconnect, resumes streaming for previously active channels
+- On-demand screenshot fetches still available
 
 **SessionManager** (`server/sessions/SessionManager.ts`)
 - Creates and manages DeviceSession and OscilloscopeSession instances
@@ -494,8 +500,10 @@ const SERIES_COLORS = {
 
 **WebSocket Manager** (`client/src/websocket.ts`)
 - Singleton managing WebSocket connection
+- Uses Vite proxy (`/ws`) - works for both local dev and remote device access
 - Reconnection with exponential backoff (1s, 2s, 4s... max 30s)
 - Message queuing during reconnection
+- Hooks listen for connection state changes and re-subscribe automatically
 
 **useDeviceSocket Hook** (`client/src/hooks/useDeviceSocket.ts`)
 - For PSU/Load devices - dumb mirror of server state
@@ -509,7 +517,20 @@ const SERIES_COLORS = {
 
 **useDeviceList Hook** (`client/src/hooks/useDeviceList.ts`)
 - Device discovery via WebSocket
+- Re-requests device list on reconnect
 - Returns: devices, isLoading, error, refresh, scan
+
+### Connection Resilience
+
+When the WebSocket connection drops:
+
+1. **WebSocket Manager** detects disconnect and begins reconnection with exponential backoff
+2. **UI stays visible** - Panels show cached data with red "disconnected" status indicator
+3. **On reconnect**:
+   - `useDeviceList` re-requests device list
+   - `useDeviceSocket` and `useOscilloscopeSocket` re-subscribe to their devices
+   - Server resumes streaming (oscilloscope) or polling (PSU/Load) data
+4. **Status indicator** returns to green when fully reconnected
 
 ### Message Protocol
 
@@ -540,9 +561,14 @@ Client -> Server:
 - `scopeStop { deviceId }` - Stop acquisition
 - `scopeSingle { deviceId }` - Single trigger mode
 - `scopeAutoSetup { deviceId }` - Auto-configure for signal
-- `scopeGetWaveform { deviceId, channel }` - Request waveform data
-- `scopeGetMeasurement { deviceId, channel, measurementType }` - Request measurement
 - `scopeGetScreenshot { deviceId }` - Request screenshot
+- `scopeStartStreaming { deviceId, channels, intervalMs, measurements? }` - Start/restart streaming
+- `scopeStopStreaming { deviceId }` - Stop streaming
+- `scopeSetTimebaseScale { deviceId, scale }` - Set timebase
+- `scopeSetTriggerLevel { deviceId, level }` - Set trigger level
+- `scopeSetChannelEnabled { deviceId, channel, enabled }` - Enable/disable channel
+
+Note: Waveforms stream automatically on connection. `scopeStartStreaming` is used to change channels or measurements.
 
 ### Data Flow
 
