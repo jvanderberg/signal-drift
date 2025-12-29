@@ -102,6 +102,8 @@ export function createOscilloscopeSession(
   let streamingChannels: string[] = [];
   let streamingIntervalMs = 200;
   let isRunning = true;
+  let isFetching = false;  // Guard against concurrent fetches
+  let streamingGeneration = 0;  // Increment when streaming restarts to cancel stale fetches
 
   function broadcast(message: ServerMessage): void {
     for (const callback of subscribers.values()) {
@@ -188,52 +190,85 @@ export function createOscilloscopeSession(
     const minInterval = streamingChannels.length > 1 ? 350 : 200;
     const safeInterval = Math.max(streamingIntervalMs, minInterval);
 
+    // Capture current generation to detect if streaming was restarted
+    const myGeneration = streamingGeneration;
+
     async function fetchAndBroadcast() {
+      // Check if streaming was restarted (stale fetch)
+      if (myGeneration !== streamingGeneration) {
+        return;
+      }
+
       // Don't fetch if disconnected - reconnect will resume
       if (connectionStatus === 'disconnected') {
         streamingTimer = null;
         return;
       }
 
-      for (const channel of streamingChannels) {
-        try {
-          const waveform = await driver.getWaveform(channel);
-          broadcast({
-            type: 'scopeWaveform',
-            deviceId: driver.info.id,
-            channel,
-            waveform,
-          });
-          // Reset error count on success
-          if (consecutiveErrors > 0) {
-            consecutiveErrors = 0;
+      // Prevent concurrent fetches - if one is in progress, skip this iteration
+      if (isFetching) {
+        // Schedule retry after interval
+        if (streamingChannels.length > 0 && myGeneration === streamingGeneration) {
+          streamingTimer = setTimeout(fetchAndBroadcast, safeInterval);
+        }
+        return;
+      }
+
+      isFetching = true;
+      try {
+        // Capture channels at start of fetch to ensure consistency
+        const channelsToFetch = [...streamingChannels];
+
+        for (const channel of channelsToFetch) {
+          // Check if streaming was restarted mid-fetch
+          if (myGeneration !== streamingGeneration) {
+            return;
           }
-        } catch (err: any) {
-          // Check for fatal USB errors that indicate disconnection
-          const errorMsg = err?.message || String(err);
-          if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
-              errorMsg.includes('LIBUSB_ERROR_IO') ||
-              errorMsg.includes('LIBUSB_ERROR_PIPE')) {
-            consecutiveErrors++;
-            if (consecutiveErrors >= cfg.maxConsecutiveErrors) {
-              connectionStatus = 'disconnected';
+
+          try {
+            const waveform = await driver.getWaveform(channel);
+            // Double-check generation before broadcasting
+            if (myGeneration === streamingGeneration) {
               broadcast({
-                type: 'field',
+                type: 'scopeWaveform',
                 deviceId: driver.info.id,
-                field: 'connectionStatus',
-                value: 'disconnected',
+                channel,
+                waveform,
               });
-              console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
-              // Don't clear streamingChannels - reconnect will resume
-              streamingTimer = null;
-              return;
+            }
+            // Reset error count on success
+            if (consecutiveErrors > 0) {
+              consecutiveErrors = 0;
+            }
+          } catch (err: any) {
+            // Check for fatal USB errors that indicate disconnection
+            const errorMsg = err?.message || String(err);
+            if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
+                errorMsg.includes('LIBUSB_ERROR_IO') ||
+                errorMsg.includes('LIBUSB_ERROR_PIPE')) {
+              consecutiveErrors++;
+              if (consecutiveErrors >= cfg.maxConsecutiveErrors) {
+                connectionStatus = 'disconnected';
+                broadcast({
+                  type: 'field',
+                  deviceId: driver.info.id,
+                  field: 'connectionStatus',
+                  value: 'disconnected',
+                });
+                console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
+                // Don't clear streamingChannels - reconnect will resume
+                streamingTimer = null;
+                return;
+              }
             }
           }
         }
+      } finally {
+        isFetching = false;
       }
 
-      // Schedule next fetch if still streaming (we return early if disconnected)
-      if (streamingChannels.length > 0) {
+      // Schedule next fetch if still streaming and this generation is still active
+      if (streamingChannels.length > 0 && myGeneration === streamingGeneration) {
         streamingTimer = setTimeout(fetchAndBroadcast, safeInterval);
       }
     }
@@ -325,6 +360,19 @@ export function createOscilloscopeSession(
 
     async setTriggerLevel(level: number): Promise<void> {
       await driver.setTriggerLevel(level);
+      // Update local status and broadcast so clients see the change immediately
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, level },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setTriggerEdge(edge: string): Promise<void> {
@@ -350,6 +398,9 @@ export function createOscilloscopeSession(
 
     // Streaming
     async startStreaming(channels: string[], intervalMs: number): Promise<void> {
+      // Increment generation to invalidate any in-flight fetches
+      streamingGeneration++;
+
       // Stop existing streaming if any
       if (streamingTimer) {
         clearTimeout(streamingTimer);
@@ -368,6 +419,8 @@ export function createOscilloscopeSession(
     },
 
     async stopStreaming(): Promise<void> {
+      // Increment generation to invalidate any in-flight fetches
+      streamingGeneration++;
       streamingChannels = [];
       if (streamingTimer) {
         clearTimeout(streamingTimer);
@@ -396,6 +449,8 @@ export function createOscilloscopeSession(
       // Resume streaming if we were streaming before disconnect
       if (streamingChannels.length > 0) {
         console.log(`[OscilloscopeSession] RECONNECTED, resuming streaming: ${driver.info.id}`);
+        // Increment generation to ensure clean start
+        streamingGeneration++;
         runStreamingLoop();
       } else if (!pollTimer && isRunning) {
         pollStatus();
@@ -404,6 +459,8 @@ export function createOscilloscopeSession(
 
     stopSession(): void {
       isRunning = false;
+      // Increment generation to invalidate any in-flight fetches
+      streamingGeneration++;
       streamingChannels = [];
       if (pollTimer) {
         clearTimeout(pollTimer);

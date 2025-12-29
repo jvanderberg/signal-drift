@@ -4,13 +4,13 @@
  * Features:
  * - Fit-to-data scaling (Y-axis auto-scales to waveform min/max)
  * - Multi-channel support with distinct colors
- * - Trigger level overlay
+ * - Draggable trigger level line
  * - Subtle grid option
  * - Responsive sizing with ResizeObserver
  * - Theme-aware colors via CSS variables
  */
 
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import type { WaveformData } from '../../../shared/types';
 
 // Channel colors via CSS variables (theme-aware)
@@ -30,6 +30,8 @@ export interface WaveformDisplayProps {
   waveforms?: WaveformData[];
   // Trigger level (voltage)
   triggerLevel?: number;
+  // Callback when trigger level is dragged
+  onTriggerLevelChange?: (level: number) => void;
   // Display options
   height?: number;
   showGrid?: boolean;
@@ -58,12 +60,31 @@ export function WaveformDisplay({
   waveform,
   waveforms: waveformsProp,
   triggerLevel,
+  onTriggerLevelChange,
   height = 300,
   showGrid = true,
   padding = { top: 20, right: 60, bottom: 30, left: 60 },
 }: WaveformDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(600);
+
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [localTriggerLevel, setLocalTriggerLevel] = useState(triggerLevel ?? 0);
+  const lastPropValue = useRef(triggerLevel);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Only sync from prop when it actually changes (server sent update)
+  // This prevents snap-back when releasing drag before server responds
+  useEffect(() => {
+    if (triggerLevel !== undefined && triggerLevel !== lastPropValue.current) {
+      lastPropValue.current = triggerLevel;
+      if (!isDragging) {
+        setLocalTriggerLevel(triggerLevel);
+      }
+    }
+  }, [triggerLevel, isDragging]);
 
   // Responsive width via ResizeObserver
   useEffect(() => {
@@ -144,10 +165,75 @@ export function WaveformDisplay({
     return padding.left + ((time - xMin) / (xMax - xMin)) * plotWidth;
   };
 
-  const scaleY = (value: number) => {
+  const scaleY = useCallback((value: number) => {
     // SVG Y is inverted (0 at top)
     return padding.top + plotHeight - ((value - yMin) / (yMax - yMin)) * plotHeight;
-  };
+  }, [padding.top, plotHeight, yMin, yMax]);
+
+  const unscaleY = useCallback((svgY: number) => {
+    // Convert SVG Y coordinate back to voltage
+    const fraction = (padding.top + plotHeight - svgY) / plotHeight;
+    return yMin + fraction * (yMax - yMin);
+  }, [padding.top, plotHeight, yMin, yMax]);
+
+  // Debounced update to scope
+  const sendUpdate = useCallback((voltage: number) => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      onTriggerLevelChange?.(voltage);
+    }, 300);
+  }, [onTriggerLevelChange]);
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  // Handle trigger drag
+  const handleTriggerMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!onTriggerLevelChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, [onTriggerLevelChange]);
+
+  // Global mouse move/up handlers for drag
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const svg = svgRef.current;
+      if (!svg) return;
+
+      const rect = svg.getBoundingClientRect();
+      const svgY = e.clientY - rect.top;
+
+      // Clamp to plot area
+      const clampedY = Math.max(padding.top, Math.min(padding.top + plotHeight, svgY));
+      const voltage = unscaleY(clampedY);
+
+      setLocalTriggerLevel(voltage);
+      sendUpdate(voltage);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, padding.top, plotHeight, unscaleY, sendUpdate]);
 
   // Generate path for a waveform
   const generatePath = (wf: WaveformData): string => {
@@ -218,28 +304,10 @@ export function WaveformDisplay({
     );
   }, [showGrid, plotWidth, plotHeight, padding]);
 
-  // Trigger level line
-  const triggerLine = useMemo(() => {
-    if (triggerLevel === undefined) return null;
-
-    const y = scaleY(triggerLevel);
-
-    // Only show if within visible range
-    if (y < padding.top || y > padding.top + plotHeight) return null;
-
-    return (
-      <line
-        data-testid="trigger-level-line"
-        x1={padding.left}
-        y1={y}
-        x2={padding.left + plotWidth}
-        y2={y}
-        stroke="var(--color-waveform-trigger)"
-        strokeWidth={1}
-        strokeDasharray="5,3"
-      />
-    );
-  }, [triggerLevel, yMin, yMax, plotWidth, padding]);
+  // Always use local level - it syncs from prop until user interacts
+  const displayTriggerLevel = localTriggerLevel;
+  const triggerY = scaleY(displayTriggerLevel);
+  const triggerInRange = triggerY >= padding.top && triggerY <= padding.top + plotHeight;
 
   // Axis labels
   const axisLabels = useMemo(() => {
@@ -313,6 +381,8 @@ export function WaveformDisplay({
     });
   }, [waveforms, xMin, xMax, yMin, yMax, plotWidth, plotHeight, padding]);
 
+  const canDrag = !!onTriggerLevelChange;
+
   return (
     <div
       ref={containerRef}
@@ -320,6 +390,7 @@ export function WaveformDisplay({
       className="waveform-display w-full"
     >
       <svg
+        ref={svgRef}
         data-testid="waveform-svg"
         width={width}
         height={height}
@@ -335,8 +406,68 @@ export function WaveformDisplay({
         {/* Waveform traces */}
         {traces}
 
-        {/* Trigger level */}
-        {triggerLine}
+        {/* Trigger level line and drag handle */}
+        {triggerLevel !== undefined && triggerInRange && (
+          <g>
+            {/* Dashed line across chart */}
+            <line
+              data-testid="trigger-level-line"
+              x1={padding.left}
+              y1={triggerY}
+              x2={padding.left + plotWidth}
+              y2={triggerY}
+              stroke={isDragging ? '#facc15' : 'var(--color-waveform-trigger)'}
+              strokeWidth={isDragging ? 2 : 1}
+              strokeDasharray={isDragging ? 'none' : '5,3'}
+            />
+
+            {/* Drag handle on right side */}
+            {canDrag && (
+              <g
+                data-testid="trigger-drag-handle"
+                onMouseDown={handleTriggerMouseDown}
+                style={{ cursor: 'ns-resize' }}
+              >
+                {/* Invisible larger hit area */}
+                <rect
+                  x={padding.left + plotWidth - 2}
+                  y={triggerY - 10}
+                  width={padding.right + 2}
+                  height={20}
+                  fill="transparent"
+                />
+                {/* Small triangle handle */}
+                <polygon
+                  points={`${padding.left + plotWidth + 2},${triggerY - 5} ${padding.left + plotWidth + 2},${triggerY + 5} ${padding.left + plotWidth + 10},${triggerY}`}
+                  fill={isDragging ? '#facc15' : 'var(--color-waveform-trigger)'}
+                />
+                {/* Voltage label */}
+                <text
+                  x={padding.left + plotWidth + 12}
+                  y={triggerY + 4}
+                  fontSize={10}
+                  fill={isDragging ? '#facc15' : 'var(--color-waveform-label)'}
+                >
+                  {formatVoltage(displayTriggerLevel)}
+                </text>
+              </g>
+            )}
+          </g>
+        )}
+
+        {/* Out of range indicator */}
+        {triggerLevel !== undefined && !triggerInRange && (
+          <g>
+            <text
+              x={padding.left + plotWidth + 5}
+              y={triggerY < padding.top ? padding.top + 12 : padding.top + plotHeight - 4}
+              fontSize={10}
+              fill="var(--color-waveform-trigger)"
+            >
+              T {triggerY < padding.top ? '▲' : '▼'} {formatVoltage(triggerLevel)}
+            </text>
+          </g>
+        )}
 
         {/* No data message */}
         {!hasData && (

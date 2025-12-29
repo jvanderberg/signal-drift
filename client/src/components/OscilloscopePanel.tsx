@@ -5,7 +5,6 @@ import { EditableDeviceHeader } from './EditableDeviceHeader';
 import { WaveformDisplay } from './WaveformDisplay';
 import { StatsBar } from './StatsBar';
 import { StreamingControls } from './StreamingControls';
-import { TriggerSlider } from './TriggerSlider';
 import { TriggerSettings } from './TriggerSettings';
 import { ChannelSettings } from './ChannelSettings';
 
@@ -153,12 +152,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const triggerLevel = status?.trigger?.level ?? 0;
   const triggerEdge = status?.trigger?.edge as 'rising' | 'falling' | 'either' ?? 'rising';
 
-  // Calculate voltage range for trigger slider based on selected channel
-  const selectedChannelStatus = status?.channels?.[selectedChannel];
-  const scale = selectedChannelStatus?.scale ?? 1;
-  const offset = selectedChannelStatus?.offset ?? 0;
-  const minVoltage = offset - (scale * 4);
-  const maxVoltage = offset + (scale * 4);
 
   return (
     <div>
@@ -227,32 +220,27 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
             </div>
           </div>
 
-          {/* Waveform Display with Trigger Slider */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex gap-2">
-              {/* Main waveform area */}
-              <div className="flex-1 min-w-0">
-                <WaveformDisplay
-                  waveforms={displayWaveforms}
-                  waveform={displayWaveforms[0]}
-                  triggerLevel={triggerLevel}
-                  showGrid={true}
-                  height={300}
-                />
-              </div>
+          {/* Waveform Display with integrated trigger drag */}
+          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 relative">
+            <WaveformDisplay
+              waveforms={displayWaveforms}
+              waveform={displayWaveforms[0]}
+              triggerLevel={triggerLevel}
+              onTriggerLevelChange={handleTriggerLevelChange}
+              showGrid={true}
+              height={300}
+            />
 
-              {/* Trigger slider on right */}
-              <div className="flex flex-col items-center">
-                <TriggerSlider
-                  triggerLevel={triggerLevel}
-                  minVoltage={minVoltage}
-                  maxVoltage={maxVoltage}
-                  triggerEdge={triggerEdge}
-                  onTriggerLevelChange={handleTriggerLevelChange}
-                  onSettingsClick={() => setShowTriggerSettings(!showTriggerSettings)}
-                />
-              </div>
-            </div>
+            {/* Trigger settings button */}
+            <button
+              className="absolute top-2 right-2 p-1.5 rounded bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-light)] transition-colors"
+              onClick={() => setShowTriggerSettings(!showTriggerSettings)}
+              title="Trigger settings"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
 
             {/* Trigger Settings Popover */}
             {showTriggerSettings && (
