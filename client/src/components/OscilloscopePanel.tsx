@@ -123,9 +123,17 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
   const handleChannelToggle = (channel: string, enabled: boolean) => {
     setChannelEnabled(channel, enabled);
-    setEnabledChannels(prev =>
-      enabled ? [...prev, channel] : prev.filter(c => c !== channel)
-    );
+    const newChannels = enabled
+      ? [...enabledChannels, channel]
+      : enabledChannels.filter(c => c !== channel);
+    setEnabledChannels(newChannels);
+
+    // Restart streaming with updated channels if currently streaming
+    if (isStreaming && newChannels.length > 0) {
+      startStreaming(newChannels, newChannels.length > 1 ? 350 : 200);
+    } else if (isStreaming && newChannels.length === 0) {
+      stopStreaming();
+    }
   };
 
   const handleTriggerLevelChange = (level: number) => {
