@@ -146,10 +146,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const handleSingle = () => single();
   const handleAutoSetup = () => autoSetup();
 
-  const handleGetWaveform = () => {
-    getWaveform(selectedChannel);
-  };
-
   const handleGetScreenshot = () => {
     setIsLoadingScreenshot(true);
     getScreenshot();
@@ -199,7 +195,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const status = state?.status;
 
   // Channel buttons based on capabilities
-  const channelCount = state?.capabilities?.channels ?? 2;
+  const channelCount = state?.capabilities?.channels || 4;
   const channels = Array.from({ length: channelCount }, (_, i) => `CHAN${i + 1}`);
 
   // Available measurements from capabilities
@@ -295,45 +291,37 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
               height={300}
             />
 
-            {/* Trigger settings button */}
-            <button
-              className="absolute top-2 right-2 p-1.5 rounded bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-light)] transition-colors"
-              onClick={() => setShowTriggerSettings(!showTriggerSettings)}
-              title="Trigger settings"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-              </svg>
-            </button>
-
-            {/* Trigger Settings Popover */}
-            {showTriggerSettings && (
-              <div className="absolute right-4 mt-2 z-10">
-                <TriggerSettings
-                  sources={channels}
-                  currentSource={status?.trigger?.source ?? 'CHAN1'}
-                  currentEdge={triggerEdge}
-                  currentSweep={status?.trigger?.sweep as 'auto' | 'normal' | 'single' ?? 'auto'}
-                  onSourceChange={setTriggerSource}
-                  onEdgeChange={setTriggerEdge}
-                  onSweepChange={setTriggerSweep}
-                  onClose={() => setShowTriggerSettings(false)}
-                />
-              </div>
-            )}
-
-            {/* Manual waveform fetch */}
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--color-border-dark)]">
+            {/* Trigger settings button + popover container */}
+            <div className="absolute top-2 right-2">
               <button
-                className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
-                onClick={handleGetWaveform}
+                className="p-1.5 rounded bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border-light)] transition-colors"
+                onClick={() => setShowTriggerSettings(!showTriggerSettings)}
+                title="Trigger settings"
               >
-                Fetch {selectedChannel.replace('CHAN', 'CH')}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
               </button>
-              <span className="text-xs text-[var(--color-text-muted)]">
-                {displayWaveforms.length > 0 && `${displayWaveforms[0]?.points?.length ?? 0} points`}
-              </span>
+
+              {/* Trigger Settings Popover */}
+              {showTriggerSettings && (
+                <div className="absolute top-full right-0 mt-1 z-10">
+                  <TriggerSettings
+                    sources={channels}
+                    currentSource={status?.trigger?.source ?? 'CHAN1'}
+                    currentLevel={triggerLevel}
+                    currentEdge={triggerEdge}
+                    currentSweep={status?.trigger?.sweep as 'auto' | 'normal' | 'single' ?? 'auto'}
+                    onSourceChange={setTriggerSource}
+                    onLevelChange={handleTriggerLevelChange}
+                    onEdgeChange={setTriggerEdge}
+                    onSweepChange={setTriggerSweep}
+                    onClose={() => setShowTriggerSettings(false)}
+                  />
+                </div>
+              )}
             </div>
+
           </div>
 
           {/* Stats Bar - Measurements */}

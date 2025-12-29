@@ -10,15 +10,15 @@
 
 import type { OscilloscopeMeasurement } from '../../../shared/types';
 
-// Channel colors matching WaveformDisplay
-const CHANNEL_COLORS: Record<string, string> = {
-  CHAN1: '#FFD700', // Yellow
-  CHAN2: '#00FFFF', // Cyan
-  CHAN3: '#FF00FF', // Magenta
-  CHAN4: '#00FF00', // Green
+// Channel colors using CSS variables for theme support
+const CHANNEL_CSS_VARS: Record<string, string> = {
+  CHAN1: 'var(--color-waveform-chan1)',
+  CHAN2: 'var(--color-waveform-chan2)',
+  CHAN3: 'var(--color-waveform-chan3)',
+  CHAN4: 'var(--color-waveform-chan4)',
 };
 
-const DEFAULT_COLOR = '#FFFFFF';
+const DEFAULT_COLOR = 'var(--color-text-primary)';
 
 export interface StatsBarProps {
   measurements?: OscilloscopeMeasurement[];
@@ -78,14 +78,14 @@ function getChannelClass(channel: string): string {
 }
 
 export function StatsBar({ measurements = [], compact = false }: StatsBarProps) {
-  const containerClass = `stats-bar flex flex-wrap gap-2 p-2 bg-gray-900 text-sm ${
+  const containerClass = `stats-bar flex flex-wrap gap-2 p-2 text-sm ${
     compact ? 'compact text-xs gap-1 p-1' : ''
   }`;
 
   if (measurements.length === 0) {
     return (
       <div data-testid="stats-bar" className={containerClass}>
-        <span className="text-gray-500 italic">No measurements</span>
+        <span className="text-[var(--color-text-muted)] italic">No measurements</span>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export function StatsBar({ measurements = [], compact = false }: StatsBarProps) 
   return (
     <div data-testid="stats-bar" className={containerClass}>
       {measurements.map((m) => {
-        const color = CHANNEL_COLORS[m.channel] ?? DEFAULT_COLOR;
+        const color = CHANNEL_CSS_VARS[m.channel] ?? DEFAULT_COLOR;
         const channelClass = getChannelClass(m.channel);
         const formattedValue = formatWithUnit(m.value, m.unit);
         const isInvalid = formattedValue === '--';
@@ -102,12 +102,12 @@ export function StatsBar({ measurements = [], compact = false }: StatsBarProps) 
           <div
             key={`${m.channel}-${m.type}`}
             data-testid={`stat-${m.channel}-${m.type}`}
-            className={`stat-item ${channelClass} flex items-center gap-2 px-3 py-1 rounded bg-gray-800 w-[185px]`}
+            className={`stat-item ${channelClass} flex items-center gap-2 px-3 py-1 rounded bg-[var(--color-bg-tertiary)] w-[185px]`}
             style={{ borderLeft: `3px solid ${color}` }}
           >
-            <span className="stat-label text-gray-400 font-medium w-12 shrink-0">{m.type}:</span>
+            <span className="stat-label text-[var(--color-text-muted)] font-medium w-12 shrink-0">{m.type}:</span>
             <span
-              className={`stat-value font-mono flex-1 text-right ${isInvalid ? 'text-gray-500' : ''}`}
+              className={`stat-value font-mono flex-1 text-right ${isInvalid ? 'text-[var(--color-text-muted)]' : ''}`}
               style={{ color: isInvalid ? undefined : color }}
             >
               {formattedValue}

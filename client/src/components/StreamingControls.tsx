@@ -8,12 +8,12 @@
  * - Scope running status display
  */
 
-// Channel colors matching WaveformDisplay
-const CHANNEL_COLORS: Record<string, string> = {
-  CHAN1: '#FFD700', // Yellow
-  CHAN2: '#00FFFF', // Cyan
-  CHAN3: '#FF00FF', // Magenta
-  CHAN4: '#00FF00', // Green
+// Channel colors using CSS variables for theme support
+const CHANNEL_CSS_VARS: Record<string, string> = {
+  CHAN1: 'var(--color-waveform-chan1)',
+  CHAN2: 'var(--color-waveform-chan2)',
+  CHAN3: 'var(--color-waveform-chan3)',
+  CHAN4: 'var(--color-waveform-chan4)',
 };
 
 export interface StreamingControlsProps {
@@ -49,14 +49,14 @@ export function StreamingControls({
   return (
     <div
       data-testid="streaming-controls"
-      className="streaming-controls flex items-center gap-4 p-2 bg-gray-800 rounded"
+      className="streaming-controls flex items-center gap-4 p-2 bg-[var(--color-bg-tertiary,var(--color-border-dark))] rounded"
     >
       {/* Channel toggles */}
       {channels.length > 0 && (
         <div className="channel-toggles flex gap-1">
           {channels.map((channel) => {
             const isEnabled = enabledChannels.includes(channel);
-            const color = CHANNEL_COLORS[channel] ?? '#FFFFFF';
+            const color = CHANNEL_CSS_VARS[channel] ?? 'var(--color-text-primary)';
 
             return (
               <button
@@ -65,8 +65,8 @@ export function StreamingControls({
                 onClick={() => handleChannelToggle(channel)}
                 className={`channel-toggle px-2 py-1 rounded text-sm font-medium transition-all ${
                   isEnabled
-                    ? 'active enabled selected bg-gray-700'
-                    : 'bg-gray-900 text-gray-500 hover:bg-gray-700'
+                    ? 'active enabled selected bg-[var(--color-border-light)]'
+                    : 'bg-[var(--color-border-dark)] text-[var(--color-text-muted)] hover:bg-[var(--color-border-light)]'
                 }`}
                 style={{
                   color: isEnabled ? color : undefined,
@@ -88,14 +88,14 @@ export function StreamingControls({
         <span
           data-testid="streaming-indicator"
           className={`streaming-indicator w-2 h-2 rounded-full ${
-            isStreaming ? 'live pulse animate-pulse bg-green-500' : 'bg-gray-500'
+            isStreaming ? 'live pulse animate-pulse bg-[var(--color-success)]' : 'bg-[var(--color-text-muted)]'
           }`}
         />
-        <span className={`text-sm ${isStreaming ? 'text-green-400' : 'text-gray-400'}`}>
+        <span className={`text-sm ${isStreaming ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]'}`}>
           {isStreaming ? 'Live' : 'Stopped'}
         </span>
         {isStreaming && fps && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-[var(--color-text-muted)]">
             {intervalMs}ms / {fps} fps
           </span>
         )}
@@ -117,9 +117,9 @@ export function StreamingControls({
       {/* Scope status */}
       <div
         data-testid="scope-status"
-        className="scope-status flex items-center gap-1 text-sm text-gray-400"
+        className="scope-status flex items-center gap-1 text-sm text-[var(--color-text-muted)]"
       >
-        <span className={`w-2 h-2 rounded-full ${scopeRunning ? 'bg-blue-500' : 'bg-gray-600'}`} />
+        <span className={`w-2 h-2 rounded-full ${scopeRunning ? 'bg-[var(--color-accent-load)]' : 'bg-[var(--color-text-muted)]'}`} />
         <span>Scope {scopeRunning ? 'Running' : 'Stopped'}</span>
       </div>
     </div>

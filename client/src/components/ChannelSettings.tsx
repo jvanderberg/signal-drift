@@ -10,12 +10,12 @@
  * - Channel-specific color styling
  */
 
-// Channel colors matching WaveformDisplay
-const CHANNEL_COLORS: Record<string, string> = {
-  CHAN1: '#FFD700', // Yellow
-  CHAN2: '#00FFFF', // Cyan
-  CHAN3: '#FF00FF', // Magenta
-  CHAN4: '#00FF00', // Green
+// Channel colors using CSS variables for theme support
+const CHANNEL_CSS_VARS: Record<string, string> = {
+  CHAN1: 'var(--color-waveform-chan1)',
+  CHAN2: 'var(--color-waveform-chan2)',
+  CHAN3: 'var(--color-waveform-chan3)',
+  CHAN4: 'var(--color-waveform-chan4)',
 };
 
 // Standard oscilloscope scale values (V/div)
@@ -76,7 +76,7 @@ export function ChannelSettings({
   onBwLimitChange,
   onClose,
 }: ChannelSettingsProps) {
-  const color = CHANNEL_COLORS[channel] ?? '#FFFFFF';
+  const color = CHANNEL_CSS_VARS[channel] ?? 'var(--color-text-primary)';
   const channelClass = channel.toLowerCase().replace(/\s+/g, '');
 
   const handleScaleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -105,7 +105,7 @@ export function ChannelSettings({
   return (
     <div
       data-testid="channel-settings"
-      className={`channel-settings ${channelClass} bg-gray-800 border border-gray-600 rounded-lg shadow-lg p-3 min-w-52`}
+      className={`channel-settings ${channelClass} bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-lg shadow-lg p-3 min-w-52`}
       style={{ borderTopColor: color, borderTopWidth: '3px' }}
     >
       {/* Header with channel name and close button */}
@@ -115,7 +115,7 @@ export function ChannelSettings({
         </span>
         <button
           data-testid="channel-settings-close"
-          className="text-gray-400 hover:text-white p-1"
+          className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] p-1"
           onClick={onClose}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,10 +126,10 @@ export function ChannelSettings({
 
       {/* Scale selector */}
       <div className="setting-row mb-2">
-        <label className="block text-xs text-gray-400 mb-1">Scale</label>
+        <label className="block text-xs text-[var(--color-text-muted)] mb-1">Scale</label>
         <select
           data-testid="channel-scale-select"
-          className="w-full bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600"
+          className="w-full bg-[var(--color-border-dark)] text-[var(--color-text-primary)] text-sm rounded px-2 py-1 border border-[var(--color-border-dark)]"
           value={currentScale}
           onChange={handleScaleChange}
           disabled={disabled}
@@ -144,11 +144,11 @@ export function ChannelSettings({
 
       {/* Offset input */}
       <div className="setting-row mb-2">
-        <label className="block text-xs text-gray-400 mb-1">Offset (V)</label>
+        <label className="block text-xs text-[var(--color-text-muted)] mb-1">Offset (V)</label>
         <input
           type="number"
           data-testid="channel-offset-input"
-          className="w-full bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600"
+          className="w-full bg-[var(--color-border-dark)] text-[var(--color-text-primary)] text-sm rounded px-2 py-1 border border-[var(--color-border-dark)]"
           value={currentOffset}
           onChange={handleOffsetChange}
           step={0.1}
@@ -158,10 +158,10 @@ export function ChannelSettings({
 
       {/* Coupling selector */}
       <div className="setting-row mb-2">
-        <label className="block text-xs text-gray-400 mb-1">Coupling</label>
+        <label className="block text-xs text-[var(--color-text-muted)] mb-1">Coupling</label>
         <select
           data-testid="channel-coupling-select"
-          className="w-full bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600"
+          className="w-full bg-[var(--color-border-dark)] text-[var(--color-text-primary)] text-sm rounded px-2 py-1 border border-[var(--color-border-dark)]"
           value={currentCoupling}
           onChange={handleCouplingChange}
           disabled={disabled}
@@ -174,10 +174,10 @@ export function ChannelSettings({
 
       {/* Probe ratio selector */}
       <div className="setting-row mb-2">
-        <label className="block text-xs text-gray-400 mb-1">Probe Ratio</label>
+        <label className="block text-xs text-[var(--color-text-muted)] mb-1">Probe Ratio</label>
         <select
           data-testid="channel-probe-select"
-          className="w-full bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600"
+          className="w-full bg-[var(--color-border-dark)] text-[var(--color-text-primary)] text-sm rounded px-2 py-1 border border-[var(--color-border-dark)]"
           value={currentProbeRatio}
           onChange={handleProbeRatioChange}
           disabled={disabled}
@@ -192,11 +192,11 @@ export function ChannelSettings({
 
       {/* BW Limit toggle */}
       <div className="setting-row flex items-center justify-between">
-        <label className="text-xs text-gray-400">BW Limit</label>
+        <label className="text-xs text-[var(--color-text-muted)]">BW Limit</label>
         <input
           type="checkbox"
           data-testid="channel-bwlimit-toggle"
-          className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500"
+          className="h-4 w-4 rounded bg-[var(--color-border-dark)] border-[var(--color-border-dark)] accent-[var(--color-accent-load)]"
           checked={currentBwLimit}
           onChange={handleBwLimitChange}
           disabled={disabled}

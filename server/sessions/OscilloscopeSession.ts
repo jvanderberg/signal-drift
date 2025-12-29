@@ -561,6 +561,20 @@ export function createOscilloscopeSession(
 
     async autoSetup(): Promise<void> {
       await driver.autoSetup();
+      // Auto setup takes time - wait for scope to settle then refresh status
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      try {
+        status = await driver.getStatus();
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      } catch (err) {
+        // Status fetch failed, continue
+      }
     },
 
     async forceTrigger(): Promise<void> {
