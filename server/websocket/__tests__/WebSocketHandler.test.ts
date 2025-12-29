@@ -159,6 +159,15 @@ function createMockSessionManager(): SessionManager & {
     setOutput: vi.fn(),
     setValue: vi.fn(),
     stop: vi.fn(),
+    // Oscilloscope methods
+    getOscilloscopeSession: (_id: string) => undefined,
+    oscilloscopeRun: vi.fn(),
+    oscilloscopeStop: vi.fn(),
+    oscilloscopeSingle: vi.fn(),
+    oscilloscopeAutoSetup: vi.fn(),
+    oscilloscopeGetWaveform: vi.fn(),
+    oscilloscopeGetMeasurement: vi.fn(),
+    oscilloscopeGetScreenshot: vi.fn(),
   };
 }
 

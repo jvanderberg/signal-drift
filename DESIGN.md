@@ -5,14 +5,15 @@
 ```
 lab-controller/
 ├── shared/              # Shared types (single source of truth)
-│   └── types.ts         # Device, WebSocket message types, etc.
+│   └── types.ts         # Device, WebSocket message types, oscilloscope types
 ├── server/
 │   ├── index.ts         # HTTP + WebSocket server entry
 │   ├── api/
 │   │   └── devices.ts   # REST API routes (deprecated, for backward compat)
 │   ├── sessions/
-│   │   ├── DeviceSession.ts    # Per-device polling & state management
-│   │   └── SessionManager.ts   # Manages all device sessions
+│   │   ├── DeviceSession.ts        # Per-device polling & state (PSU/Load)
+│   │   ├── OscilloscopeSession.ts  # Oscilloscope-specific session
+│   │   └── SessionManager.ts       # Manages all device sessions
 │   ├── websocket/
 │   │   └── WebSocketHandler.ts # WebSocket connection & message routing
 │   └── devices/
@@ -23,16 +24,20 @@ lab-controller/
 │       │   ├── usbtmc.ts
 │       │   └── serial.ts
 │       └── drivers/
-│           ├── rigol-dl3021.ts
-│           └── matrix-wps300s.ts
+│           ├── rigol-dl3021.ts      # Rigol DL3021 Electronic Load
+│           ├── matrix-wps300s.ts    # Matrix WPS300S Power Supply
+│           └── rigol-oscilloscope.ts # Rigol DS/MSO Series Oscilloscopes
 ├── client/
 │   ├── src/
 │   │   ├── types.ts     # Re-exports shared + client-only types
 │   │   ├── websocket.ts # WebSocket connection manager (singleton)
 │   │   ├── hooks/
-│   │   │   ├── useDeviceSocket.ts  # Device state via WebSocket
-│   │   │   └── useDeviceList.ts    # Device discovery via WebSocket
+│   │   │   ├── useDeviceSocket.ts       # Device state via WebSocket (PSU/Load)
+│   │   │   ├── useOscilloscopeSocket.ts # Oscilloscope state via WebSocket
+│   │   │   └── useDeviceList.ts         # Device discovery via WebSocket
 │   │   └── components/
+│   │       ├── DevicePanel.tsx          # PSU/Load control panel
+│   │       └── OscilloscopePanel.tsx    # Oscilloscope control panel
 │   └── vite.config.ts
 └── electron/            # Future
 ```
@@ -296,11 +301,17 @@ const setpointDatasets = Object.entries(status.setpoints)
 - Notifies subscribers on state changes
 - Handles server-side debounce for setValue calls
 
+**OscilloscopeSession** (`server/sessions/OscilloscopeSession.ts`)
+- Specialized session for oscilloscopes (different from DeviceSession)
+- Slower status polling (500ms vs 250ms for PSU/Load)
+- On-demand waveform, measurement, and screenshot fetches
+- Broadcasts status updates to subscribers
+
 **SessionManager** (`server/sessions/SessionManager.ts`)
-- Creates and manages DeviceSession instances
-- One session per device
+- Creates and manages DeviceSession and OscilloscopeSession instances
+- One session per device (type determined by device type)
 - Provides device summaries for listing
-- Routes client subscriptions and actions to sessions
+- Routes client subscriptions and actions to appropriate session type
 
 **WebSocketHandler** (`server/websocket/WebSocketHandler.ts`)
 - Handles WebSocket connections and message routing
@@ -316,9 +327,14 @@ const setpointDatasets = Object.entries(status.setpoints)
 - Message queuing during reconnection
 
 **useDeviceSocket Hook** (`client/src/hooks/useDeviceSocket.ts`)
-- Replaces useDevice with dumb mirror of server state
+- For PSU/Load devices - dumb mirror of server state
 - No local state management, just mirrors what server pushes
 - Returns: state, connectionState, isSubscribed, error, and action methods
+
+**useOscilloscopeSocket Hook** (`client/src/hooks/useOscilloscopeSocket.ts`)
+- For oscilloscope devices - similar pattern to useDeviceSocket
+- Handles oscilloscope-specific state (status, waveform, screenshot)
+- Returns: state, waveform, screenshot, and oscilloscope action methods (run, stop, getWaveform, etc.)
 
 **useDeviceList Hook** (`client/src/hooks/useDeviceList.ts`)
 - Device discovery via WebSocket
@@ -342,6 +358,20 @@ Server -> Client:
 - `measurement { deviceId, update }` - Incremental measurement update
 - `field { deviceId, field, value }` - Single field changed
 - `error { deviceId?, code, message }` - Error notification
+- `scopeWaveform { deviceId, channel, waveform }` - Waveform data response
+- `scopeMeasurement { deviceId, channel, measurementType, value }` - Measurement response
+- `scopeScreenshot { deviceId, data }` - Screenshot PNG as base64
+
+### Oscilloscope Messages
+
+Client -> Server:
+- `scopeRun { deviceId }` - Start acquisition
+- `scopeStop { deviceId }` - Stop acquisition
+- `scopeSingle { deviceId }` - Single trigger mode
+- `scopeAutoSetup { deviceId }` - Auto-configure for signal
+- `scopeGetWaveform { deviceId, channel }` - Request waveform data
+- `scopeGetMeasurement { deviceId, channel, measurementType }` - Request measurement
+- `scopeGetScreenshot { deviceId }` - Request screenshot
 
 ### Data Flow
 

@@ -6,6 +6,7 @@ import { OutputControl } from './OutputControl';
 import { DigitSpinner } from './DigitSpinner';
 import { ModeSelector } from './ModeSelector';
 import { LiveChart } from './LiveChart';
+import { EditableDeviceHeader } from './EditableDeviceHeader';
 
 interface DevicePanelProps {
   device: Device;
@@ -103,42 +104,17 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
     power: [],
   };
 
+  // Derive connection status from server state, falling back to disconnected
+  const deviceConnectionStatus = state?.connectionStatus ?? 'disconnected';
+
   return (
     <div>
       {/* Header */}
-      <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2.5">
-            <span className="text-lg">
-              {device.info.type === 'power-supply' ? '⚡' : '📊'}
-            </span>
-            <div>
-              <div className="font-semibold text-sm">
-                {device.info.manufacturer} {device.info.model}
-              </div>
-              <div className="text-[11px] text-[var(--color-text-muted)]">
-                {device.info.type === 'power-supply' ? 'PSU' : 'Load'}
-                {device.info.serial && ` · ${device.info.serial}`}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
-            <span className="text-xs">
-              {connectionState === 'connected' && isSubscribed ? 'Connected' :
-               connectionState === 'connecting' || connectionState === 'reconnecting' ? 'Connecting...' :
-               'Disconnected'}
-            </span>
-            <button
-              className="w-6 h-6 flex items-center justify-center text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-secondary)] hover:opacity-90"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      </div>
+      <EditableDeviceHeader
+        info={device.info}
+        connectionStatus={deviceConnectionStatus}
+        onClose={onClose}
+      />
 
       {/* Status & Controls - only when connected */}
       {isConnected && status && (

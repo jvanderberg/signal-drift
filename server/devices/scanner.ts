@@ -11,7 +11,7 @@ import usb from 'usb';
 import { SerialPort } from 'serialport';
 import type { DeviceRegistry } from './registry.js';
 import type { SessionManager } from '../sessions/SessionManager.js';
-import type { DriverRegistration, SerialOptions } from './types.js';
+import type { DriverRegistration, SerialOptions, OscilloscopeDriverRegistration } from './types.js';
 import { createUSBTMCTransport } from './transports/usbtmc.js';
 import { createSerialTransport, SerialConfig } from './transports/serial.js';
 
@@ -194,6 +194,80 @@ export async function scanDevices(
       } catch (err) {
         console.error(`Failed to probe USB device ${vendorId.toString(16)}:${productId.toString(16)}:`, err);
       }
+    }
+  }
+
+  // Scan for oscilloscopes (probe by vendor, match by IDN)
+  const oscilloscopeRegs = registry.getOscilloscopeRegistrations();
+  const scannedVendors = new Set<number>();
+
+  for (const usbDevice of usbDevices) {
+    const vendorId = usbDevice.deviceDescriptor.idVendor;
+    const productId = usbDevice.deviceDescriptor.idProduct;
+
+    // Skip if we already have a standard driver for this device
+    if (registry.matchUSBDevice(vendorId, productId)) continue;
+
+    // Check if any oscilloscope registration matches this vendor
+    const matchingReg = oscilloscopeRegs.find(r =>
+      r.transportType === 'usbtmc' && r.match.vendorId === vendorId
+    );
+    if (!matchingReg) continue;
+
+    // Check if already registered as oscilloscope
+    const existingScopes = registry.getOscilloscopes();
+    const alreadyRegistered = existingScopes.some(s => {
+      // Match by manufacturer/model pattern since we don't have serial yet
+      return s.info.manufacturer.toUpperCase().includes('RIGOL');
+    });
+
+    if (alreadyRegistered) {
+      // TODO: handle reconnection for oscilloscopes
+      continue;
+    }
+
+    try {
+      const transport = createUSBTMCTransport(usbDevice);
+      await transport.open();
+
+      // Query IDN to identify the device
+      const idn = await transport.query('*IDN?');
+      const parts = idn.split(',');
+      if (parts.length < 2) {
+        await transport.close();
+        continue;
+      }
+
+      const manufacturer = parts[0].trim();
+      const model = parts[1].trim();
+
+      // Find most specific matching driver
+      const registration = registry.matchOscilloscopeIDN(manufacturer, model);
+      if (!registration) {
+        await transport.close();
+        continue;
+      }
+
+      // Create driver and probe
+      const driver = registration.create(transport);
+      const probeSuccess = await driver.probe();
+
+      if (probeSuccess) {
+        registry.addOscilloscope(driver);
+        result.devices.push({
+          id: driver.info.id,
+          type: driver.info.type,
+          manufacturer: driver.info.manufacturer,
+          model: driver.info.model,
+        });
+        result.found++;
+        result.added++;
+        console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
+      } else {
+        await transport.close();
+      }
+    } catch (err) {
+      console.error(`Failed to probe oscilloscope ${vendorId.toString(16)}:${productId.toString(16)}:`, err);
     }
   }
 

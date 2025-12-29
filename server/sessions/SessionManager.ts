@@ -8,9 +8,10 @@
  */
 
 import type { DeviceRegistry } from '../devices/registry.js';
-import type { DeviceDriver } from '../devices/types.js';
+import type { DeviceDriver, OscilloscopeDriver, WaveformData } from '../devices/types.js';
 import type { DeviceSummary, ServerMessage } from '../../shared/types.js';
 import { createDeviceSession, DeviceSession, DeviceSessionConfig } from './DeviceSession.js';
+import { createOscilloscopeSession, OscilloscopeSession } from './OscilloscopeSession.js';
 
 export interface SessionManagerConfig extends DeviceSessionConfig {
   scanIntervalMs?: number;
@@ -32,9 +33,20 @@ export interface SessionManager {
   unsubscribeAll(clientId: string): void;
   isSubscribed(deviceId: string, clientId: string): boolean;
 
+  // Standard device actions
   setMode(deviceId: string, mode: string): Promise<void>;
   setOutput(deviceId: string, enabled: boolean): Promise<void>;
   setValue(deviceId: string, name: string, value: number, immediate?: boolean): Promise<void>;
+
+  // Oscilloscope-specific
+  getOscilloscopeSession(deviceId: string): OscilloscopeSession | undefined;
+  oscilloscopeRun(deviceId: string): Promise<void>;
+  oscilloscopeStop(deviceId: string): Promise<void>;
+  oscilloscopeSingle(deviceId: string): Promise<void>;
+  oscilloscopeAutoSetup(deviceId: string): Promise<void>;
+  oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<WaveformData>;
+  oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<number | null>;
+  oscilloscopeGetScreenshot(deviceId: string): Promise<Buffer>;
 
   stop(): void;
 }
@@ -46,6 +58,8 @@ export function createSessionManager(
   config: SessionManagerConfig = {}
 ): SessionManager {
   const sessions = new Map<string, DeviceSession>();
+  const oscilloscopeSessions = new Map<string, OscilloscopeSession>();
+
   const sessionConfig: DeviceSessionConfig = {
     pollIntervalMs: config.pollIntervalMs,
     historyWindowMs: config.historyWindowMs,
@@ -69,6 +83,16 @@ export function createSessionManager(
         sessions.set(driver.info.id, session);
       }
     }
+
+    // Add sessions for new oscilloscopes
+    const currentOscilloscopes = registry.getOscilloscopes();
+    for (const driver of currentOscilloscopes) {
+      if (!oscilloscopeSessions.has(driver.info.id)) {
+        console.log(`[SessionManager] Creating oscilloscope session for: ${driver.info.id}`);
+        const session = createOscilloscopeSession(driver);
+        oscilloscopeSessions.set(driver.info.id, session);
+      }
+    }
   }
 
   // Start auto-sync if configured
@@ -77,12 +101,19 @@ export function createSessionManager(
   }
 
   function hasSession(deviceId: string): boolean {
-    return sessions.has(deviceId);
+    return sessions.has(deviceId) || oscilloscopeSessions.has(deviceId);
   }
 
   function isSessionDisconnected(deviceId: string): boolean {
     const session = sessions.get(deviceId);
-    return session ? session.getState().connectionStatus === 'disconnected' : false;
+    if (session) {
+      return session.getState().connectionStatus === 'disconnected';
+    }
+    const scopeSession = oscilloscopeSessions.get(deviceId);
+    if (scopeSession) {
+      return scopeSession.getState().connectionStatus === 'disconnected';
+    }
+    return false;
   }
 
   function reconnectSession(deviceId: string, newDriver: DeviceDriver): void {
@@ -90,18 +121,25 @@ export function createSessionManager(
     if (session) {
       session.reconnect(newDriver);
     }
+    // Note: oscilloscope reconnection would need OscilloscopeDriver
   }
 
   function getSession(deviceId: string): DeviceSession | undefined {
     return sessions.get(deviceId);
   }
 
+  function getOscilloscopeSession(deviceId: string): OscilloscopeSession | undefined {
+    return oscilloscopeSessions.get(deviceId);
+  }
+
   function getSessionCount(): number {
-    return sessions.size;
+    return sessions.size + oscilloscopeSessions.size;
   }
 
   function getDeviceSummaries(): DeviceSummary[] {
     const summaries: DeviceSummary[] = [];
+
+    // Standard devices
     for (const session of sessions.values()) {
       const state = session.getState();
       summaries.push({
@@ -111,6 +149,18 @@ export function createSessionManager(
         connectionStatus: state.connectionStatus,
       });
     }
+
+    // Oscilloscopes
+    for (const session of oscilloscopeSessions.values()) {
+      const state = session.getState();
+      summaries.push({
+        id: state.info.id,
+        info: state.info,
+        capabilities: state.capabilities as any,  // Different capability shape
+        connectionStatus: state.connectionStatus,
+      });
+    }
+
     return summaries;
   }
 
@@ -120,11 +170,16 @@ export function createSessionManager(
     callback: SubscriberCallback
   ): boolean {
     const session = sessions.get(deviceId);
-    if (!session) {
-      return false;
+    if (session) {
+      session.subscribe(clientId, callback);
+      return true;
     }
-    session.subscribe(clientId, callback);
-    return true;
+    const scopeSession = oscilloscopeSessions.get(deviceId);
+    if (scopeSession) {
+      scopeSession.subscribe(clientId, callback);
+      return true;
+    }
+    return false;
   }
 
   function unsubscribe(deviceId: string, clientId: string): void {
@@ -132,17 +187,27 @@ export function createSessionManager(
     if (session) {
       session.unsubscribe(clientId);
     }
+    const scopeSession = oscilloscopeSessions.get(deviceId);
+    if (scopeSession) {
+      scopeSession.unsubscribe(clientId);
+    }
   }
 
   function unsubscribeAll(clientId: string): void {
     for (const session of sessions.values()) {
       session.unsubscribe(clientId);
     }
+    for (const session of oscilloscopeSessions.values()) {
+      session.unsubscribe(clientId);
+    }
   }
 
   function isSubscribed(deviceId: string, clientId: string): boolean {
     const session = sessions.get(deviceId);
-    return session ? session.hasSubscriber(clientId) : false;
+    if (session) return session.hasSubscriber(clientId);
+    const scopeSession = oscilloscopeSessions.get(deviceId);
+    if (scopeSession) return scopeSession.hasSubscriber(clientId);
+    return false;
   }
 
   async function setMode(deviceId: string, mode: string): Promise<void> {
@@ -174,6 +239,49 @@ export function createSessionManager(
     await session.setValue(name, value, immediate);
   }
 
+  // Oscilloscope-specific methods
+  async function oscilloscopeRun(deviceId: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.run();
+  }
+
+  async function oscilloscopeStop(deviceId: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.stop();
+  }
+
+  async function oscilloscopeSingle(deviceId: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.single();
+  }
+
+  async function oscilloscopeAutoSetup(deviceId: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.autoSetup();
+  }
+
+  async function oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<WaveformData> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    return session.getWaveform(channel);
+  }
+
+  async function oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<number | null> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    return session.getMeasurement(channel, type);
+  }
+
+  async function oscilloscopeGetScreenshot(deviceId: string): Promise<Buffer> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    return session.getScreenshot();
+  }
+
   function stop(): void {
     isRunning = false;
 
@@ -186,6 +294,11 @@ export function createSessionManager(
       session.stop();
     }
     sessions.clear();
+
+    for (const session of oscilloscopeSessions.values()) {
+      session.stopSession();
+    }
+    oscilloscopeSessions.clear();
   }
 
   return {
@@ -203,6 +316,14 @@ export function createSessionManager(
     setMode,
     setOutput,
     setValue,
+    getOscilloscopeSession,
+    oscilloscopeRun,
+    oscilloscopeStop,
+    oscilloscopeSingle,
+    oscilloscopeAutoSetup,
+    oscilloscopeGetWaveform,
+    oscilloscopeGetMeasurement,
+    oscilloscopeGetScreenshot,
     stop,
   };
 }

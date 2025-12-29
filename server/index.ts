@@ -11,6 +11,7 @@ import { createDeviceRegistry } from './devices/registry.js';
 import { createDeviceRoutes } from './api/devices.js';
 import { createRigolDL3021 } from './devices/drivers/rigol-dl3021.js';
 import { createMatrixWPS300S } from './devices/drivers/matrix-wps300s.js';
+import { createRigolOscilloscope } from './devices/drivers/rigol-oscilloscope.js';
 import { scanDevices } from './devices/scanner.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
@@ -44,6 +45,19 @@ registry.registerDriver({
   },
 });
 
+// Register Rigol Oscilloscopes (USB-TMC)
+// Matches all Rigol DS/MSO series by IDN response pattern
+registry.registerOscilloscopeDriver({
+  create: createRigolOscilloscope,
+  transportType: 'usbtmc',
+  match: {
+    vendorId: 0x1AB1,              // Rigol vendor ID
+    manufacturer: /RIGOL/i,        // Match RIGOL in manufacturer
+    model: /^(DS|MSO)/,            // Match DS* or MSO* models
+  },
+  specificity: 1,  // Base driver, more specific ones can override
+});
+
 // Create Express app
 const app = express();
 app.use(cors());
@@ -57,6 +71,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     devices: registry.getDevices().length,
+    oscilloscopes: registry.getOscilloscopes().length,
     sessions: sessionManager.getSessionCount(),
     wsClients: wsHandler?.getClientCount() ?? 0,
   });
@@ -86,7 +101,8 @@ async function start() {
 
   try {
     const result = await scanDevices(registry, sessionManager);
-    console.log(`Found ${result.found} device(s):`);
+    const totalDevices = registry.getDevices().length + registry.getOscilloscopes().length;
+    console.log(`Found ${totalDevices} device(s):`);
     for (const device of result.devices) {
       console.log(`  - ${device.manufacturer} ${device.model} (${device.type})`);
     }
@@ -119,7 +135,7 @@ async function start() {
     }
   }, SCAN_INTERVAL_MS);
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log('');
     console.log(`Server running on http://localhost:${PORT}`);
     console.log('');

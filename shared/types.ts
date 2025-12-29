@@ -1,6 +1,6 @@
 // Shared types for client and server
 
-export type DeviceType = 'power-supply' | 'electronic-load';
+export type DeviceType = 'power-supply' | 'electronic-load' | 'oscilloscope';
 
 export interface ValueDescriptor {
   name: string;
@@ -62,6 +62,71 @@ export interface ApiError {
   message: string;
 }
 
+// ============ Oscilloscope Types ============
+
+export interface ChannelConfig {
+  enabled: boolean;
+  scale: number;      // V/div
+  offset: number;     // V
+  coupling: 'AC' | 'DC' | 'GND';
+  probe: number;      // 1x, 10x, 100x
+  bwLimit: boolean;
+}
+
+export interface TimebaseConfig {
+  scale: number;      // s/div
+  offset: number;     // s (horizontal position)
+  mode: 'main' | 'zoom' | 'roll';
+}
+
+export interface TriggerConfig {
+  source: string;     // 'CHAN1', 'CHAN2', 'EXT', 'LINE'
+  mode: 'edge' | 'pulse' | 'slope' | 'video';
+  coupling: 'AC' | 'DC' | 'LFReject' | 'HFReject';
+  level: number;      // V
+  edge: 'rising' | 'falling' | 'either';
+  sweep: 'auto' | 'normal' | 'single';
+}
+
+export interface OscilloscopeMeasurement {
+  channel: string;
+  type: string;       // 'VPP', 'VAVG', 'FREQ', 'PERIOD', 'RISE', 'FALL', etc.
+  value: number;
+  unit: string;
+}
+
+export type TriggerStatus = 'armed' | 'triggered' | 'stopped' | 'auto' | 'wait';
+
+export interface OscilloscopeStatus {
+  running: boolean;
+  triggerStatus: TriggerStatus;
+  sampleRate: number;
+  memoryDepth: number;
+  channels: Record<string, ChannelConfig>;  // 'CHAN1' -> config
+  timebase: TimebaseConfig;
+  trigger: TriggerConfig;
+  measurements: OscilloscopeMeasurement[];
+}
+
+export interface WaveformData {
+  channel: string;
+  points: number[];           // Raw sample values (after scaling)
+  xIncrement: number;         // Time between samples
+  xOrigin: number;            // Time of first sample
+  yIncrement: number;         // Voltage per LSB
+  yOrigin: number;            // Voltage offset
+  yReference: number;         // Reference point
+}
+
+export interface OscilloscopeCapabilities {
+  channels: number;                    // 2 or 4
+  bandwidth: number;                   // MHz
+  maxSampleRate: number;               // Sa/s
+  maxMemoryDepth: number;              // points
+  supportedMeasurements: string[];     // ['VPP', 'VAVG', 'FREQ', ...]
+  hasAWG: boolean;                     // Built-in arbitrary waveform generator
+}
+
 // ============ WebSocket Types ============
 
 // Device connection status (managed by server proxy)
@@ -116,7 +181,15 @@ export type ClientMessage =
   | { type: 'setOutput'; deviceId: string; enabled: boolean }
   | { type: 'setValue'; deviceId: string; name: string; value: number; immediate?: boolean }
   | { type: 'startList'; deviceId: string }
-  | { type: 'stopList'; deviceId: string };
+  | { type: 'stopList'; deviceId: string }
+  // Oscilloscope messages
+  | { type: 'scopeRun'; deviceId: string }
+  | { type: 'scopeStop'; deviceId: string }
+  | { type: 'scopeSingle'; deviceId: string }
+  | { type: 'scopeAutoSetup'; deviceId: string }
+  | { type: 'scopeGetWaveform'; deviceId: string; channel: string }
+  | { type: 'scopeGetMeasurement'; deviceId: string; channel: string; measurementType: string }
+  | { type: 'scopeGetScreenshot'; deviceId: string };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner
@@ -129,7 +202,11 @@ export type ServerMessage =
   | { type: 'unsubscribed'; deviceId: string }
   | { type: 'measurement'; deviceId: string; update: MeasurementUpdate }
   | { type: 'field'; deviceId: string; field: string; value: unknown }
-  | { type: 'error'; deviceId?: string; code: string; message: string };
+  | { type: 'error'; deviceId?: string; code: string; message: string }
+  // Oscilloscope responses
+  | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData }
+  | { type: 'scopeMeasurement'; deviceId: string; channel: string; measurementType: string; value: number | null }
+  | { type: 'scopeScreenshot'; deviceId: string; data: string };  // Base64-encoded PNG
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {

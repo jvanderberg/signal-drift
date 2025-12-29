@@ -1,4 +1,5 @@
 import { useDeviceList } from '../hooks/useDeviceList';
+import { useDeviceNames } from '../hooks/useDeviceNames';
 import type { Device } from '../types';
 
 interface DeviceScannerProps {
@@ -7,9 +8,32 @@ interface DeviceScannerProps {
 
 export function DeviceScanner({ onDeviceSelect }: DeviceScannerProps) {
   const { devices, isLoading, error, scan } = useDeviceList();
+  const { getCustomName } = useDeviceNames();
 
   const getDeviceIcon = (type: string) => {
-    return type === 'power-supply' ? '⚡' : '📊';
+    switch (type) {
+      case 'power-supply':
+        return '⚡';
+      case 'oscilloscope':
+        return '📈';
+      default:
+        return '📊';  // electronic-load
+    }
+  };
+
+  const getDisplayName = (info: typeof devices[0]['info']) => {
+    const custom = getCustomName(info.manufacturer, info.model);
+    if (custom) {
+      return { title: custom.title, subtitle: custom.subtitle };
+    }
+    const typeLabel = info.type === 'power-supply' ? 'PSU'
+      : info.type === 'oscilloscope' ? 'Scope'
+      : 'Load';
+    const defaultSubtitle = `${typeLabel}${info.serial ? ` · ${info.serial}` : ''}`;
+    return {
+      title: `${info.manufacturer} ${info.model}`,
+      subtitle: defaultSubtitle,
+    };
   };
 
   // Convert DeviceSummary to Device for compatibility
@@ -51,34 +75,40 @@ export function DeviceScanner({ onDeviceSelect }: DeviceScannerProps) {
       )}
 
       <div className="flex flex-col gap-1.5">
-        {devices.map(device => (
-          <button
-            key={device.id}
-            className="flex items-center gap-2.5 p-2.5 text-left rounded bg-[var(--color-border-light)] hover:opacity-90"
-            onClick={() => handleDeviceSelect(device)}
-          >
-            <span className="text-lg">{getDeviceIcon(device.info.type)}</span>
-            <div>
-              <div className="font-semibold text-[13px]">
-                {device.info.manufacturer} {device.info.model}
+        {devices.map(device => {
+          const displayName = getDisplayName(device.info);
+          const isConnected = device.connectionStatus === 'connected';
+          return (
+            <button
+              key={device.id}
+              className="flex items-center gap-2.5 p-2.5 text-left rounded bg-[var(--color-border-light)] hover:opacity-90"
+              onClick={() => handleDeviceSelect(device)}
+            >
+              <span className="text-lg">{getDeviceIcon(device.info.type)}</span>
+              <div className="flex-1">
+                <div className="font-semibold text-[13px]">
+                  {displayName.title}
+                </div>
+                <div className="text-[11px] text-[var(--color-text-muted)]">
+                  {displayName.subtitle}
+                </div>
               </div>
-              <div className="text-[11px] text-[var(--color-text-muted)]">
-                {device.info.type === 'power-supply' ? 'PSU' : 'Load'}
-                {device.info.serial && ` · ${device.info.serial}`}
+              <div className="flex items-center gap-1.5">
+                <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
                 <span
-                  className="ml-1.5"
+                  className="text-[11px]"
                   style={{
-                    color: device.connectionStatus === 'connected'
+                    color: isConnected
                       ? 'var(--color-success)'
                       : 'var(--color-text-muted)'
                   }}
                 >
-                  · {device.connectionStatus}
+                  {device.connectionStatus}
                 </span>
               </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

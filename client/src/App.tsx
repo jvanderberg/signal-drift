@@ -4,6 +4,7 @@ import { useTheme } from './hooks/useTheme';
 import { useToast } from './hooks/useToast';
 import { DeviceScanner } from './components/DeviceScanner';
 import { DevicePanel } from './components/DevicePanel';
+import { OscilloscopePanel } from './components/OscilloscopePanel';
 import { ToastContainer } from './components/ToastContainer';
 
 function App() {
@@ -75,13 +76,23 @@ function App() {
       {openDevices.length > 0 && (
         <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
           {openDevices.map(device => (
-            <DevicePanel
-              key={device.id}
-              device={device}
-              onClose={() => handleDeviceClose(device.id)}
-              onError={error}
-              onSuccess={success}
-            />
+            device.info.type === 'oscilloscope' ? (
+              <OscilloscopePanel
+                key={device.id}
+                device={device}
+                onClose={() => handleDeviceClose(device.id)}
+                onError={error}
+                onSuccess={success}
+              />
+            ) : (
+              <DevicePanel
+                key={device.id}
+                device={device}
+                onClose={() => handleDeviceClose(device.id)}
+                onError={error}
+                onSuccess={success}
+              />
+            )
           ))}
         </div>
       )}

@@ -74,6 +74,15 @@ export function parseDevDepMsgIn(response: Buffer): string {
   return data.toString('ascii').trim();
 }
 
+// Parse binary response - returns raw Buffer
+export function parseDevDepMsgInBinary(response: Buffer): { data: Buffer; eom: boolean } {
+  const transferSize = response.readUInt32LE(4);
+  const bmTransferAttributes = response[8];
+  const eom = (bmTransferAttributes & 0x01) !== 0;  // EOM bit
+  const data = response.subarray(12, 12 + transferSize);
+  return { data, eom };
+}
+
 // Tag generator - cycles 1-255
 export function createTagGenerator(): () => number {
   let bTag = 0;
@@ -271,6 +280,38 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
 
         const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
         await transferOut(outBuf);
+      });
+    },
+
+    async queryBinary(cmd: string): Promise<Buffer> {
+      return withLock(async () => {
+        // Check for disconnection before attempting query
+        if (disconnected) {
+          throw disconnectError || new Error('USB device disconnected');
+        }
+
+        // Send command
+        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+        await transferOut(outBuf);
+
+        // Collect all data chunks until EOM
+        const chunks: Buffer[] = [];
+        let eom = false;
+
+        while (!eom) {
+          // Request large chunk (512KB should be enough for screenshots/waveforms)
+          const reqBuf = buildRequestDevDepMsgIn(512 * 1024, nextTag());
+          await transferOut(reqBuf);
+
+          // Read response
+          const response = await transferIn(512 * 1024);
+          const parsed = parseDevDepMsgInBinary(response);
+
+          chunks.push(parsed.data);
+          eom = parsed.eom;
+        }
+
+        return Buffer.concat(chunks);
       });
     },
 

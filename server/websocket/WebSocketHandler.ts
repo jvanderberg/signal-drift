@@ -106,6 +106,35 @@ export function createWebSocketHandler(
         });
         break;
 
+      // Oscilloscope messages
+      case 'scopeRun':
+        handleScopeRun(clientState, message.deviceId);
+        break;
+
+      case 'scopeStop':
+        handleScopeStop(clientState, message.deviceId);
+        break;
+
+      case 'scopeSingle':
+        handleScopeSingle(clientState, message.deviceId);
+        break;
+
+      case 'scopeAutoSetup':
+        handleScopeAutoSetup(clientState, message.deviceId);
+        break;
+
+      case 'scopeGetWaveform':
+        handleScopeGetWaveform(clientState, message.deviceId, message.channel);
+        break;
+
+      case 'scopeGetMeasurement':
+        handleScopeGetMeasurement(clientState, message.deviceId, message.channel, message.measurementType);
+        break;
+
+      case 'scopeGetScreenshot':
+        handleScopeGetScreenshot(clientState, message.deviceId);
+        break;
+
       default:
         send(clientState.ws, {
           type: 'error',
@@ -128,8 +157,9 @@ export function createWebSocketHandler(
 
   function handleSubscribe(clientState: ClientState, deviceId: string): void {
     const session = sessionManager.getSession(deviceId);
+    const scopeSession = sessionManager.getOscilloscopeSession(deviceId);
 
-    if (!session) {
+    if (!session && !scopeSession) {
       send(clientState.ws, {
         type: 'error',
         deviceId,
@@ -149,11 +179,23 @@ export function createWebSocketHandler(
 
     if (success) {
       clientState.subscriptions.add(deviceId);
-      send(clientState.ws, {
-        type: 'subscribed',
-        deviceId,
-        state: session.getState(),
-      });
+
+      // Return appropriate state based on device type
+      if (session) {
+        send(clientState.ws, {
+          type: 'subscribed',
+          deviceId,
+          state: session.getState(),
+        });
+      } else if (scopeSession) {
+        // For oscilloscopes, we send the state via field message
+        // since OscilloscopeSessionState has different shape
+        send(clientState.ws, {
+          type: 'subscribed',
+          deviceId,
+          state: scopeSession.getState() as any,  // Different state shape
+        });
+      }
     } else {
       send(clientState.ws, {
         type: 'error',
@@ -211,6 +253,122 @@ export function createWebSocketHandler(
         deviceId,
         code: 'SET_VALUE_FAILED',
         message: err instanceof Error ? err.message : 'Failed to set value',
+      });
+    }
+  }
+
+  // Oscilloscope handlers
+  async function handleScopeRun(clientState: ClientState, deviceId: string): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeRun(deviceId);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_RUN_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to run oscilloscope',
+      });
+    }
+  }
+
+  async function handleScopeStop(clientState: ClientState, deviceId: string): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeStop(deviceId);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_STOP_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to stop oscilloscope',
+      });
+    }
+  }
+
+  async function handleScopeSingle(clientState: ClientState, deviceId: string): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeSingle(deviceId);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SINGLE_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to set single trigger',
+      });
+    }
+  }
+
+  async function handleScopeAutoSetup(clientState: ClientState, deviceId: string): Promise<void> {
+    try {
+      await sessionManager.oscilloscopeAutoSetup(deviceId);
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_AUTO_SETUP_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to auto-setup oscilloscope',
+      });
+    }
+  }
+
+  async function handleScopeGetWaveform(clientState: ClientState, deviceId: string, channel: string): Promise<void> {
+    try {
+      const waveform = await sessionManager.oscilloscopeGetWaveform(deviceId, channel);
+      send(clientState.ws, {
+        type: 'scopeWaveform',
+        deviceId,
+        channel,
+        waveform,
+      });
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_WAVEFORM_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to get waveform',
+      });
+    }
+  }
+
+  async function handleScopeGetMeasurement(
+    clientState: ClientState,
+    deviceId: string,
+    channel: string,
+    measurementType: string
+  ): Promise<void> {
+    try {
+      const value = await sessionManager.oscilloscopeGetMeasurement(deviceId, channel, measurementType);
+      send(clientState.ws, {
+        type: 'scopeMeasurement',
+        deviceId,
+        channel,
+        measurementType,
+        value,
+      });
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_MEASUREMENT_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to get measurement',
+      });
+    }
+  }
+
+  async function handleScopeGetScreenshot(clientState: ClientState, deviceId: string): Promise<void> {
+    try {
+      const buffer = await sessionManager.oscilloscopeGetScreenshot(deviceId);
+      const base64 = buffer.toString('base64');
+      send(clientState.ws, {
+        type: 'scopeScreenshot',
+        deviceId,
+        data: base64,
+      });
+    } catch (err) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SCOPE_SCREENSHOT_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to get screenshot',
       });
     }
   }
