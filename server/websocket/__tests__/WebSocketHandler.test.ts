@@ -112,6 +112,7 @@ function createMockSessionManager(): SessionManager & {
       return session ? session.getState().connectionStatus === 'disconnected' : false;
     },
     reconnectSession: vi.fn(),
+    reconnectOscilloscopeSession: vi.fn(),
     getSession: (id: string) => sessions.get(id),
     getSessionCount: () => sessions.size,
     getDeviceSummaries: (): DeviceSummary[] => {
@@ -168,6 +169,21 @@ function createMockSessionManager(): SessionManager & {
     oscilloscopeGetWaveform: vi.fn(),
     oscilloscopeGetMeasurement: vi.fn(),
     oscilloscopeGetScreenshot: vi.fn(),
+    // Oscilloscope setters
+    oscilloscopeSetChannelEnabled: vi.fn(),
+    oscilloscopeSetChannelScale: vi.fn(),
+    oscilloscopeSetChannelOffset: vi.fn(),
+    oscilloscopeSetChannelCoupling: vi.fn(),
+    oscilloscopeSetChannelProbe: vi.fn(),
+    oscilloscopeSetChannelBwLimit: vi.fn(),
+    oscilloscopeSetTimebaseScale: vi.fn(),
+    oscilloscopeSetTimebaseOffset: vi.fn(),
+    oscilloscopeSetTriggerSource: vi.fn(),
+    oscilloscopeSetTriggerLevel: vi.fn(),
+    oscilloscopeSetTriggerEdge: vi.fn(),
+    oscilloscopeSetTriggerSweep: vi.fn(),
+    oscilloscopeStartStreaming: vi.fn(),
+    oscilloscopeStopStreaming: vi.fn(),
   };
 }
 
@@ -455,6 +471,202 @@ describe('WebSocketHandler', () => {
       const response2 = JSON.parse(client2.sentMessages[0]) as ServerMessage;
       expect(response1.type).toBe('deviceList');
       expect(response2.type).toBe('deviceList');
+    });
+  });
+
+  describe('Oscilloscope Channel Settings', () => {
+    it('should forward scopeSetChannelEnabled to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelEnabled',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        enabled: true,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelEnabled).toHaveBeenCalledWith('scope-1', 'CHAN1', true);
+    });
+
+    it('should forward scopeSetChannelScale to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelScale',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        scale: 0.5,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelScale).toHaveBeenCalledWith('scope-1', 'CHAN1', 0.5);
+    });
+
+    it('should forward scopeSetChannelOffset to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelOffset',
+        deviceId: 'scope-1',
+        channel: 'CHAN2',
+        offset: -1.5,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelOffset).toHaveBeenCalledWith('scope-1', 'CHAN2', -1.5);
+    });
+
+    it('should forward scopeSetChannelCoupling to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelCoupling',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        coupling: 'AC',
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelCoupling).toHaveBeenCalledWith('scope-1', 'CHAN1', 'AC');
+    });
+
+    it('should forward scopeSetChannelProbe to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelProbe',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        ratio: 10,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelProbe).toHaveBeenCalledWith('scope-1', 'CHAN1', 10);
+    });
+
+    it('should forward scopeSetChannelBwLimit to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetChannelBwLimit',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        enabled: true,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetChannelBwLimit).toHaveBeenCalledWith('scope-1', 'CHAN1', true);
+    });
+  });
+
+  describe('Oscilloscope Timebase Settings', () => {
+    it('should forward scopeSetTimebaseScale to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTimebaseScale',
+        deviceId: 'scope-1',
+        scale: 0.001,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTimebaseScale).toHaveBeenCalledWith('scope-1', 0.001);
+    });
+
+    it('should forward scopeSetTimebaseOffset to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTimebaseOffset',
+        deviceId: 'scope-1',
+        offset: 0.0005,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTimebaseOffset).toHaveBeenCalledWith('scope-1', 0.0005);
+    });
+  });
+
+  describe('Oscilloscope Trigger Settings', () => {
+    it('should forward scopeSetTriggerSource to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTriggerSource',
+        deviceId: 'scope-1',
+        source: 'CHAN2',
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTriggerSource).toHaveBeenCalledWith('scope-1', 'CHAN2');
+    });
+
+    it('should forward scopeSetTriggerLevel to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTriggerLevel',
+        deviceId: 'scope-1',
+        level: 1.5,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTriggerLevel).toHaveBeenCalledWith('scope-1', 1.5);
+    });
+
+    it('should forward scopeSetTriggerEdge to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTriggerEdge',
+        deviceId: 'scope-1',
+        edge: 'falling',
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTriggerEdge).toHaveBeenCalledWith('scope-1', 'falling');
+    });
+
+    it('should forward scopeSetTriggerSweep to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeSetTriggerSweep',
+        deviceId: 'scope-1',
+        sweep: 'normal',
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeSetTriggerSweep).toHaveBeenCalledWith('scope-1', 'normal');
+    });
+  });
+
+  describe('Oscilloscope Streaming', () => {
+    it('should forward scopeStartStreaming to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeStartStreaming',
+        deviceId: 'scope-1',
+        channels: ['CHAN1', 'CHAN2'],
+        intervalMs: 200,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeStartStreaming).toHaveBeenCalledWith('scope-1', ['CHAN1', 'CHAN2'], 200);
+    });
+
+    it('should forward scopeStopStreaming to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'scopeStopStreaming',
+        deviceId: 'scope-1',
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(sessionManager.oscilloscopeStopStreaming).toHaveBeenCalledWith('scope-1');
     });
   });
 });

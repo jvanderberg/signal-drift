@@ -18,6 +18,9 @@ import { createSerialTransport, SerialConfig } from './transports/serial.js';
 // Default baud rates to try during auto-detection (most common first)
 const DEFAULT_BAUD_RATES = [115200, 9600, 57600, 38400, 19200];
 
+// Rigol vendor ID - devices with this vendor need quirk mode for binary transfers
+const RIGOL_VENDOR_ID = 0x1ab1;
+
 /**
  * Try to probe a serial device at different baud rates
  * Returns the working config or null if none work
@@ -141,7 +144,9 @@ export async function scanDevices(
         // Check if session is disconnected and needs reconnection
         if (sessionManager?.isSessionDisconnected(existing.info.id)) {
           try {
-            const transport = createUSBTMCTransport(usbDevice);
+            const transport = createUSBTMCTransport(usbDevice, {
+              rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+            });
             const driver = registration.create(transport);
 
             await transport.open();
@@ -170,7 +175,9 @@ export async function scanDevices(
       }
 
       try {
-        const transport = createUSBTMCTransport(usbDevice);
+        const transport = createUSBTMCTransport(usbDevice, {
+          rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+        });
         const driver = registration.create(transport);
 
         await transport.open();
@@ -216,18 +223,64 @@ export async function scanDevices(
 
     // Check if already registered as oscilloscope
     const existingScopes = registry.getOscilloscopes();
-    const alreadyRegistered = existingScopes.some(s => {
+    const existingScope = existingScopes.find(s => {
       // Match by manufacturer/model pattern since we don't have serial yet
       return s.info.manufacturer.toUpperCase().includes('RIGOL');
     });
 
-    if (alreadyRegistered) {
-      // TODO: handle reconnection for oscilloscopes
+    if (existingScope) {
+      // Check if session is disconnected and needs reconnection
+      if (sessionManager?.isSessionDisconnected(existingScope.info.id)) {
+        try {
+          const transport = createUSBTMCTransport(usbDevice, {
+            rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+          });
+          await transport.open();
+
+          // Query IDN to find correct driver
+          const idn = await transport.query('*IDN?');
+          const parts = idn.split(',');
+          if (parts.length >= 2) {
+            const manufacturer = parts[0].trim();
+            const model = parts[1].trim();
+            const registration = registry.matchOscilloscopeIDN(manufacturer, model);
+
+            if (registration) {
+              const driver = registration.create(transport);
+              const probeSuccess = await driver.probe();
+
+              if (probeSuccess) {
+                sessionManager.reconnectOscilloscopeSession(existingScope.info.id, driver);
+                result.reconnected++;
+                console.log(`[Scanner] RECONNECTED: ${existingScope.info.id}`);
+              } else {
+                await transport.close();
+              }
+            } else {
+              await transport.close();
+            }
+          } else {
+            await transport.close();
+          }
+        } catch (err) {
+          console.error(`Failed to reconnect oscilloscope ${existingScope.info.id}:`, err);
+        }
+      }
+
+      result.found++;
+      result.devices.push({
+        id: existingScope.info.id,
+        type: existingScope.info.type,
+        manufacturer: existingScope.info.manufacturer,
+        model: existingScope.info.model,
+      });
       continue;
     }
 
     try {
-      const transport = createUSBTMCTransport(usbDevice);
+      const transport = createUSBTMCTransport(usbDevice, {
+        rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+      });
       await transport.open();
 
       // Query IDN to identify the device

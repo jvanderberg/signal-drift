@@ -24,6 +24,7 @@ export interface SessionManager {
   hasSession(deviceId: string): boolean;
   isSessionDisconnected(deviceId: string): boolean;
   reconnectSession(deviceId: string, newDriver: DeviceDriver): void;
+  reconnectOscilloscopeSession(deviceId: string, newDriver: OscilloscopeDriver): void;
   getSession(deviceId: string): DeviceSession | undefined;
   getSessionCount(): number;
   getDeviceSummaries(): DeviceSummary[];
@@ -47,6 +48,28 @@ export interface SessionManager {
   oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<WaveformData>;
   oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<number | null>;
   oscilloscopeGetScreenshot(deviceId: string): Promise<Buffer>;
+
+  // Oscilloscope channel settings
+  oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<void>;
+  oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<void>;
+  oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<void>;
+  oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void>;
+  oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<void>;
+  oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<void>;
+
+  // Oscilloscope timebase settings
+  oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<void>;
+  oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<void>;
+
+  // Oscilloscope trigger settings
+  oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<void>;
+  oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<void>;
+  oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<void>;
+  oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<void>;
+
+  // Oscilloscope streaming
+  oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number): Promise<void>;
+  oscilloscopeStopStreaming(deviceId: string): Promise<void>;
 
   stop(): void;
 }
@@ -121,7 +144,13 @@ export function createSessionManager(
     if (session) {
       session.reconnect(newDriver);
     }
-    // Note: oscilloscope reconnection would need OscilloscopeDriver
+  }
+
+  function reconnectOscilloscopeSession(deviceId: string, newDriver: OscilloscopeDriver): void {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (session) {
+      session.reconnect(newDriver);
+    }
   }
 
   function getSession(deviceId: string): DeviceSession | undefined {
@@ -282,6 +311,94 @@ export function createSessionManager(
     return session.getScreenshot();
   }
 
+  // Oscilloscope channel settings
+  async function oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelEnabled(channel, enabled);
+  }
+
+  async function oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelScale(channel, scale);
+  }
+
+  async function oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelOffset(channel, offset);
+  }
+
+  async function oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelCoupling(channel, coupling);
+  }
+
+  async function oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelProbe(channel, ratio);
+  }
+
+  async function oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setChannelBwLimit(channel, enabled);
+  }
+
+  // Oscilloscope timebase settings
+  async function oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTimebaseScale(scale);
+  }
+
+  async function oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTimebaseOffset(offset);
+  }
+
+  // Oscilloscope trigger settings
+  async function oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTriggerSource(source);
+  }
+
+  async function oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTriggerLevel(level);
+  }
+
+  async function oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTriggerEdge(edge);
+  }
+
+  async function oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.setTriggerSweep(sweep);
+  }
+
+  // Oscilloscope streaming
+  async function oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.startStreaming(channels, intervalMs);
+  }
+
+  async function oscilloscopeStopStreaming(deviceId: string): Promise<void> {
+    const session = oscilloscopeSessions.get(deviceId);
+    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    await session.stopStreaming();
+  }
+
   function stop(): void {
     isRunning = false;
 
@@ -306,6 +423,7 @@ export function createSessionManager(
     hasSession,
     isSessionDisconnected,
     reconnectSession,
+    reconnectOscilloscopeSession,
     getSession,
     getSessionCount,
     getDeviceSummaries,
@@ -324,6 +442,20 @@ export function createSessionManager(
     oscilloscopeGetWaveform,
     oscilloscopeGetMeasurement,
     oscilloscopeGetScreenshot,
+    oscilloscopeSetChannelEnabled,
+    oscilloscopeSetChannelScale,
+    oscilloscopeSetChannelOffset,
+    oscilloscopeSetChannelCoupling,
+    oscilloscopeSetChannelProbe,
+    oscilloscopeSetChannelBwLimit,
+    oscilloscopeSetTimebaseScale,
+    oscilloscopeSetTimebaseOffset,
+    oscilloscopeSetTriggerSource,
+    oscilloscopeSetTriggerLevel,
+    oscilloscopeSetTriggerEdge,
+    oscilloscopeSetTriggerSweep,
+    oscilloscopeStartStreaming,
+    oscilloscopeStopStreaming,
     stop,
   };
 }

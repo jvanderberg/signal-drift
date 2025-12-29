@@ -50,6 +50,9 @@ export interface OscilloscopeSession {
   setChannelEnabled(channel: string, enabled: boolean): Promise<void>;
   setChannelScale(channel: string, scale: number): Promise<void>;
   setChannelOffset(channel: string, offset: number): Promise<void>;
+  setChannelCoupling(channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void>;
+  setChannelProbe(channel: string, ratio: number): Promise<void>;
+  setChannelBwLimit(channel: string, enabled: boolean): Promise<void>;
 
   // Timebase
   setTimebaseScale(scale: number): Promise<void>;
@@ -65,6 +68,10 @@ export interface OscilloscopeSession {
   getMeasurement(channel: string, type: string): Promise<number | null>;
   getWaveform(channel: string): Promise<WaveformData>;
   getScreenshot(): Promise<Buffer>;
+
+  // Streaming
+  startStreaming(channels: string[], intervalMs: number): Promise<void>;
+  stopStreaming(): Promise<void>;
 
   // Lifecycle
   reconnect(newDriver: OscilloscopeDriver): Promise<void>;
@@ -91,6 +98,9 @@ export function createOscilloscopeSession(
   const subscribers = new Map<string, SubscriberCallback>();
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let streamingTimer: ReturnType<typeof setInterval> | null = null;
+  let streamingChannels: string[] = [];
+  let streamingIntervalMs = 200;
   let isRunning = true;
 
   function broadcast(message: ServerMessage): void {
@@ -171,6 +181,66 @@ export function createOscilloscopeSession(
     };
   }
 
+  // Internal streaming loop - can be called from startStreaming and reconnect
+  function runStreamingLoop(): void {
+    if (streamingChannels.length === 0) return;
+
+    const minInterval = streamingChannels.length > 1 ? 350 : 200;
+    const safeInterval = Math.max(streamingIntervalMs, minInterval);
+
+    async function fetchAndBroadcast() {
+      // Don't fetch if disconnected - reconnect will resume
+      if (connectionStatus === 'disconnected') {
+        streamingTimer = null;
+        return;
+      }
+
+      for (const channel of streamingChannels) {
+        try {
+          const waveform = await driver.getWaveform(channel);
+          broadcast({
+            type: 'scopeWaveform',
+            deviceId: driver.info.id,
+            channel,
+            waveform,
+          });
+          // Reset error count on success
+          if (consecutiveErrors > 0) {
+            consecutiveErrors = 0;
+          }
+        } catch (err: any) {
+          // Check for fatal USB errors that indicate disconnection
+          const errorMsg = err?.message || String(err);
+          if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
+              errorMsg.includes('LIBUSB_ERROR_IO') ||
+              errorMsg.includes('LIBUSB_ERROR_PIPE')) {
+            consecutiveErrors++;
+            if (consecutiveErrors >= cfg.maxConsecutiveErrors) {
+              connectionStatus = 'disconnected';
+              broadcast({
+                type: 'field',
+                deviceId: driver.info.id,
+                field: 'connectionStatus',
+                value: 'disconnected',
+              });
+              console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
+              // Don't clear streamingChannels - reconnect will resume
+              streamingTimer = null;
+              return;
+            }
+          }
+        }
+      }
+
+      // Schedule next fetch if still streaming (we return early if disconnected)
+      if (streamingChannels.length > 0) {
+        streamingTimer = setTimeout(fetchAndBroadcast, safeInterval);
+      }
+    }
+
+    fetchAndBroadcast();
+  }
+
   // Start polling
   pollStatus();
 
@@ -227,6 +297,18 @@ export function createOscilloscopeSession(
       await driver.setChannelOffset(channel, offset);
     },
 
+    async setChannelCoupling(channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
+      await driver.setChannelCoupling(channel, coupling);
+    },
+
+    async setChannelProbe(channel: string, ratio: number): Promise<void> {
+      await driver.setChannelProbe(channel, ratio);
+    },
+
+    async setChannelBwLimit(channel: string, enabled: boolean): Promise<void> {
+      await driver.setChannelBwLimit(channel, enabled);
+    },
+
     // Timebase
     async setTimebaseScale(scale: number): Promise<void> {
       await driver.setTimebaseScale(scale);
@@ -266,6 +348,38 @@ export function createOscilloscopeSession(
       return driver.getScreenshot();
     },
 
+    // Streaming
+    async startStreaming(channels: string[], intervalMs: number): Promise<void> {
+      // Stop existing streaming if any
+      if (streamingTimer) {
+        clearTimeout(streamingTimer);
+        streamingTimer = null;
+      }
+
+      // Pause status polling during streaming to avoid USB congestion
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+
+      streamingChannels = [...channels];
+      streamingIntervalMs = intervalMs;
+      runStreamingLoop();
+    },
+
+    async stopStreaming(): Promise<void> {
+      streamingChannels = [];
+      if (streamingTimer) {
+        clearTimeout(streamingTimer);
+        streamingTimer = null;
+      }
+
+      // Resume status polling when streaming stops
+      if (isRunning && connectionStatus !== 'disconnected' && !pollTimer) {
+        pollTimer = setTimeout(pollStatus, cfg.statusPollIntervalMs);
+      }
+    },
+
     // Lifecycle
     async reconnect(newDriver: OscilloscopeDriver): Promise<void> {
       driver = newDriver;
@@ -279,16 +393,25 @@ export function createOscilloscopeSession(
         value: 'connected',
       });
 
-      if (!pollTimer && isRunning) {
+      // Resume streaming if we were streaming before disconnect
+      if (streamingChannels.length > 0) {
+        console.log(`[OscilloscopeSession] RECONNECTED, resuming streaming: ${driver.info.id}`);
+        runStreamingLoop();
+      } else if (!pollTimer && isRunning) {
         pollStatus();
       }
     },
 
     stopSession(): void {
       isRunning = false;
+      streamingChannels = [];
       if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
+      }
+      if (streamingTimer) {
+        clearTimeout(streamingTimer);
+        streamingTimer = null;
       }
     },
   };
