@@ -231,13 +231,12 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
           <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
             <div className="flex gap-2">
               {/* Main waveform area */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <WaveformDisplay
                   waveforms={displayWaveforms}
                   waveform={displayWaveforms[0]}
                   triggerLevel={triggerLevel}
                   showGrid={true}
-                  width={600}
                   height={300}
                 />
               </div>

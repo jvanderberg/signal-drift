@@ -14,6 +14,17 @@
   --color-text-muted: #999999;
   --color-border-light: #e0e0e0;
   --color-border-dark: #d0d0d0;
+  /* Waveform display */
+  --color-waveform-bg: #f0f0f2;
+  --color-waveform-grid: #d0d0d5;
+  --color-waveform-grid-major: #b0b0b8;
+  --color-waveform-label: #666666;
+  --color-waveform-trigger: #e65c00;
+  /* Channel trace colors (darker for light bg) */
+  --color-waveform-chan1: #b8960a;
+  --color-waveform-chan2: #0099aa;
+  --color-waveform-chan3: #aa00aa;
+  --color-waveform-chan4: #00aa00;
 }
 
 /* Dark mode - system preference */
@@ -31,6 +42,17 @@
     --color-text-muted: #606068;
     --color-border-light: #3a3a42;
     --color-border-dark: #2a2a32;
+    /* Waveform display */
+    --color-waveform-bg: #1a1a1e;
+    --color-waveform-grid: #333338;
+    --color-waveform-grid-major: #444448;
+    --color-waveform-label: #888888;
+    --color-waveform-trigger: #ff6600;
+    /* Channel trace colors (bright for dark bg) */
+    --color-waveform-chan1: #FFD700;
+    --color-waveform-chan2: #00FFFF;
+    --color-waveform-chan3: #FF00FF;
+    --color-waveform-chan4: #00FF00;
   }
 }
 
@@ -48,6 +70,17 @@
   --color-text-muted: #999999;
   --color-border-light: #e0e0e0;
   --color-border-dark: #d0d0d0;
+  /* Waveform display */
+  --color-waveform-bg: #f0f0f2;
+  --color-waveform-grid: #d0d0d5;
+  --color-waveform-grid-major: #b0b0b8;
+  --color-waveform-label: #666666;
+  --color-waveform-trigger: #e65c00;
+  /* Channel trace colors (darker for light bg) */
+  --color-waveform-chan1: #b8960a;
+  --color-waveform-chan2: #0099aa;
+  --color-waveform-chan3: #aa00aa;
+  --color-waveform-chan4: #00aa00;
 }
 
 /* Manual dark theme override */
@@ -64,6 +97,17 @@
   --color-text-muted: #606068;
   --color-border-light: #3a3a42;
   --color-border-dark: #2a2a32;
+  /* Waveform display */
+  --color-waveform-bg: #1a1a1e;
+  --color-waveform-grid: #333338;
+  --color-waveform-grid-major: #444448;
+  --color-waveform-label: #888888;
+  --color-waveform-trigger: #ff6600;
+  /* Channel trace colors (bright for dark bg) */
+  --color-waveform-chan1: #FFD700;
+  --color-waveform-chan2: #00FFFF;
+  --color-waveform-chan3: #FF00FF;
+  --color-waveform-chan4: #00FF00;
 }
 
 body {

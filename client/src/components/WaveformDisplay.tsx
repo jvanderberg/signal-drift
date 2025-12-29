@@ -6,21 +6,22 @@
  * - Multi-channel support with distinct colors
  * - Trigger level overlay
  * - Subtle grid option
- * - Responsive sizing
+ * - Responsive sizing with ResizeObserver
+ * - Theme-aware colors via CSS variables
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import type { WaveformData } from '../../../shared/types';
 
-// Channel colors (oscilloscope-inspired)
+// Channel colors via CSS variables (theme-aware)
 const CHANNEL_COLORS: Record<string, string> = {
-  CHAN1: '#FFD700', // Yellow (typical for CH1)
-  CHAN2: '#00FFFF', // Cyan (typical for CH2)
-  CHAN3: '#FF00FF', // Magenta
-  CHAN4: '#00FF00', // Green
+  CHAN1: 'var(--color-waveform-chan1)',
+  CHAN2: 'var(--color-waveform-chan2)',
+  CHAN3: 'var(--color-waveform-chan3)',
+  CHAN4: 'var(--color-waveform-chan4)',
 };
 
-const DEFAULT_COLOR = '#FFFFFF';
+const DEFAULT_COLOR = 'var(--color-waveform-label)';
 
 export interface WaveformDisplayProps {
   // Single waveform (convenience)
@@ -30,7 +31,6 @@ export interface WaveformDisplayProps {
   // Trigger level (voltage)
   triggerLevel?: number;
   // Display options
-  width?: number;
   height?: number;
   showGrid?: boolean;
   // Padding for axes
@@ -58,11 +58,40 @@ export function WaveformDisplay({
   waveform,
   waveforms: waveformsProp,
   triggerLevel,
-  width = 600,
   height = 300,
   showGrid = true,
   padding = { top: 20, right: 60, bottom: 30, left: 60 },
 }: WaveformDisplayProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(600);
+
+  // Responsive width via ResizeObserver
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Set initial width
+    if (container.clientWidth > 0) {
+      setWidth(container.clientWidth);
+    }
+
+    // Use ResizeObserver if available (not in test environments)
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const newWidth = entry.contentRect.width;
+        if (newWidth > 0) {
+          setWidth(newWidth);
+        }
+      }
+    });
+
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, []);
+
   // Normalize to array of waveforms
   const waveforms = useMemo(() => {
     if (waveformsProp && waveformsProp.length > 0) return waveformsProp;
@@ -149,6 +178,7 @@ export function WaveformDisplay({
     const xDivisions = 10;
     for (let i = 0; i <= xDivisions; i++) {
       const x = padding.left + (i / xDivisions) * plotWidth;
+      const isMajor = i === 0 || i === xDivisions;
       xLines.push(
         <line
           key={`x-${i}`}
@@ -156,8 +186,8 @@ export function WaveformDisplay({
           y1={padding.top}
           x2={x}
           y2={padding.top + plotHeight}
-          stroke="#333"
-          strokeWidth={i === 0 || i === xDivisions ? 1 : 0.5}
+          stroke={isMajor ? 'var(--color-waveform-grid-major)' : 'var(--color-waveform-grid)'}
+          strokeWidth={isMajor ? 1 : 0.5}
         />
       );
     }
@@ -166,6 +196,7 @@ export function WaveformDisplay({
     const yDivisions = 8;
     for (let i = 0; i <= yDivisions; i++) {
       const y = padding.top + (i / yDivisions) * plotHeight;
+      const isMajor = i === 0 || i === yDivisions;
       yLines.push(
         <line
           key={`y-${i}`}
@@ -173,8 +204,8 @@ export function WaveformDisplay({
           y1={y}
           x2={padding.left + plotWidth}
           y2={y}
-          stroke="#333"
-          strokeWidth={i === 0 || i === yDivisions ? 1 : 0.5}
+          stroke={isMajor ? 'var(--color-waveform-grid-major)' : 'var(--color-waveform-grid)'}
+          strokeWidth={isMajor ? 1 : 0.5}
         />
       );
     }
@@ -203,7 +234,7 @@ export function WaveformDisplay({
         y1={y}
         x2={padding.left + plotWidth}
         y2={y}
-        stroke="#FF6600"
+        stroke="var(--color-waveform-trigger)"
         strokeWidth={1}
         strokeDasharray="5,3"
       />
@@ -220,7 +251,7 @@ export function WaveformDisplay({
           x={padding.left - 5}
           y={padding.top + 5}
           textAnchor="end"
-          fill="#888"
+          fill="var(--color-waveform-label)"
           fontSize={10}
         >
           {formatVoltage(yMax)}
@@ -230,7 +261,7 @@ export function WaveformDisplay({
           x={padding.left - 5}
           y={padding.top + plotHeight}
           textAnchor="end"
-          fill="#888"
+          fill="var(--color-waveform-label)"
           fontSize={10}
         >
           {formatVoltage(yMin)}
@@ -242,7 +273,7 @@ export function WaveformDisplay({
           x={padding.left}
           y={height - 5}
           textAnchor="start"
-          fill="#888"
+          fill="var(--color-waveform-label)"
           fontSize={10}
         >
           {formatTime(xMin)}
@@ -252,7 +283,7 @@ export function WaveformDisplay({
           x={padding.left + plotWidth}
           y={height - 5}
           textAnchor="end"
-          fill="#888"
+          fill="var(--color-waveform-label)"
           fontSize={10}
         >
           {formatTime(xMax)}
@@ -283,12 +314,17 @@ export function WaveformDisplay({
   }, [waveforms, xMin, xMax, yMin, yMax, plotWidth, plotHeight, padding]);
 
   return (
-    <div data-testid="waveform-display" className="waveform-display">
+    <div
+      ref={containerRef}
+      data-testid="waveform-display"
+      className="waveform-display w-full"
+    >
       <svg
         data-testid="waveform-svg"
         width={width}
         height={height}
-        style={{ backgroundColor: '#1a1a1a' }}
+        className="rounded"
+        style={{ backgroundColor: 'var(--color-waveform-bg)' }}
       >
         {/* Grid */}
         {gridLines}
@@ -308,7 +344,7 @@ export function WaveformDisplay({
             x={width / 2}
             y={height / 2}
             textAnchor="middle"
-            fill="#666"
+            fill="var(--color-waveform-label)"
             fontSize={14}
           >
             No data

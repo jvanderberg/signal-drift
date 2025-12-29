@@ -274,6 +274,177 @@ const setpointDatasets = Object.entries(status.setpoints)
   }));
 ```
 
+## UI Styling Guide
+
+All UI components must follow these patterns to maintain visual consistency across device modules.
+
+### Theme Colors (CSS Variables)
+
+Always use CSS custom properties from `client/src/index.css`. Never hardcode colors.
+
+```css
+/* Backgrounds */
+--color-bg-body         /* Page background */
+--color-bg-panel        /* Card/panel background */
+--color-bg-readings     /* Measurement display background */
+
+/* Accents (device-specific) */
+--color-accent-psu      /* Orange - power supply elements */
+--color-accent-load     /* Blue - electronic load elements */
+
+/* Status */
+--color-success         /* Green - connected, enabled, running */
+--color-danger          /* Red - error, stop, disconnect */
+
+/* Text hierarchy */
+--color-text-primary    /* Main text */
+--color-text-secondary  /* Labels, subtitles */
+--color-text-muted      /* Disabled, hints */
+
+/* Borders */
+--color-border-light    /* Subtle separators */
+--color-border-dark     /* Panel borders */
+
+/* Waveform display (oscilloscope) */
+--color-waveform-bg         /* Dark background for waveform area */
+--color-waveform-grid       /* Minor grid lines */
+--color-waveform-grid-major /* Major grid lines (edges) */
+--color-waveform-label      /* Axis labels */
+--color-waveform-trigger    /* Trigger level indicator */
+```
+
+### Panel Structure
+
+Every device panel follows this structure:
+
+```jsx
+{/* Outer container with border */}
+<div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+  {/* Content */}
+</div>
+```
+
+### Typography
+
+| Element | Classes |
+|---------|---------|
+| Panel headers | `text-sm font-semibold` |
+| Labels | `text-xs text-[var(--color-text-secondary)] uppercase` |
+| Measurement values | `font-mono text-xl font-bold` |
+| Small labels | `text-[10px] uppercase tracking-wide` |
+| Muted text | `text-[var(--color-text-muted)]` |
+
+### Buttons
+
+**Primary action (Run/Start):**
+```jsx
+className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-success)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+```
+
+**Danger action (Stop):**
+```jsx
+className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-danger)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+```
+
+**Secondary:**
+```jsx
+className="px-4 py-2 text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90"
+```
+
+**Small controls:**
+```jsx
+className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50 min-w-[22px]"
+```
+
+### Form Controls
+
+**Selects/Dropdowns:**
+```jsx
+className="px-2 py-1 text-xs rounded bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-load)]"
+```
+
+**Toggle Switch:**
+```jsx
+<button className={`relative w-11 h-6 rounded-full transition-colors ${
+  enabled ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border-dark)]'
+}`}>
+  <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${
+    enabled ? 'translate-x-5' : 'translate-x-0'
+  }`} />
+</button>
+```
+
+### Spacing
+
+| Context | Value |
+|---------|-------|
+| Panel padding | `p-3` (12px) |
+| Header padding | `p-2` (8px) |
+| Control padding | `p-1.5` (6px) |
+| Between major sections | `gap-4` (16px) |
+| Between control groups | `gap-2` to `gap-3` (8-12px) |
+| Within button groups | `gap-1` to `gap-1.5` (4-6px) |
+| Between panels | `mb-2` (8px) |
+
+### Status Indicators
+
+**Status dot (CSS classes defined in index.css):**
+```jsx
+<span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
+```
+
+**Mode badge:**
+```jsx
+<span className={`mode-badge ${mode.toLowerCase()}`}>{mode}</span>
+```
+
+### Device-Specific Colors
+
+**Oscilloscope channels:**
+```typescript
+const CHANNEL_COLORS = {
+  CHAN1: '#FFD700',  // Yellow
+  CHAN2: '#00FFFF',  // Cyan
+  CHAN3: '#FF00FF',  // Magenta
+  CHAN4: '#00FF00',  // Green
+};
+```
+
+**Chart series:**
+```typescript
+const SERIES_COLORS = {
+  voltage:    '#ff9f43',  // Orange (matches --color-accent-psu)
+  current:    '#00d4ff',  // Cyan (matches --color-accent-load)
+  power:      '#2ed573',  // Green
+  resistance: '#a55eea',  // Purple
+};
+```
+
+### Popovers and Overlays
+
+```jsx
+<div className="bg-gray-800 border border-gray-600 rounded-lg shadow-lg p-3"
+     style={{ borderTopColor: accentColor, borderTopWidth: '3px' }}>
+  {/* Content */}
+</div>
+```
+
+### Responsive Patterns
+
+- Use `lg:` breakpoint for desktop-specific layouts
+- Mobile-first: controls stack vertically, expand horizontally on desktop
+- Hide secondary info on mobile: `hidden lg:block`
+- Flexible grids: `grid-cols-2 lg:grid-cols-1`
+
+### Common Mistakes to Avoid
+
+1. **Hardcoding colors** - Always use CSS variables
+2. **Inconsistent spacing** - Use the established scale (gap-1, gap-2, gap-3, gap-4)
+3. **Missing hover/disabled states** - All interactive elements need both
+4. **Wrong text hierarchy** - Use the typography classes consistently
+5. **Dark mode issues** - Test both themes; CSS variables handle this automatically
+6. **Missing rounded corners** - Use `rounded` or `rounded-md` on all panels/buttons
+
 ## Common Pitfalls
 
 1. **HMR doesn't reset useState initializers** - Changing default values requires page refresh

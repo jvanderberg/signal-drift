@@ -106,7 +106,6 @@ describe('WaveformDisplay', () => {
         <WaveformDisplay
           waveform={waveform}
           triggerLevel={1.0} // Middle of range
-          width={400}
           height={200}
         />
       );
@@ -173,25 +172,31 @@ describe('WaveformDisplay', () => {
   });
 
   describe('Sizing', () => {
-    it('should use provided width and height', () => {
+    it('should use provided height', () => {
       const waveform = createWaveform({});
-      render(<WaveformDisplay waveform={waveform} width={800} height={400} />);
+      render(<WaveformDisplay waveform={waveform} height={400} />);
 
       const svg = screen.getByTestId('waveform-svg');
-      expect(svg.getAttribute('width')).toBe('800');
       expect(svg.getAttribute('height')).toBe('400');
     });
 
-    it('should have sensible default dimensions', () => {
+    it('should have sensible default height', () => {
       const waveform = createWaveform({});
       render(<WaveformDisplay waveform={waveform} />);
 
       const svg = screen.getByTestId('waveform-svg');
-      const width = parseInt(svg.getAttribute('width') ?? '0');
       const height = parseInt(svg.getAttribute('height') ?? '0');
 
-      expect(width).toBeGreaterThan(200);
       expect(height).toBeGreaterThan(100);
+    });
+
+    it('should have responsive width via container', () => {
+      const waveform = createWaveform({});
+      render(<WaveformDisplay waveform={waveform} />);
+
+      // Container should have w-full class for responsive sizing
+      const container = screen.getByTestId('waveform-display');
+      expect(container).toHaveClass('w-full');
     });
   });
 
