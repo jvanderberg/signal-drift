@@ -227,7 +227,7 @@ describe('USB-TMC Transport', () => {
       await transport.open();
 
       expect(device.open).toHaveBeenCalled();
-      expect(device.interfaces[0].claim).toHaveBeenCalled();
+      expect(device.interfaces![0].claim).toHaveBeenCalled();
       expect(transport.isOpen()).toBe(true);
     });
 
@@ -259,7 +259,7 @@ describe('USB-TMC Transport', () => {
       await transport.open();
       await transport.close();
 
-      expect(device.interfaces[0].release).toHaveBeenCalled();
+      expect(device.interfaces![0].release).toHaveBeenCalled();
       expect(device.close).toHaveBeenCalled();
       expect(transport.isOpen()).toBe(false);
     });
@@ -312,8 +312,10 @@ describe('USB-TMC Transport', () => {
       const device = createMockDevice({ transferInDelay: 10 });
 
       // Track when transfers happen
-      const originalTransfer = device.interfaces[0].endpoints[1].transfer as any;
-      (device.interfaces[0].endpoints[1] as any).transfer = vi.fn((data: Buffer, cb: (err?: Error) => void) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const outEndpoint = device.interfaces![0].endpoints[1] as any;
+      const originalTransfer = outEndpoint.transfer;
+      outEndpoint.transfer = vi.fn((data: Buffer, cb: (err?: Error) => void) => {
         callOrder.push('transfer');
         originalTransfer(data, cb);
       });

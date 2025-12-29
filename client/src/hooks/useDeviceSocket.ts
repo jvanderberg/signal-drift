@@ -20,6 +20,7 @@ export interface UseDeviceSocketResult {
   setMode: (mode: string) => void;
   setOutput: (enabled: boolean) => void;
   setValue: (name: string, value: number, immediate?: boolean) => void;
+  clearError: () => void;
 }
 
 export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
@@ -171,6 +172,10 @@ export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
     wsManager.current.send({ type: 'setValue', deviceId, name, value, immediate });
   }, [deviceId]);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   return {
     state,
     connectionState,
@@ -181,5 +186,6 @@ export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
     setMode,
     setOutput,
     setValue,
+    clearError,
   };
 }

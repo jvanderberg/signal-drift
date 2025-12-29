@@ -25,6 +25,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
     setMode,
     setOutput,
     setValue,
+    clearError,
   } = useDeviceSocket(device.id);
 
   const [historyWindow, setHistoryWindow] = useState(2);
@@ -41,8 +42,9 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   useEffect(() => {
     if (error) {
       onError(error);
+      clearError();
     }
-  }, [error, onError]);
+  }, [error, onError, clearError]);
 
   // Notify on subscription state change
   useEffect(() => {
