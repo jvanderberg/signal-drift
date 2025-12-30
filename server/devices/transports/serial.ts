@@ -6,6 +6,8 @@
 import { SerialPort } from 'serialport';
 import { ReadlineParser } from '@serialport/parser-readline';
 import type { Transport } from '../types.js';
+import type { Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 export interface SerialConfig {
   path: string;
@@ -39,8 +41,8 @@ export function createSerialTransport(config: SerialConfig): Transport {
   }
 
   return {
-    async open(): Promise<void> {
-      if (opened) return;
+    async open(): Promise<Result<void, Error>> {
+      if (opened) return Ok(undefined);
 
       port = new SerialPort({
         path,
@@ -62,20 +64,25 @@ export function createSerialTransport(config: SerialConfig): Transport {
 
       parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
 
-      await new Promise<void>((resolve, reject) => {
-        port!.open((err) => {
-          if (err) reject(err);
-          else resolve();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          port!.open((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
         });
-      });
+      } catch (e) {
+        return Err(e instanceof Error ? e : new Error(String(e)));
+      }
 
       opened = true;
       disconnected = false;
       disconnectError = null;
+      return Ok(undefined);
     },
 
-    async close(): Promise<void> {
-      if (!port) return;
+    async close(): Promise<Result<void, Error>> {
+      if (!port) return Ok(undefined);
 
       // Acquire lock to wait for any in-flight operations
       await withLock(async () => {
@@ -99,75 +106,86 @@ export function createSerialTransport(config: SerialConfig): Transport {
         disconnected = false;
         disconnectError = null;
       });
+      return Ok(undefined);
     },
 
-    async query(cmd: string): Promise<string> {
+    async query(cmd: string): Promise<Result<string, Error>> {
       return withLock(async () => {
         if (disconnected) {
-          throw disconnectError || new Error('SERIAL_PORT_DISCONNECTED');
+          return Err(disconnectError || new Error('SERIAL_PORT_DISCONNECTED'));
         }
         if (!port || !parser) {
-          throw new Error('Port not opened');
+          return Err(new Error('Port not opened'));
         }
 
-        const result = await new Promise<string>((resolve, reject) => {
-          let settled = false;
+        let result: string;
+        try {
+          result = await new Promise<string>((resolve, reject) => {
+            let settled = false;
 
-          let timeoutId: ReturnType<typeof setTimeout>;
+            let timeoutId: ReturnType<typeof setTimeout>;
 
-          const cleanup = () => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timeoutId);
-              parser?.removeListener('data', onData);
-            }
-          };
+            const cleanup = () => {
+              if (!settled) {
+                settled = true;
+                clearTimeout(timeoutId);
+                parser?.removeListener('data', onData);
+              }
+            };
 
-          const onData = (data: string) => {
-            cleanup();
-            resolve(data.trim());
-          };
-
-          timeoutId = setTimeout(() => {
-            cleanup();
-            reject(new Error(`Timeout waiting for response to: ${cmd}`));
-          }, timeout);
-
-          parser!.once('data', onData);
-
-          port!.write(cmd + '\n', (err) => {
-            if (err) {
+            const onData = (data: string) => {
               cleanup();
-              reject(err);
-            }
+              resolve(data.trim());
+            };
+
+            timeoutId = setTimeout(() => {
+              cleanup();
+              reject(new Error(`Timeout waiting for response to: ${cmd}`));
+            }, timeout);
+
+            parser!.once('data', onData);
+
+            port!.write(cmd + '\n', (err) => {
+              if (err) {
+                cleanup();
+                reject(err);
+              }
+            });
           });
-        });
+        } catch (e) {
+          return Err(e instanceof Error ? e : new Error(String(e)));
+        }
 
         // Add delay after query for device to settle (required for Matrix PSU)
         await delay(commandDelay);
 
-        return result;
+        return Ok(result);
       });
     },
 
-    async write(cmd: string): Promise<void> {
+    async write(cmd: string): Promise<Result<void, Error>> {
       return withLock(async () => {
         if (disconnected) {
-          throw disconnectError || new Error('SERIAL_PORT_DISCONNECTED');
+          return Err(disconnectError || new Error('SERIAL_PORT_DISCONNECTED'));
         }
         if (!port) {
-          throw new Error('Port not opened');
+          return Err(new Error('Port not opened'));
         }
 
-        await new Promise<void>((resolve, reject) => {
-          port!.write(cmd + '\n', (err) => {
-            if (err) reject(err);
-            else resolve();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            port!.write(cmd + '\n', (err) => {
+              if (err) reject(err);
+              else resolve();
+            });
           });
-        });
+        } catch (e) {
+          return Err(e instanceof Error ? e : new Error(String(e)));
+        }
 
         // Add delay after write for device to process
         await delay(commandDelay);
+        return Ok(undefined);
       });
     },
 

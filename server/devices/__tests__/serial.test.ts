@@ -91,21 +91,28 @@ describe('Serial Transport', () => {
       mockParserInstance.emit('data', '12.5\n');
 
       const result = await queryPromise;
-      expect(result).toBe('12.5');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('12.5');
+      }
       expect(mockPortInstance.write).toHaveBeenCalledWith('VOLT?\n', expect.any(Function));
     });
 
     // Note: Timeout tests removed due to vitest fake timer issues with async rejections.
     // The timeout functionality is still implemented and works correctly.
 
-    it('should throw if port is disconnected', async () => {
+    it('should return Err if port is disconnected', async () => {
       const transport = createSerialTransport({ path: '/dev/test', baudRate: 115200 });
       await transport.open();
 
       // Simulate disconnection via close event
       mockPortInstance.emit('close');
 
-      await expect(transport.query('VOLT?')).rejects.toThrow('SERIAL_PORT_DISCONNECTED');
+      const result = await transport.query('VOLT?');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('SERIAL_PORT_DISCONNECTED');
+      }
     });
   });
 

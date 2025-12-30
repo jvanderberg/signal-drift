@@ -85,10 +85,10 @@ describe('Rigol Oscilloscope Driver', () => {
   });
 
   describe('probe()', () => {
-    it('should return true for DS1054Z', async () => {
+    it('should return Ok for DS1054Z', async () => {
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(true);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('*IDN?');
     });
 
@@ -110,7 +110,7 @@ describe('Rigol Oscilloscope Driver', () => {
       expect(driver.info.id).toBe('rigol-ds1054z-DS1ZA123456789');
     });
 
-    it('should return true for DS2072A', async () => {
+    it('should return Ok for DS2072A', async () => {
       transport = createMockTransport({
         responses: {
           '*IDN?': 'RIGOL TECHNOLOGIES,DS2072A,DS2D123456789,00.03.02',
@@ -119,11 +119,13 @@ describe('Rigol Oscilloscope Driver', () => {
       driver = createRigolOscilloscope(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(true);
-      expect(driver.info.model).toBe('DS2072A');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.model).toBe('DS2072A');
+      }
     });
 
-    it('should return true for MSO5074', async () => {
+    it('should return Ok for MSO5074', async () => {
       transport = createMockTransport({
         responses: {
           '*IDN?': 'RIGOL TECHNOLOGIES,MSO5074,MS5A123456789,00.01.02.03',
@@ -132,11 +134,13 @@ describe('Rigol Oscilloscope Driver', () => {
       driver = createRigolOscilloscope(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(true);
-      expect(driver.info.model).toBe('MSO5074');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.model).toBe('MSO5074');
+      }
     });
 
-    it('should return false for non-oscilloscope Rigol device (DL3021)', async () => {
+    it('should return Err for non-oscilloscope Rigol device (DL3021)', async () => {
       transport = createMockTransport({
         responses: {
           '*IDN?': 'RIGOL TECHNOLOGIES,DL3021,DL3A123456789,00.01.02.03.04',
@@ -145,10 +149,13 @@ describe('Rigol Oscilloscope Driver', () => {
       driver = createRigolOscilloscope(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.reason).toBe('wrong_device');
+      }
     });
 
-    it('should return false for non-Rigol device', async () => {
+    it('should return Err for non-Rigol device', async () => {
       transport = createMockTransport({
         responses: {
           '*IDN?': 'KEYSIGHT TECHNOLOGIES,DSOX1102G,MY12345678,01.20.0000',
@@ -157,31 +164,36 @@ describe('Rigol Oscilloscope Driver', () => {
       driver = createRigolOscilloscope(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.reason).toBe('wrong_device');
+      }
     });
 
-    it('should return false on timeout/error', async () => {
+    it('should return Err on timeout/error', async () => {
       transport = createMockTransport({
         responses: {},  // No response configured
       });
       driver = createRigolOscilloscope(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
     });
   });
 
   describe('connect() / disconnect()', () => {
     it('should open transport on connect', async () => {
       expect(transport.isOpen()).toBe(false);
-      await driver.connect();
+      const result = await driver.connect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(true);
     });
 
     it('should close transport on disconnect', async () => {
       await driver.connect();
       expect(transport.isOpen()).toBe(true);
-      await driver.disconnect();
+      const result = await driver.disconnect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(false);
     });
   });
@@ -192,14 +204,20 @@ describe('Rigol Oscilloscope Driver', () => {
     });
 
     it('should return running state based on trigger status', async () => {
-      const status = await driver.getStatus();
-      // TD (triggered) means running
-      expect(status.running).toBe(true);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // TD (triggered) means running
+        expect(result.value.running).toBe(true);
+      }
     });
 
     it('should parse trigger status', async () => {
-      const status = await driver.getStatus();
-      expect(status.triggerStatus).toBe('triggered');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.triggerStatus).toBe('triggered');
+      }
     });
 
     it('should parse WAIT trigger status', async () => {
@@ -208,8 +226,11 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const status = await driver.getStatus();
-      expect(status.triggerStatus).toBe('wait');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.triggerStatus).toBe('wait');
+      }
     });
 
     it('should parse STOP trigger status', async () => {
@@ -218,9 +239,12 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const status = await driver.getStatus();
-      expect(status.triggerStatus).toBe('stopped');
-      expect(status.running).toBe(false);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.triggerStatus).toBe('stopped');
+        expect(result.value.running).toBe(false);
+      }
     });
 
     it('should parse AUTO trigger status', async () => {
@@ -229,69 +253,108 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const status = await driver.getStatus();
-      expect(status.triggerStatus).toBe('auto');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.triggerStatus).toBe('auto');
+      }
     });
 
     it('should parse sample rate', async () => {
-      const status = await driver.getStatus();
-      expect(status.sampleRate).toBe(1e9);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.sampleRate).toBe(1e9);
+      }
     });
 
     it('should parse memory depth', async () => {
-      const status = await driver.getStatus();
-      expect(status.memoryDepth).toBe(12000000);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.memoryDepth).toBe(12000000);
+      }
     });
 
     it('should parse channel enabled state', async () => {
-      const status = await driver.getStatus();
-      expect(status.channels['CHAN1'].enabled).toBe(true);
-      expect(status.channels['CHAN2'].enabled).toBe(false);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channels['CHAN1'].enabled).toBe(true);
+        expect(result.value.channels['CHAN2'].enabled).toBe(false);
+      }
     });
 
     it('should parse channel scale', async () => {
-      const status = await driver.getStatus();
-      expect(status.channels['CHAN1'].scale).toBe(1.0);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channels['CHAN1'].scale).toBe(1.0);
+      }
     });
 
     it('should parse channel offset', async () => {
-      const status = await driver.getStatus();
-      expect(status.channels['CHAN1'].offset).toBe(0);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channels['CHAN1'].offset).toBe(0);
+      }
     });
 
     it('should parse channel coupling', async () => {
-      const status = await driver.getStatus();
-      expect(status.channels['CHAN1'].coupling).toBe('DC');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channels['CHAN1'].coupling).toBe('DC');
+      }
     });
 
     it('should parse channel probe ratio', async () => {
-      const status = await driver.getStatus();
-      expect(status.channels['CHAN1'].probe).toBe(10);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channels['CHAN1'].probe).toBe(10);
+      }
     });
 
     it('should parse timebase scale', async () => {
-      const status = await driver.getStatus();
-      expect(status.timebase.scale).toBe(0.001);  // 1ms/div
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.timebase.scale).toBe(0.001);  // 1ms/div
+      }
     });
 
     it('should parse timebase offset', async () => {
-      const status = await driver.getStatus();
-      expect(status.timebase.offset).toBe(0);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.timebase.offset).toBe(0);
+      }
     });
 
     it('should parse trigger source', async () => {
-      const status = await driver.getStatus();
-      expect(status.trigger.source).toBe('CHAN1');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.trigger.source).toBe('CHAN1');
+      }
     });
 
     it('should parse trigger level', async () => {
-      const status = await driver.getStatus();
-      expect(status.trigger.level).toBe(1.5);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.trigger.level).toBe(1.5);
+      }
     });
 
     it('should parse trigger edge (rising)', async () => {
-      const status = await driver.getStatus();
-      expect(status.trigger.edge).toBe('rising');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.trigger.edge).toBe('rising');
+      }
     });
 
     it('should parse trigger edge (falling)', async () => {
@@ -300,13 +363,19 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const status = await driver.getStatus();
-      expect(status.trigger.edge).toBe('falling');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.trigger.edge).toBe('falling');
+      }
     });
 
     it('should parse trigger sweep mode', async () => {
-      const status = await driver.getStatus();
-      expect(status.trigger.sweep).toBe('auto');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.trigger.sweep).toBe('auto');
+      }
     });
   });
 
@@ -317,31 +386,36 @@ describe('Rigol Oscilloscope Driver', () => {
 
     it('should send :RUN command', async () => {
       transport.reset();
-      await driver.run();
+      const result = await driver.run();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':RUN');
     });
 
     it('should send :STOP command', async () => {
       transport.reset();
-      await driver.stop();
+      const result = await driver.stop();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':STOP');
     });
 
     it('should send :SING command', async () => {
       transport.reset();
-      await driver.single();
+      const result = await driver.single();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SING');
     });
 
     it('should send :AUT command for auto setup', async () => {
       transport.reset();
-      await driver.autoSetup();
+      const result = await driver.autoSetup();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':AUT');
     });
 
     it('should send :TFOR command for force trigger', async () => {
       transport.reset();
-      await driver.forceTrigger();
+      const result = await driver.forceTrigger();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TFOR');
     });
   });
@@ -353,37 +427,43 @@ describe('Rigol Oscilloscope Driver', () => {
 
     it('should enable channel', async () => {
       transport.reset();
-      await driver.setChannelEnabled('CHAN1', true);
+      const result = await driver.setChannelEnabled('CHAN1', true);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN1:DISP ON');
     });
 
     it('should disable channel', async () => {
       transport.reset();
-      await driver.setChannelEnabled('CHAN2', false);
+      const result = await driver.setChannelEnabled('CHAN2', false);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN2:DISP OFF');
     });
 
     it('should set channel scale', async () => {
       transport.reset();
-      await driver.setChannelScale('CHAN1', 0.5);
+      const result = await driver.setChannelScale('CHAN1', 0.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN1:SCAL 0.5');
     });
 
     it('should set channel offset', async () => {
       transport.reset();
-      await driver.setChannelOffset('CHAN1', -2.5);
+      const result = await driver.setChannelOffset('CHAN1', -2.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN1:OFFS -2.5');
     });
 
     it('should set channel coupling', async () => {
       transport.reset();
-      await driver.setChannelCoupling('CHAN1', 'AC');
+      const result = await driver.setChannelCoupling('CHAN1', 'AC');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN1:COUP AC');
     });
 
     it('should set channel probe ratio', async () => {
       transport.reset();
-      await driver.setChannelProbe('CHAN1', 100);
+      const result = await driver.setChannelProbe('CHAN1', 100);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':CHAN1:PROB 100');
     });
   });
@@ -395,13 +475,15 @@ describe('Rigol Oscilloscope Driver', () => {
 
     it('should set timebase scale', async () => {
       transport.reset();
-      await driver.setTimebaseScale(0.001);  // 1ms/div
+      const result = await driver.setTimebaseScale(0.001);  // 1ms/div
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TIM:SCAL 0.001');
     });
 
     it('should set timebase offset', async () => {
       transport.reset();
-      await driver.setTimebaseOffset(0.005);  // 5ms offset
+      const result = await driver.setTimebaseOffset(0.005);  // 5ms offset
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TIM:OFFS 0.005');
     });
   });
@@ -413,37 +495,43 @@ describe('Rigol Oscilloscope Driver', () => {
 
     it('should set trigger source', async () => {
       transport.reset();
-      await driver.setTriggerSource('CHAN2');
+      const result = await driver.setTriggerSource('CHAN2');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:EDG:SOUR CHAN2');
     });
 
     it('should set trigger level', async () => {
       transport.reset();
-      await driver.setTriggerLevel(2.5);
+      const result = await driver.setTriggerLevel(2.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:EDG:LEV 2.5');
     });
 
     it('should set trigger edge to rising', async () => {
       transport.reset();
-      await driver.setTriggerEdge('rising');
+      const result = await driver.setTriggerEdge('rising');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:EDG:SLOP POS');
     });
 
     it('should set trigger edge to falling', async () => {
       transport.reset();
-      await driver.setTriggerEdge('falling');
+      const result = await driver.setTriggerEdge('falling');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:EDG:SLOP NEG');
     });
 
     it('should set trigger sweep mode', async () => {
       transport.reset();
-      await driver.setTriggerSweep('normal');
+      const result = await driver.setTriggerSweep('normal');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:SWE NORM');
     });
 
     it('should set trigger sweep to single', async () => {
       transport.reset();
-      await driver.setTriggerSweep('single');
+      const result = await driver.setTriggerSweep('single');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':TRIG:SWE SING');
     });
   });
@@ -455,29 +543,41 @@ describe('Rigol Oscilloscope Driver', () => {
 
     it('should query VPP measurement', async () => {
       transport.reset();
-      const value = await driver.getMeasurement('CHAN1', 'VPP');
+      const result = await driver.getMeasurement('CHAN1', 'VPP');
       expect(transport.sentCommands).toContain(':MEAS:VPP? CHAN1');
-      expect(value).toBeCloseTo(3.28);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeCloseTo(3.28);
+      }
     });
 
     it('should query VAVG measurement', async () => {
       transport.reset();
-      const value = await driver.getMeasurement('CHAN1', 'VAVG');
+      const result = await driver.getMeasurement('CHAN1', 'VAVG');
       expect(transport.sentCommands).toContain(':MEAS:VAVG? CHAN1');
-      expect(value).toBeCloseTo(1.65);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeCloseTo(1.65);
+      }
     });
 
     it('should query FREQ measurement', async () => {
       transport.reset();
-      const value = await driver.getMeasurement('CHAN1', 'FREQ');
+      const result = await driver.getMeasurement('CHAN1', 'FREQ');
       expect(transport.sentCommands).toContain(':MEAS:FREQ? CHAN1');
-      expect(value).toBeCloseTo(1000);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeCloseTo(1000);
+      }
     });
 
     it('should return null for invalid measurement (****)', async () => {
       transport.reset();
-      const value = await driver.getMeasurement('CHAN2', 'VPP');
-      expect(value).toBeNull();
+      const result = await driver.getMeasurement('CHAN2', 'VPP');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeNull();
+      }
     });
 
     it('should return null for overflow measurement (9.9E37)', async () => {
@@ -486,16 +586,22 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const value = await driver.getMeasurement('CHAN1', 'VPP');
-      expect(value).toBeNull();
+      const result = await driver.getMeasurement('CHAN1', 'VPP');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeNull();
+      }
     });
 
     it('should query multiple measurements', async () => {
       transport.reset();
-      const values = await driver.getMeasurements('CHAN1', ['VPP', 'VAVG', 'FREQ']);
-      expect(values.VPP).toBeCloseTo(3.28);
-      expect(values.VAVG).toBeCloseTo(1.65);
-      expect(values.FREQ).toBeCloseTo(1000);
+      const result = await driver.getMeasurements('CHAN1', ['VPP', 'VAVG', 'FREQ']);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.VPP).toBeCloseTo(3.28);
+        expect(result.value.VAVG).toBeCloseTo(1.65);
+        expect(result.value.FREQ).toBeCloseTo(1000);
+      }
     });
 
     it('should handle mixed valid/invalid measurements', async () => {
@@ -508,9 +614,12 @@ describe('Rigol Oscilloscope Driver', () => {
       });
       driver = createRigolOscilloscope(transport);
       await driver.connect();
-      const values = await driver.getMeasurements('CHAN1', ['VPP', 'RISE']);
-      expect(values.VPP).toBeCloseTo(3.28);
-      expect(values.RISE).toBeNull();
+      const result = await driver.getMeasurements('CHAN1', ['VPP', 'RISE']);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.VPP).toBeCloseTo(3.28);
+        expect(result.value.RISE).toBeNull();
+      }
     });
   });
 
@@ -561,10 +670,13 @@ describe('Rigol Oscilloscope Driver', () => {
       transport.binaryResponses[':WAV:DATA?'] = waveformData;
 
       const result = await driver.getWaveform('CHAN1');
-      expect(result.channel).toBe('CHAN1');
-      expect(result.points.length).toBeGreaterThan(0);
-      expect(typeof result.xIncrement).toBe('number');
-      expect(typeof result.yIncrement).toBe('number');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.channel).toBe('CHAN1');
+        expect(result.value.points.length).toBeGreaterThan(0);
+        expect(typeof result.value.xIncrement).toBe('number');
+        expect(typeof result.value.yIncrement).toBe('number');
+      }
     });
 
     it('should parse TMC block format header', async () => {
@@ -574,7 +686,10 @@ describe('Rigol Oscilloscope Driver', () => {
       transport.binaryResponses[':WAV:DATA?'] = waveformData;
 
       const result = await driver.getWaveform('CHAN1');
-      expect(result.points.length).toBe(100);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.points.length).toBe(100);
+      }
     });
 
     it('should set start and count when provided', async () => {
@@ -608,8 +723,11 @@ describe('Rigol Oscilloscope Driver', () => {
       transport.binaryResponses[':DISP:DATA? ON,OFF,PNG'] = pngData;
 
       const result = await driver.getScreenshot();
-      expect(Buffer.isBuffer(result)).toBe(true);
-      expect(result.length).toBeGreaterThan(0);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(Buffer.isBuffer(result.value)).toBe(true);
+        expect(result.value.length).toBeGreaterThan(0);
+      }
     });
   });
 });

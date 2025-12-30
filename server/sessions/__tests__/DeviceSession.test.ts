@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createDeviceSession, DeviceSession, DeviceSessionConfig } from '../DeviceSession.js';
 import type { DeviceDriver, DeviceStatus } from '../../devices/types.js';
-import type { DeviceInfo, DeviceCapabilities } from '../../../shared/types.js';
+import type { DeviceInfo, DeviceCapabilities, Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // Mock driver factory for testing
 function createMockDriver(overrides: Partial<{
-  getStatusImpl: () => Promise<DeviceStatus>;
-  setModeImpl: (mode: string) => Promise<void>;
-  setOutputImpl: (enabled: boolean) => Promise<void>;
-  setValueImpl: (name: string, value: number) => Promise<void>;
+  getStatusImpl: () => Promise<Result<DeviceStatus, Error>>;
+  setModeImpl: (mode: string) => Promise<Result<void, Error>>;
+  setOutputImpl: (enabled: boolean) => Promise<Result<void, Error>>;
+  setValueImpl: (name: string, value: number) => Promise<Result<void, Error>>;
 }> = {}): DeviceDriver {
   const info: DeviceInfo = {
     id: 'test-device-1',
@@ -40,32 +41,35 @@ function createMockDriver(overrides: Partial<{
   return {
     info,
     capabilities,
-    async probe() { return true; },
-    async connect() {},
-    async disconnect() {},
+    async probe() { return Ok(info); },
+    async connect() { return Ok(undefined); },
+    async disconnect() { return Ok(undefined); },
     async getStatus() {
       if (overrides.getStatusImpl) {
         return overrides.getStatusImpl();
       }
-      return { ...currentStatus };
+      return Ok({ ...currentStatus });
     },
     async setMode(mode: string) {
       if (overrides.setModeImpl) {
         return overrides.setModeImpl(mode);
       }
       currentStatus = { ...currentStatus, mode };
+      return Ok(undefined);
     },
     async setValue(name: string, value: number) {
       if (overrides.setValueImpl) {
         return overrides.setValueImpl(name, value);
       }
       currentStatus = { ...currentStatus, setpoints: { ...currentStatus.setpoints, [name]: value } };
+      return Ok(undefined);
     },
     async setOutput(enabled: boolean) {
       if (overrides.setOutputImpl) {
         return overrides.setOutputImpl(enabled);
       }
       currentStatus = { ...currentStatus, outputEnabled: enabled };
+      return Ok(undefined);
     },
   };
 }
@@ -150,12 +154,12 @@ describe('DeviceSession', () => {
       const driver = createMockDriver({
         getStatusImpl: async () => {
           callCount++;
-          return {
+          return Ok({
             mode: 'CC',
             outputEnabled: false,
             setpoints: { current: 1.0 },
             measurements: { voltage: 12.0 + callCount, current: 1.0, power: 12.0 + callCount },
-          };
+          });
         },
       });
 
@@ -177,12 +181,12 @@ describe('DeviceSession', () => {
       const driver = createMockDriver({
         getStatusImpl: async () => {
           callCount++;
-          return {
+          return Ok({
             mode: 'CC',
             outputEnabled: false,
             setpoints: { current: 1.0 },
             measurements: { voltage: callCount, current: 1.0, power: callCount },
-          };
+          });
         },
       });
 
@@ -288,11 +292,9 @@ describe('DeviceSession', () => {
 
   describe('Error Handling', () => {
     it('should track consecutive poll failures', async () => {
-      let failCount = 0;
       const driver = createMockDriver({
         getStatusImpl: async () => {
-          failCount++;
-          throw new Error('Poll failed');
+          return Err(new Error('Poll failed'));
         },
       });
 
@@ -308,7 +310,7 @@ describe('DeviceSession', () => {
     it('should set connectionStatus to error on failures', async () => {
       const driver = createMockDriver({
         getStatusImpl: async () => {
-          throw new Error('Poll failed');
+          return Err(new Error('Poll failed'));
         },
       });
 
@@ -321,7 +323,7 @@ describe('DeviceSession', () => {
     it('should set connectionStatus to disconnected after max failures', async () => {
       const driver = createMockDriver({
         getStatusImpl: async () => {
-          throw new Error('Poll failed');
+          return Err(new Error('Poll failed'));
         },
       });
 
@@ -341,14 +343,14 @@ describe('DeviceSession', () => {
         getStatusImpl: async () => {
           failCount++;
           if (failCount <= 2) {
-            throw new Error('Poll failed');
+            return Err(new Error('Poll failed'));
           }
-          return {
+          return Ok({
             mode: 'CC',
             outputEnabled: false,
             setpoints: { current: 1.0 },
             measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
-          };
+          });
         },
       });
 
@@ -366,7 +368,7 @@ describe('DeviceSession', () => {
     it('should notify subscribers of field changes on error status', async () => {
       const driver = createMockDriver({
         getStatusImpl: async () => {
-          throw new Error('Poll failed');
+          return Err(new Error('Poll failed'));
         },
       });
 
@@ -470,6 +472,7 @@ describe('DeviceSession', () => {
       const driver = createMockDriver({
         setModeImpl: async () => {
           hardwareExecuted = true;
+          return Ok(undefined);
         },
       });
 
@@ -523,12 +526,12 @@ describe('DeviceSession', () => {
           await new Promise(r => setTimeout(r, 100));
           pollCompleted = true;
           pollInProgress = false;
-          return {
+          return Ok({
             mode: 'CC',
             outputEnabled: false,
             setpoints: { current: 1.0 },
             measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
-          };
+          });
         },
       });
 
@@ -565,7 +568,7 @@ describe('DeviceSession', () => {
     it('should use new driver after reconnect', async () => {
       const oldDriver = createMockDriver();
       const newDriver = createMockDriver({
-        getStatusImpl: async () => ({
+        getStatusImpl: async () => Ok({
           mode: 'CV',  // Different mode to verify new driver is used
           outputEnabled: true,
           setpoints: { voltage: 5.0 },
@@ -594,7 +597,7 @@ describe('DeviceSession', () => {
     it('should rollback setMode on failure', async () => {
       const driver = createMockDriver({
         setModeImpl: async () => {
-          throw new Error('Hardware error');
+          return Err(new Error('Hardware error'));
         },
       });
 
@@ -623,7 +626,7 @@ describe('DeviceSession', () => {
     it('should rollback setOutput on failure', async () => {
       const driver = createMockDriver({
         setOutputImpl: async () => {
-          throw new Error('Hardware error');
+          return Err(new Error('Hardware error'));
         },
       });
 

@@ -5,6 +5,8 @@
 
 import usb from 'usb';
 import type { Transport } from '../types.js';
+import type { Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // USB-TMC Message IDs
 export const DEV_DEP_MSG_OUT = 1;
@@ -191,14 +193,19 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
   }
 
   return {
-    async open(): Promise<void> {
-      if (opened) return;
+    async open(): Promise<Result<void, Error>> {
+      if (opened) return Ok(undefined);
 
-      device.open();
+      try {
+        device.open();
+      } catch (e) {
+        return Err(e instanceof Error ? e : new Error(String(e)));
+      }
 
       try {
         if (!device.interfaces || device.interfaces.length === 0) {
-          throw new Error('No interfaces found on device');
+          device.close();
+          return Err(new Error('No interfaces found on device'));
         }
 
         iface = device.interfaces[0];
@@ -220,12 +227,14 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         }
 
         if (!bulkInEndpoint || !bulkOutEndpoint) {
-          throw new Error('Could not find bulk endpoints');
+          device.close();
+          return Err(new Error('Could not find bulk endpoints'));
         }
 
         opened = true;
         disconnected = false;
         disconnectError = null;
+        return Ok(undefined);
       } catch (err) {
         // Clean up on partial open failure
         try {
@@ -233,12 +242,12 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         } catch {
           // Ignore close errors during cleanup
         }
-        throw err;
+        return Err(err instanceof Error ? err : new Error(String(err)));
       }
     },
 
-    async close(): Promise<void> {
-      if (!opened && !disconnected) return;
+    async close(): Promise<Result<void, Error>> {
+      if (!opened && !disconnected) return Ok(undefined);
 
       // Acquire lock to wait for any in-flight operations
       await withLock(async () => {
@@ -247,7 +256,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
             iface.release(true);
           }
           device.close();
-        } catch (e) {
+        } catch {
           // Ignore close errors
         }
 
@@ -258,150 +267,164 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         disconnected = false;
         disconnectError = null;
       });
+      return Ok(undefined);
     },
 
-    async query(cmd: string): Promise<string> {
+    async query(cmd: string): Promise<Result<string, Error>> {
       return withLock(async () => {
         // Check for disconnection before attempting query
         if (disconnected) {
-          throw disconnectError || new Error('USB device disconnected');
+          return Err(disconnectError || new Error('USB device disconnected'));
         }
 
-        // Send command
-        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
-        await transferOut(outBuf);
+        try {
+          // Send command
+          const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+          await transferOut(outBuf);
 
-        // Request response
-        const reqBuf = buildRequestDevDepMsgIn(1024, nextTag());
-        await transferOut(reqBuf);
+          // Request response
+          const reqBuf = buildRequestDevDepMsgIn(1024, nextTag());
+          await transferOut(reqBuf);
 
-        // Read response
-        const response = await transferIn(1024);
+          // Read response
+          const response = await transferIn(1024);
 
-        return parseDevDepMsgIn(response);
+          return Ok(parseDevDepMsgIn(response));
+        } catch (e) {
+          return Err(e instanceof Error ? e : new Error(String(e)));
+        }
       });
     },
 
-    async write(cmd: string): Promise<void> {
+    async write(cmd: string): Promise<Result<void, Error>> {
       return withLock(async () => {
         // Check for disconnection before attempting write
         if (disconnected) {
-          throw disconnectError || new Error('USB device disconnected');
+          return Err(disconnectError || new Error('USB device disconnected'));
         }
 
-        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
-        await transferOut(outBuf);
+        try {
+          const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+          await transferOut(outBuf);
+          return Ok(undefined);
+        } catch (e) {
+          return Err(e instanceof Error ? e : new Error(String(e)));
+        }
       });
     },
 
-    async queryBinary(cmd: string): Promise<Buffer> {
+    async queryBinary(cmd: string): Promise<Result<Buffer, Error>> {
       return withLock(async () => {
         if (disconnected) {
-          throw disconnectError || new Error('USB device disconnected');
+          return Err(disconnectError || new Error('USB device disconnected'));
         }
 
-        // Send command
-        const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
-        await transferOut(outBuf);
+        try {
+          // Send command
+          const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
+          await transferOut(outBuf);
 
-        // Rigol DS1000Z USBTMC Quirk Mode
-        //
-        // PROBLEM: Rigol's USBTMC header lies about transferSize. If we trust it,
-        // we stop reading too early, leaving bytes in the USB buffer. These leftover
-        // bytes corrupt the next response, causing waveform data corruption.
-        //
-        // SOLUTION: Ignore transferSize. For each REQUEST, read until we get a short
-        // USB packet (< 64 bytes), which indicates the device finished responding.
-        // Use the IEEE 488.2 block header (#9XXXXXXXXX) to know total expected length.
-        //
-        // See: server/devices/docs/rigol-usbtmc-quirk.md for full analysis
-        if (rigolQuirk) {
+          // Rigol DS1000Z USBTMC Quirk Mode
+          //
+          // PROBLEM: Rigol's USBTMC header lies about transferSize. If we trust it,
+          // we stop reading too early, leaving bytes in the USB buffer. These leftover
+          // bytes corrupt the next response, causing waveform data corruption.
+          //
+          // SOLUTION: Ignore transferSize. For each REQUEST, read until we get a short
+          // USB packet (< 64 bytes), which indicates the device finished responding.
+          // Use the IEEE 488.2 block header (#9XXXXXXXXX) to know total expected length.
+          //
+          // See: server/devices/docs/rigol-usbtmc-quirk.md for full analysis
+          if (rigolQuirk) {
+            const allData: Buffer[] = [];
+            let totalDataBytes = 0;
+            let expectedDataLength = 0;
+            let ieeeHeaderLen = 0;
+
+            for (let reqNum = 0; reqNum < 100; reqNum++) {
+              const reqBuf = buildRequestDevDepMsgIn(64 * 1024, nextTag());
+              await transferOut(reqBuf);
+
+              // Read until short packet - this fully drains the response buffer
+              const chunks: Buffer[] = [];
+              let totalRead = 0;
+              for (let i = 0; i < 1000; i++) {
+                const pkt = await transferIn(512);
+                if (pkt.length === 0) break;
+                chunks.push(pkt);
+                totalRead += pkt.length;
+                if (pkt.length < 64) break;  // Short packet = end of response
+              }
+              if (totalRead === 0) break;
+
+              // Strip USBTMC header (12 bytes) - ignore its lying transferSize
+              const response = Buffer.concat(chunks);
+              const payload = response.subarray(12);
+              allData.push(payload);
+              totalDataBytes += payload.length;
+
+              // Parse IEEE block header from first response: #NXXXXXXXX
+              if (expectedDataLength === 0 && allData[0].length >= 2 && allData[0][0] === 0x23) {
+                const numDigits = parseInt(String.fromCharCode(allData[0][1]), 10);
+                if (numDigits > 0 && numDigits <= 9 && allData[0].length >= 2 + numDigits) {
+                  expectedDataLength = parseInt(allData[0].subarray(2, 2 + numDigits).toString('ascii'), 10);
+                  ieeeHeaderLen = 2 + numDigits;
+                }
+              }
+
+              // Done when we have all bytes per IEEE header
+              if (expectedDataLength > 0 && totalDataBytes >= ieeeHeaderLen + expectedDataLength) break;
+            }
+
+            const combined = Buffer.concat(allData);
+            return Ok(combined.subarray(0, ieeeHeaderLen + expectedDataLength));
+          }
+
+          // Standard mode: Collect data from multiple USBTMC messages until EOM
           const allData: Buffer[] = [];
-          let totalDataBytes = 0;
-          let expectedDataLength = 0;
-          let ieeeHeaderLen = 0;
+          let eom = false;
 
-          for (let reqNum = 0; reqNum < 100; reqNum++) {
+          while (!eom) {
+            // Request data
             const reqBuf = buildRequestDevDepMsgIn(64 * 1024, nextTag());
             await transferOut(reqBuf);
 
-            // Read until short packet - this fully drains the response buffer
-            const chunks: Buffer[] = [];
-            let totalRead = 0;
+            // Read one USBTMC message (may span multiple USB packets)
+            const msgChunks: Buffer[] = [];
+            let msgBytes = 0;
+            let transferSize = 0;
+            let headerParsed = false;
+
+            // Read USB packets until we have the full USBTMC message
             for (let i = 0; i < 1000; i++) {
-              const pkt = await transferIn(512);
-              if (pkt.length === 0) break;
-              chunks.push(pkt);
-              totalRead += pkt.length;
-              if (pkt.length < 64) break;  // Short packet = end of response
-            }
-            if (totalRead === 0) break;
+              const chunk = await transferIn(512);
+              if (chunk.length === 0) break;
+              msgChunks.push(chunk);
+              msgBytes += chunk.length;
 
-            // Strip USBTMC header (12 bytes) - ignore its lying transferSize
-            const response = Buffer.concat(chunks);
-            const payload = response.subarray(12);
-            allData.push(payload);
-            totalDataBytes += payload.length;
-
-            // Parse IEEE block header from first response: #NXXXXXXXX
-            if (expectedDataLength === 0 && allData[0].length >= 2 && allData[0][0] === 0x23) {
-              const numDigits = parseInt(String.fromCharCode(allData[0][1]), 10);
-              if (numDigits > 0 && numDigits <= 9 && allData[0].length >= 2 + numDigits) {
-                expectedDataLength = parseInt(allData[0].subarray(2, 2 + numDigits).toString('ascii'), 10);
-                ieeeHeaderLen = 2 + numDigits;
+              // Parse USBTMC header from first 12 bytes
+              if (!headerParsed && msgBytes >= 12) {
+                const combined = Buffer.concat(msgChunks);
+                transferSize = combined.readUInt32LE(4);
+                eom = (combined[8] & 0x01) !== 0;
+                headerParsed = true;
               }
+
+              // Check if we have all data for this message
+              if (headerParsed && msgBytes >= transferSize + 12) break;
             }
 
-            // Done when we have all bytes per IEEE header
-            if (expectedDataLength > 0 && totalDataBytes >= ieeeHeaderLen + expectedDataLength) break;
-          }
-
-          const combined = Buffer.concat(allData);
-          return combined.subarray(0, ieeeHeaderLen + expectedDataLength);
-        }
-
-        // Standard mode: Collect data from multiple USBTMC messages until EOM
-        const allData: Buffer[] = [];
-        let eom = false;
-
-        while (!eom) {
-          // Request data
-          const reqBuf = buildRequestDevDepMsgIn(64 * 1024, nextTag());
-          await transferOut(reqBuf);
-
-          // Read one USBTMC message (may span multiple USB packets)
-          const msgChunks: Buffer[] = [];
-          let msgBytes = 0;
-          let transferSize = 0;
-          let headerParsed = false;
-
-          // Read USB packets until we have the full USBTMC message
-          for (let i = 0; i < 1000; i++) {
-            const chunk = await transferIn(512);
-            if (chunk.length === 0) break;
-            msgChunks.push(chunk);
-            msgBytes += chunk.length;
-
-            // Parse USBTMC header from first 12 bytes
-            if (!headerParsed && msgBytes >= 12) {
-              const combined = Buffer.concat(msgChunks);
-              transferSize = combined.readUInt32LE(4);
-              eom = (combined[8] & 0x01) !== 0;
-              headerParsed = true;
+            // Extract data (skip 12-byte USBTMC header)
+            const msgData = Buffer.concat(msgChunks);
+            if (transferSize > 0) {
+              allData.push(msgData.subarray(12, 12 + transferSize));
             }
-
-            // Check if we have all data for this message
-            if (headerParsed && msgBytes >= transferSize + 12) break;
           }
 
-          // Extract data (skip 12-byte USBTMC header)
-          const msgData = Buffer.concat(msgChunks);
-          if (transferSize > 0) {
-            allData.push(msgData.subarray(12, 12 + transferSize));
-          }
+          return Ok(Buffer.concat(allData));
+        } catch (e) {
+          return Err(e instanceof Error ? e : new Error(String(e)));
         }
-
-        return Buffer.concat(allData);
       });
     },
 

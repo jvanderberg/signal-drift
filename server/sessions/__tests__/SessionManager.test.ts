@@ -3,6 +3,7 @@ import { createSessionManager, SessionManager, SessionManagerConfig } from '../S
 import { createDeviceRegistry, DeviceRegistry } from '../../devices/registry.js';
 import type { DeviceDriver, DeviceStatus } from '../../devices/types.js';
 import type { DeviceInfo, DeviceCapabilities, DeviceSummary } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // Mock driver factory for testing
 function createMockDriver(id: string): DeviceDriver {
@@ -29,20 +30,20 @@ function createMockDriver(id: string): DeviceDriver {
   return {
     info,
     capabilities,
-    async probe() { return true; },
-    async connect() {},
-    async disconnect() {},
+    async probe() { return Ok(info); },
+    async connect() { return Ok(undefined); },
+    async disconnect() { return Ok(undefined); },
     async getStatus() {
-      return {
+      return Ok({
         mode: 'CC',
         outputEnabled: false,
         setpoints: { current: 1.0 },
         measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
-      };
+      });
     },
-    async setMode() {},
-    async setValue() {},
-    async setOutput() {},
+    async setMode() { return Ok(undefined); },
+    async setValue() { return Ok(undefined); },
+    async setOutput() { return Ok(undefined); },
   };
 }
 
@@ -122,7 +123,7 @@ describe('SessionManager', () => {
       manager = createSessionManager(registry, { pollIntervalMs: 250, maxConsecutiveErrors: 3 });
 
       const driver = createMockDriver('device-1');
-      driver.getStatus = vi.fn().mockRejectedValue(new Error('SERIAL_PORT_DISCONNECTED'));
+      driver.getStatus = vi.fn().mockResolvedValue(Err(new Error('SERIAL_PORT_DISCONNECTED')));
 
       registry.addDevice(driver);
       manager.syncDevices();

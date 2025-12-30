@@ -327,8 +327,10 @@ export function createOscilloscopeSession(
   async function pollStatus(): Promise<void> {
     if (!isRunning) return;
 
-    try {
-      status = await driver.getStatus();
+    const statusResult = await driver.getStatus();
+
+    if (statusResult.ok) {
+      status = statusResult.value;
       lastUpdated = Date.now();
 
       if (consecutiveErrors > 0 || connectionStatus !== 'connected') {
@@ -371,7 +373,7 @@ export function createOscilloscopeSession(
           return; // Don't schedule another poll - streaming handles it
         }
       }
-    } catch (err) {
+    } else {
       consecutiveErrors++;
       lastUpdated = Date.now();
 
@@ -392,7 +394,7 @@ export function createOscilloscopeSession(
           field: 'connectionStatus',
           value: 'error',
         });
-        console.error(`Poll error for oscilloscope ${driver.info.id}:`, err);
+        console.error(`Poll error for oscilloscope ${driver.info.id}:`, statusResult.error);
       }
     }
 
@@ -456,8 +458,9 @@ export function createOscilloscopeSession(
             return;
           }
 
-          try {
-            const waveform = await driver.getWaveform(channel);
+          const waveformResult = await driver.getWaveform(channel);
+          if (waveformResult.ok) {
+            const waveform = waveformResult.value;
             // Double-check generation before broadcasting
             if (myGeneration === streamingGeneration) {
               broadcast({
@@ -489,9 +492,9 @@ export function createOscilloscopeSession(
             if (consecutiveErrors > 0) {
               consecutiveErrors = 0;
             }
-          } catch (err: any) {
+          } else {
             // Check for fatal USB errors that indicate disconnection
-            const errorMsg = err?.message || String(err);
+            const errorMsg = waveformResult.error?.message || '';
             if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
                 errorMsg.includes('LIBUSB_ERROR_IO') ||
                 errorMsg.includes('LIBUSB_ERROR_PIPE')) {
@@ -519,8 +522,9 @@ export function createOscilloscopeSession(
           lastStatusPoll = now;
 
           // Fetch status
-          try {
-            status = await driver.getStatus();
+          const statusResult = await driver.getStatus();
+          if (statusResult.ok) {
+            status = statusResult.value;
             lastUpdated = Date.now();
             broadcast({
               type: 'field',
@@ -528,9 +532,8 @@ export function createOscilloscopeSession(
               field: 'oscilloscopeStatus',
               value: status,
             });
-          } catch (err) {
-            // Status fetch failed, continue streaming
           }
+          // Status fetch failed, continue streaming
         }
 
         // Measurements are now calculated locally from waveform data - no SCPI needed!
@@ -586,8 +589,9 @@ export function createOscilloscopeSession(
       await driver.autoSetup();
       // Auto setup takes time - wait for scope to settle then refresh status
       await new Promise(resolve => setTimeout(resolve, 1500));
-      try {
-        status = await driver.getStatus();
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -595,8 +599,6 @@ export function createOscilloscopeSession(
           field: 'oscilloscopeStatus',
           value: status,
         });
-      } catch (err) {
-        // Status fetch failed, continue
       }
     },
 
@@ -670,15 +672,27 @@ export function createOscilloscopeSession(
 
     // On-demand queries
     async getMeasurement(channel: string, type: string): Promise<number | null> {
-      return driver.getMeasurement(channel, type);
+      const result = await driver.getMeasurement(channel, type);
+      if (result.ok) {
+        return result.value;
+      }
+      throw result.error;
     },
 
     async getWaveform(channel: string): Promise<WaveformData> {
-      return driver.getWaveform(channel);
+      const result = await driver.getWaveform(channel);
+      if (result.ok) {
+        return result.value;
+      }
+      throw result.error;
     },
 
     async getScreenshot(): Promise<Buffer> {
-      return driver.getScreenshot();
+      const result = await driver.getScreenshot();
+      if (result.ok) {
+        return result.value;
+      }
+      throw result.error;
     },
 
     // Streaming

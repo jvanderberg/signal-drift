@@ -56,21 +56,15 @@ async function autoDetectSerialConfig(
     const transport = createSerialTransport(config);
     const driver = registration.create(transport);
 
-    try {
-      await transport.open();
-      const success = await driver.probe();
-      await transport.close();
+    const openResult = await transport.open();
+    if (!openResult.ok) continue;
 
-      if (success) {
-        console.log(`[Scanner] Auto-detected baud rate ${baudRate} for ${portPath}`);
-        return { ...config, timeout }; // Return with normal timeout
-      }
-    } catch {
-      try {
-        await transport.close();
-      } catch {
-        // Ignore close errors
-      }
+    const probeResult = await driver.probe();
+    await transport.close(); // Ignore close errors
+
+    if (probeResult.ok) {
+      console.log(`[Scanner] Auto-detected baud rate ${baudRate} for ${portPath}`);
+      return { ...config, timeout }; // Return with normal timeout
     }
   }
 
@@ -131,8 +125,8 @@ export async function scanDevices(
     const registration = registry.matchUSBDevice(vendorId, productId);
     if (registration) {
       // Create a temporary driver just to get its static info (no transport needed for this)
-      const dummyTransport = { open: async () => {}, close: async () => {}, query: async () => '', write: async () => {}, isOpen: () => false };
-      const tempDriver = registration.create(dummyTransport as any);
+      const dummyTransport = { open: async () => ({ ok: true, value: undefined } as const), close: async () => ({ ok: true, value: undefined } as const), query: async () => ({ ok: true, value: '' } as const), write: async () => ({ ok: true, value: undefined } as const), isOpen: () => false };
+      const tempDriver = registration.create(dummyTransport);
 
       // Check if we already have a device with matching manufacturer/model
       const existing = existingDevices.find(d =>
@@ -143,24 +137,22 @@ export async function scanDevices(
       if (existing) {
         // Check if session is disconnected and needs reconnection
         if (sessionManager?.isSessionDisconnected(existing.info.id)) {
-          try {
-            const transport = createUSBTMCTransport(usbDevice, {
-              rigolQuirk: vendorId === RIGOL_VENDOR_ID,
-            });
-            const driver = registration.create(transport);
+          const transport = createUSBTMCTransport(usbDevice, {
+            rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+          });
+          const driver = registration.create(transport);
 
-            await transport.open();
-            const probeSuccess = await driver.probe();
+          const openResult = await transport.open();
+          if (openResult.ok) {
+            const probeResult = await driver.probe();
 
-            if (probeSuccess) {
+            if (probeResult.ok) {
               sessionManager.reconnectSession(existing.info.id, driver);
               result.reconnected++;
               console.log(`[Scanner] RECONNECTED: ${existing.info.id}`);
             } else {
               await transport.close();
             }
-          } catch (err) {
-            console.error(`Failed to reconnect USB device ${existing.info.id}:`, err);
           }
         }
 
@@ -174,32 +166,33 @@ export async function scanDevices(
         continue;
       }
 
-      try {
-        const transport = createUSBTMCTransport(usbDevice, {
-          rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+      const transport = createUSBTMCTransport(usbDevice, {
+        rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+      });
+      const driver = registration.create(transport);
+
+      const openResult = await transport.open();
+      if (!openResult.ok) {
+        console.error(`Failed to open USB device ${vendorId.toString(16)}:${productId.toString(16)}:`, openResult.error);
+        continue;
+      }
+
+      const probeResult = await driver.probe();
+
+      if (probeResult.ok) {
+        // Keep transport open for use
+        registry.addDevice(driver);
+        result.devices.push({
+          id: driver.info.id,
+          type: driver.info.type,
+          manufacturer: driver.info.manufacturer,
+          model: driver.info.model,
         });
-        const driver = registration.create(transport);
-
-        await transport.open();
-        const probeSuccess = await driver.probe();
-
-        if (probeSuccess) {
-          // Keep transport open for use
-          registry.addDevice(driver);
-          result.devices.push({
-            id: driver.info.id,
-            type: driver.info.type,
-            manufacturer: driver.info.manufacturer,
-            model: driver.info.model,
-          });
-          result.found++;
-          result.added++;
-          console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
-        } else {
-          await transport.close();
-        }
-      } catch (err) {
-        console.error(`Failed to probe USB device ${vendorId.toString(16)}:${productId.toString(16)}:`, err);
+        result.found++;
+        result.added++;
+        console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
+      } else {
+        await transport.close();
       }
     }
   }
@@ -231,39 +224,42 @@ export async function scanDevices(
     if (existingScope) {
       // Check if session is disconnected and needs reconnection
       if (sessionManager?.isSessionDisconnected(existingScope.info.id)) {
-        try {
-          const transport = createUSBTMCTransport(usbDevice, {
-            rigolQuirk: vendorId === RIGOL_VENDOR_ID,
-          });
-          await transport.open();
+        const transport = createUSBTMCTransport(usbDevice, {
+          rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+        });
+        const openResult = await transport.open();
+        if (!openResult.ok) continue;
 
-          // Query IDN to find correct driver
-          const idn = await transport.query('*IDN?');
-          const parts = idn.split(',');
-          if (parts.length >= 2) {
-            const manufacturer = parts[0].trim();
-            const model = parts[1].trim();
-            const registration = registry.matchOscilloscopeIDN(manufacturer, model);
+        // Query IDN to find correct driver
+        const idnResult = await transport.query('*IDN?');
+        if (!idnResult.ok) {
+          await transport.close();
+          continue;
+        }
 
-            if (registration) {
-              const driver = registration.create(transport);
-              const probeSuccess = await driver.probe();
+        const idn = idnResult.value;
+        const parts = idn.split(',');
+        if (parts.length >= 2) {
+          const manufacturer = parts[0].trim();
+          const model = parts[1].trim();
+          const registration = registry.matchOscilloscopeIDN(manufacturer, model);
 
-              if (probeSuccess) {
-                sessionManager.reconnectOscilloscopeSession(existingScope.info.id, driver);
-                result.reconnected++;
-                console.log(`[Scanner] RECONNECTED: ${existingScope.info.id}`);
-              } else {
-                await transport.close();
-              }
+          if (registration) {
+            const driver = registration.create(transport);
+            const probeResult = await driver.probe();
+
+            if (probeResult.ok) {
+              sessionManager.reconnectOscilloscopeSession(existingScope.info.id, driver);
+              result.reconnected++;
+              console.log(`[Scanner] RECONNECTED: ${existingScope.info.id}`);
             } else {
               await transport.close();
             }
           } else {
             await transport.close();
           }
-        } catch (err) {
-          console.error(`Failed to reconnect oscilloscope ${existingScope.info.id}:`, err);
+        } else {
+          await transport.close();
         }
       }
 
@@ -277,50 +273,53 @@ export async function scanDevices(
       continue;
     }
 
-    try {
-      const transport = createUSBTMCTransport(usbDevice, {
-        rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+    const transport = createUSBTMCTransport(usbDevice, {
+      rigolQuirk: vendorId === RIGOL_VENDOR_ID,
+    });
+    const openResult = await transport.open();
+    if (!openResult.ok) continue;
+
+    // Query IDN to identify the device
+    const idnResult = await transport.query('*IDN?');
+    if (!idnResult.ok) {
+      await transport.close();
+      continue;
+    }
+
+    const idn = idnResult.value;
+    const parts = idn.split(',');
+    if (parts.length < 2) {
+      await transport.close();
+      continue;
+    }
+
+    const manufacturer = parts[0].trim();
+    const model = parts[1].trim();
+
+    // Find most specific matching driver
+    const registration = registry.matchOscilloscopeIDN(manufacturer, model);
+    if (!registration) {
+      await transport.close();
+      continue;
+    }
+
+    // Create driver and probe
+    const driver = registration.create(transport);
+    const probeResult = await driver.probe();
+
+    if (probeResult.ok) {
+      registry.addOscilloscope(driver);
+      result.devices.push({
+        id: driver.info.id,
+        type: driver.info.type,
+        manufacturer: driver.info.manufacturer,
+        model: driver.info.model,
       });
-      await transport.open();
-
-      // Query IDN to identify the device
-      const idn = await transport.query('*IDN?');
-      const parts = idn.split(',');
-      if (parts.length < 2) {
-        await transport.close();
-        continue;
-      }
-
-      const manufacturer = parts[0].trim();
-      const model = parts[1].trim();
-
-      // Find most specific matching driver
-      const registration = registry.matchOscilloscopeIDN(manufacturer, model);
-      if (!registration) {
-        await transport.close();
-        continue;
-      }
-
-      // Create driver and probe
-      const driver = registration.create(transport);
-      const probeSuccess = await driver.probe();
-
-      if (probeSuccess) {
-        registry.addOscilloscope(driver);
-        result.devices.push({
-          id: driver.info.id,
-          type: driver.info.type,
-          manufacturer: driver.info.manufacturer,
-          model: driver.info.model,
-        });
-        result.found++;
-        result.added++;
-        console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
-      } else {
-        await transport.close();
-      }
-    } catch (err) {
-      console.error(`Failed to probe oscilloscope ${vendorId.toString(16)}:${productId.toString(16)}:`, err);
+      result.found++;
+      result.added++;
+      console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model})`);
+    } else {
+      await transport.close();
     }
   }
 
@@ -331,8 +330,8 @@ export async function scanDevices(
       const registration = registry.matchSerialPort(port.path);
       if (registration) {
         // Create a temporary driver just to get its static info
-        const dummyTransport = { open: async () => {}, close: async () => {}, query: async () => '', write: async () => {}, isOpen: () => false };
-        const tempDriver = registration.create(dummyTransport as any);
+        const dummyTransport = { open: async () => ({ ok: true, value: undefined } as const), close: async () => ({ ok: true, value: undefined } as const), query: async () => ({ ok: true, value: '' } as const), write: async () => ({ ok: true, value: undefined } as const), isOpen: () => false };
+        const tempDriver = registration.create(dummyTransport);
 
         // Check if we already have a device with matching manufacturer/model
         const existing = existingDevices.find(d =>
@@ -343,32 +342,30 @@ export async function scanDevices(
         if (existing) {
           // Check if session is disconnected and needs reconnection
           if (sessionManager?.isSessionDisconnected(existing.info.id)) {
-            try {
-              // On macOS, use cu. instead of tty. for outgoing connections
-              const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
+            // On macOS, use cu. instead of tty. for outgoing connections
+            const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
 
-              // Use driver-specific serial config or auto-detect
-              const serialConfig = await autoDetectSerialConfig(portPath, registration);
-              if (!serialConfig) {
-                console.error(`[Scanner] No working baud rate found for ${portPath}`);
-                continue;
-              }
+            // Use driver-specific serial config or auto-detect
+            const serialConfig = await autoDetectSerialConfig(portPath, registration);
+            if (!serialConfig) {
+              console.error(`[Scanner] No working baud rate found for ${portPath}`);
+              continue;
+            }
 
-              const transport = createSerialTransport(serialConfig);
-              const driver = registration.create(transport);
+            const transport = createSerialTransport(serialConfig);
+            const driver = registration.create(transport);
 
-              await transport.open();
-              const probeSuccess = await driver.probe();
+            const openResult = await transport.open();
+            if (!openResult.ok) continue;
 
-              if (probeSuccess) {
-                sessionManager.reconnectSession(existing.info.id, driver);
-                result.reconnected++;
-                console.log(`[Scanner] RECONNECTED: ${existing.info.id}`);
-              } else {
-                await transport.close();
-              }
-            } catch (err) {
-              console.error(`Failed to reconnect serial device ${existing.info.id}:`, err);
+            const probeResult = await driver.probe();
+
+            if (probeResult.ok) {
+              sessionManager.reconnectSession(existing.info.id, driver);
+              result.reconnected++;
+              console.log(`[Scanner] RECONNECTED: ${existing.info.id}`);
+            } else {
+              await transport.close();
             }
           }
 
@@ -382,39 +379,40 @@ export async function scanDevices(
           continue;
         }
 
-        try {
-          // On macOS, use cu. instead of tty. for outgoing connections
-          const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
+        // On macOS, use cu. instead of tty. for outgoing connections
+        const portPath = port.path.replace('/dev/tty.', '/dev/cu.');
 
-          // Use driver-specific serial config or auto-detect
-          const serialConfig = await autoDetectSerialConfig(portPath, registration);
-          if (!serialConfig) {
-            console.log(`[Scanner] No working baud rate found for ${portPath}, skipping`);
-            continue;
-          }
-
-          // Create transport with detected config (auto-detect already verified it works)
-          const transport = createSerialTransport(serialConfig);
-          const driver = registration.create(transport);
-
-          await transport.open();
-          // Probe to populate driver info (like serial number)
-          await driver.probe();
-
-          // Keep transport open for use
-          registry.addDevice(driver);
-          result.devices.push({
-            id: driver.info.id,
-            type: driver.info.type,
-            manufacturer: driver.info.manufacturer,
-            model: driver.info.model,
-          });
-          result.found++;
-          result.added++;
-          console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model}) @ ${serialConfig.baudRate} baud`);
-        } catch (err) {
-          console.error(`Failed to connect serial port ${port.path}:`, err);
+        // Use driver-specific serial config or auto-detect
+        const serialConfig = await autoDetectSerialConfig(portPath, registration);
+        if (!serialConfig) {
+          console.log(`[Scanner] No working baud rate found for ${portPath}, skipping`);
+          continue;
         }
+
+        // Create transport with detected config (auto-detect already verified it works)
+        const transport = createSerialTransport(serialConfig);
+        const driver = registration.create(transport);
+
+        const openResult = await transport.open();
+        if (!openResult.ok) {
+          console.error(`Failed to connect serial port ${port.path}:`, openResult.error);
+          continue;
+        }
+
+        // Probe to populate driver info (like serial number)
+        await driver.probe();
+
+        // Keep transport open for use
+        registry.addDevice(driver);
+        result.devices.push({
+          id: driver.info.id,
+          type: driver.info.type,
+          manufacturer: driver.info.manufacturer,
+          model: driver.info.model,
+        });
+        result.found++;
+        result.added++;
+        console.log(`[Scanner] CONNECTED: ${driver.info.id} (${driver.info.manufacturer} ${driver.info.model}) @ ${serialConfig.baudRate} baud`);
       }
     }
   } catch (err) {

@@ -1,4 +1,6 @@
 import type { Transport } from '../types.js';
+import type { Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 export interface MockTransportOptions {
   responses?: Record<string, string>;
@@ -11,7 +13,6 @@ export interface MockTransport extends Transport {
   responses: Record<string, string>;
   binaryResponses: Record<string, Buffer>;
   reset(): void;
-  queryBinary(cmd: string): Promise<Buffer>;
 }
 
 export function createMockTransport(options: MockTransportOptions = {}): MockTransport {
@@ -49,54 +50,57 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
     responses,
     binaryResponses,
 
-    async open(): Promise<void> {
+    async open(): Promise<Result<void, Error>> {
       opened = true;
+      return Ok(undefined);
     },
 
-    async close(): Promise<void> {
+    async close(): Promise<Result<void, Error>> {
       opened = false;
+      return Ok(undefined);
     },
 
-    async query(cmd: string): Promise<string> {
-      if (!opened) throw new Error('Transport not opened');
+    async query(cmd: string): Promise<Result<string, Error>> {
+      if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
 
       // Check for exact match first
       if (cmd in responses) {
-        return responses[cmd];
+        return Ok(responses[cmd]);
       }
 
       // Check for pattern match (command without newline)
       const trimmed = cmd.trim();
       if (trimmed in responses) {
-        return responses[trimmed];
+        return Ok(responses[trimmed]);
       }
 
-      return defaultResponse;
+      return Ok(defaultResponse);
     },
 
-    async queryBinary(cmd: string): Promise<Buffer> {
-      if (!opened) throw new Error('Transport not opened');
+    async queryBinary(cmd: string): Promise<Result<Buffer, Error>> {
+      if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
 
       // Check for exact match first
       if (cmd in binaryResponses) {
-        return binaryResponses[cmd];
+        return Ok(binaryResponses[cmd]);
       }
 
       // Check for pattern match (command without newline)
       const trimmed = cmd.trim();
       if (trimmed in binaryResponses) {
-        return binaryResponses[trimmed];
+        return Ok(binaryResponses[trimmed]);
       }
 
-      return Buffer.alloc(0);
+      return Ok(Buffer.alloc(0));
     },
 
-    async write(cmd: string): Promise<void> {
-      if (!opened) throw new Error('Transport not opened');
+    async write(cmd: string): Promise<Result<void, Error>> {
+      if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
       handleWrite(cmd);
+      return Ok(undefined);
     },
 
     isOpen(): boolean {

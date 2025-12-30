@@ -135,9 +135,11 @@ export function createDeviceSession(
   async function doPoll(): Promise<void> {
     if (!isRunning) return;
 
-    try {
-      const status = await driver.getStatus();
-      const now = Date.now();
+    const statusResult = await driver.getStatus();
+    const now = Date.now();
+
+    if (statusResult.ok) {
+      const status = statusResult.value;
 
       // Check for mode change and broadcast
       if (status.mode !== mode) {
@@ -192,12 +194,14 @@ export function createDeviceSession(
         deviceId: driver.info.id,
         update,
       });
-    } catch (err) {
+    } else {
+      // Handle error
+      const err = statusResult.error;
       consecutiveErrors++;
       lastUpdated = Date.now();
 
       // Check for fatal device errors that indicate immediate disconnection
-      const isFatalError = err instanceof Error && (
+      const isFatalError = (
         // USB errors
         err.message.includes('LIBUSB_ERROR_NO_DEVICE') ||
         err.message.includes('LIBUSB_ERROR_IO') ||
@@ -264,10 +268,9 @@ export function createDeviceSession(
       value: newMode,
     });
 
-    try {
-      await driver.setMode(newMode);
-    } catch (err) {
-      console.error('setMode error:', err);
+    const result = await driver.setMode(newMode);
+    if (!result.ok) {
+      console.error('setMode error:', result.error);
       // Rollback to previous value
       mode = oldMode;
       broadcast({
@@ -276,7 +279,7 @@ export function createDeviceSession(
         field: 'mode',
         value: oldMode,
       });
-      throw err;
+      throw result.error;
     }
   }
 
@@ -293,10 +296,9 @@ export function createDeviceSession(
       value: enabled,
     });
 
-    try {
-      await driver.setOutput(enabled);
-    } catch (err) {
-      console.error('setOutput error:', err);
+    const result = await driver.setOutput(enabled);
+    if (!result.ok) {
+      console.error('setOutput error:', result.error);
       // Rollback to previous value
       outputEnabled = oldEnabled;
       broadcast({
@@ -305,7 +307,7 @@ export function createDeviceSession(
         field: 'outputEnabled',
         value: oldEnabled,
       });
-      throw err;
+      throw result.error;
     }
   }
 
@@ -323,18 +325,16 @@ export function createDeviceSession(
         value: { ...setpoints },
       });
 
-      try {
-        await driver.setValue(name, value);
-      } catch (err) {
-        console.error('setValue error:', err);
+      const result = await driver.setValue(name, value);
+      if (!result.ok) {
+        console.error('setValue error:', result.error);
 
         // Read back actual value from device (if driver supports it)
         let actualValue = oldValue;
         if (driver.getValue) {
-          try {
-            actualValue = await driver.getValue(name);
-          } catch {
-            // Fall back to oldValue
+          const getResult = await driver.getValue(name);
+          if (getResult.ok) {
+            actualValue = getResult.value;
           }
         }
 
@@ -346,7 +346,7 @@ export function createDeviceSession(
           field: 'setpoints',
           value: { ...setpoints },
         });
-        throw err;
+        throw result.error;
       }
       return;
     }
@@ -374,20 +374,21 @@ export function createDeviceSession(
         value: { ...setpoints },
       });
 
-      try {
-        await driver.setValue(name, value);
+      const result = await driver.setValue(name, value);
+      if (result.ok) {
         console.log(`[Session] driver.setValue succeeded for ${name} = ${value}`);
-      } catch (err) {
-        console.error(`[Session] driver.setValue FAILED for ${name} = ${value}:`, err);
+      } else {
+        console.error(`[Session] driver.setValue FAILED for ${name} = ${value}:`, result.error);
 
         // Read back actual value from device (if driver supports it)
         let actualValue = oldValue;
         if (driver.getValue) {
-          try {
-            actualValue = await driver.getValue(name);
+          const getResult = await driver.getValue(name);
+          if (getResult.ok) {
+            actualValue = getResult.value;
             console.log(`[Session] Read back actual value from device: ${name} = ${actualValue}`);
-          } catch (readErr) {
-            console.error(`[Session] Failed to read back value, using oldValue:`, readErr);
+          } else {
+            console.error(`[Session] Failed to read back value, using oldValue:`, getResult.error);
           }
         }
 
@@ -405,7 +406,7 @@ export function createDeviceSession(
           type: 'error',
           deviceId: driver.info.id,
           code: 'SET_VALUE_FAILED',
-          message: err instanceof Error ? err.message : 'Failed to set value',
+          message: result.error.message,
         });
       }
     }, cfg.debounceMs);

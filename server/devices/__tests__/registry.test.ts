@@ -6,6 +6,7 @@ import {
   type DeviceRegistry,
 } from '../registry.js';
 import type { DeviceDriver, Transport, DriverRegistration } from '../types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // Mock driver factory for testing
 function createMockDriver(id: string, probeShouldSucceed = true): DeviceDriver {
@@ -13,13 +14,15 @@ function createMockDriver(id: string, probeShouldSucceed = true): DeviceDriver {
     responses: { '*IDN?': 'MOCK,Device,12345' },
   });
 
+  const info = {
+    id,
+    type: 'electronic-load' as const,
+    manufacturer: 'Mock',
+    model: 'Device',
+  };
+
   return {
-    info: {
-      id,
-      type: 'electronic-load',
-      manufacturer: 'Mock',
-      model: 'Device',
-    },
+    info,
     capabilities: {
       deviceClass: 'load',
       features: {},
@@ -29,25 +32,34 @@ function createMockDriver(id: string, probeShouldSucceed = true): DeviceDriver {
       measurements: [],
     },
     async probe() {
-      return probeShouldSucceed;
+      if (probeShouldSucceed) {
+        return Ok(info);
+      }
+      return Err({ reason: 'wrong_device', message: 'Probe failed' });
     },
     async connect() {
-      await transport.open();
+      return transport.open();
     },
     async disconnect() {
-      await transport.close();
+      return transport.close();
     },
     async getStatus() {
-      return {
+      return Ok({
         mode: 'CC',
         outputEnabled: false,
         setpoints: {},
         measurements: {},
-      };
+      });
     },
-    async setMode() {},
-    async setValue() {},
-    async setOutput() {},
+    async setMode() {
+      return Ok(undefined);
+    },
+    async setValue() {
+      return Ok(undefined);
+    },
+    async setOutput() {
+      return Ok(undefined);
+    },
   };
 }
 

@@ -656,7 +656,7 @@ describe('WebSocketHandler', () => {
 
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(sessionManager.oscilloscopeStartStreaming).toHaveBeenCalledWith('scope-1', ['CHAN1', 'CHAN2'], 200);
+      expect(sessionManager.oscilloscopeStartStreaming).toHaveBeenCalledWith('scope-1', ['CHAN1', 'CHAN2'], 200, undefined);
     });
 
     it('should forward scopeStopStreaming to session manager', async () => {

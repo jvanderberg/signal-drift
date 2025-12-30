@@ -14,7 +14,11 @@ import type {
   DeviceCapabilities,
   DeviceStatus,
   Transport,
+  ProbeError,
 } from '../types.js';
+import type { Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
+import { ScpiParser } from '../scpi-parser.js';
 
 const VALUE_COMMANDS: Record<string, string> = {
   voltage: 'VOLT',
@@ -50,45 +54,56 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
     info,
     capabilities,
 
-    async probe(): Promise<boolean> {
-      try {
-        // Matrix PSU doesn't support *IDN?, but responds to VOLT?
-        const response = await transport.query('VOLT?');
-        // If we get a numeric response, it's likely a Matrix PSU
-        const value = parseFloat(response);
-        return !isNaN(value);
-      } catch {
-        return false;
+    async probe(): Promise<Result<DeviceInfo, ProbeError>> {
+      // Matrix PSU doesn't support *IDN?, but responds to VOLT?
+      const result = await transport.query('VOLT?');
+      if (!result.ok) {
+        return Err({ reason: 'timeout', message: result.error.message });
       }
+
+      // If we get a numeric response, it's likely a Matrix PSU
+      const parseResult = ScpiParser.parseNumber(result.value);
+      if (!parseResult.ok) {
+        return Err({ reason: 'wrong_device', message: 'Response is not numeric' });
+      }
+
+      return Ok(info);
     },
 
-    async connect(): Promise<void> {
-      await transport.open();
+    async connect(): Promise<Result<void, Error>> {
+      return transport.open();
     },
 
-    async disconnect(): Promise<void> {
-      await transport.close();
+    async disconnect(): Promise<Result<void, Error>> {
+      return transport.close();
     },
 
-    async getStatus(): Promise<DeviceStatus> {
+    async getStatus(): Promise<Result<DeviceStatus, Error>> {
       // Query setpoints
-      const voltageSetpointStr = await transport.query('VOLT?');
-      const currentLimitStr = await transport.query('CURR?');
+      const voltageSetpointResult = await transport.query('VOLT?');
+      if (!voltageSetpointResult.ok) return voltageSetpointResult;
+
+      const currentLimitResult = await transport.query('CURR?');
+      if (!currentLimitResult.ok) return currentLimitResult;
 
       // Query output state (returns "0" or "1", not "ON"/"OFF")
-      const outputStr = await transport.query('OUTP?');
+      const outputResult = await transport.query('OUTP?');
+      if (!outputResult.ok) return outputResult;
 
       // Query actual measurements (separate from setpoints)
-      const voltageActualStr = await transport.query('MEAS:VOLT?');
-      const currentActualStr = await transport.query('MEAS:CURR?');
+      const voltageActualResult = await transport.query('MEAS:VOLT?');
+      if (!voltageActualResult.ok) return voltageActualResult;
 
-      const voltageSetpoint = parseFloat(voltageSetpointStr);
-      const currentLimit = parseFloat(currentLimitStr);
-      const voltageActual = parseFloat(voltageActualStr);
-      const currentActual = parseFloat(currentActualStr);
+      const currentActualResult = await transport.query('MEAS:CURR?');
+      if (!currentActualResult.ok) return currentActualResult;
+
+      const voltageSetpoint = ScpiParser.parseNumberOr(voltageSetpointResult.value, 0);
+      const currentLimit = ScpiParser.parseNumberOr(currentLimitResult.value, 0);
+      const voltageActual = ScpiParser.parseNumberOr(voltageActualResult.value, 0);
+      const currentActual = ScpiParser.parseNumberOr(currentActualResult.value, 0);
 
       // Output state: "1" = on, "0" = off
-      const outputEnabled = outputStr.trim() === '1';
+      const outputEnabled = outputResult.value.trim() === '1';
 
       // Infer mode from measurements vs setpoints
       // CC mode: current is at limit AND voltage is below setpoint
@@ -103,7 +118,7 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
         }
       }
 
-      return {
+      return Ok({
         mode,
         outputEnabled,
         setpoints: {
@@ -115,32 +130,39 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
           current: currentActual,
           power: voltageActual * currentActual,
         },
-      };
+      });
     },
 
-    async setMode(_mode: string): Promise<void> {
+    async setMode(_mode: string): Promise<Result<void, Error>> {
       // No-op: Mode is auto-detected based on load conditions
       // The PSU switches between CV and CC automatically
+      return Ok(undefined);
     },
 
-    async setValue(name: string, value: number): Promise<void> {
+    async setValue(name: string, value: number): Promise<Result<void, Error>> {
       const command = VALUE_COMMANDS[name];
       if (!command) {
-        throw new Error(`Invalid value name: ${name}. Valid names: ${Object.keys(VALUE_COMMANDS).join(', ')}`);
+        return Err(new Error(`Invalid value name: ${name}. Valid names: ${Object.keys(VALUE_COMMANDS).join(', ')}`));
       }
-      await transport.write(`${command} ${value}`);
+
+      const writeResult = await transport.write(`${command} ${value}`);
+      if (!writeResult.ok) return writeResult;
 
       // Verify the value was accepted by querying it back
-      const actualStr = await transport.query(`${command}?`);
-      const actual = parseFloat(actualStr);
+      const queryResult = await transport.query(`${command}?`);
+      if (!queryResult.ok) return queryResult;
+
+      const actual = ScpiParser.parseNumberOr(queryResult.value, NaN);
       // Allow small tolerance for floating point differences
       if (Math.abs(actual - value) > 0.01) {
-        throw new Error(`Value rejected: requested ${value}, device reports ${actual}`);
+        return Err(new Error(`Value rejected: requested ${value}, device reports ${actual}`));
       }
+
+      return Ok(undefined);
     },
 
-    async setOutput(enabled: boolean): Promise<void> {
-      await transport.write(`OUTP ${enabled ? 'ON' : 'OFF'}`);
+    async setOutput(enabled: boolean): Promise<Result<void, Error>> {
+      return transport.write(`OUTP ${enabled ? 'ON' : 'OFF'}`);
     },
 
     // No list mode methods - this device doesn't support them

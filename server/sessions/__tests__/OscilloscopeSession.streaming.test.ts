@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createOscilloscopeSession } from '../OscilloscopeSession.js';
 import type { OscilloscopeDriver, OscilloscopeStatus, WaveformData } from '../../devices/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // Mock waveform data
 const mockWaveform: WaveformData = {
@@ -44,34 +45,34 @@ function createMockDriver(): OscilloscopeDriver {
       supportedMeasurements: ['VPP', 'FREQ'],
       hasAWG: false,
     },
-    probe: vi.fn().mockResolvedValue(true),
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    getStatus: vi.fn().mockResolvedValue(mockStatus),
-    getMeasurements: vi.fn().mockResolvedValue({}),
-    getWaveform: vi.fn().mockImplementation(async (channel: string) => ({
+    probe: vi.fn().mockResolvedValue(Ok({ id: 'scope-1', type: 'oscilloscope', manufacturer: 'Rigol', model: 'DS1202Z-E' })),
+    connect: vi.fn().mockResolvedValue(Ok(undefined)),
+    disconnect: vi.fn().mockResolvedValue(Ok(undefined)),
+    getStatus: vi.fn().mockResolvedValue(Ok(mockStatus)),
+    getMeasurements: vi.fn().mockResolvedValue(Ok({})),
+    getWaveform: vi.fn().mockImplementation(async (channel: string) => Ok({
       ...mockWaveform,
       channel,
     })),
-    getScreenshot: vi.fn().mockResolvedValue(Buffer.from('screenshot')),
-    getMeasurement: vi.fn().mockResolvedValue(1.5),
-    run: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    single: vi.fn().mockResolvedValue(undefined),
-    autoSetup: vi.fn().mockResolvedValue(undefined),
-    forceTrigger: vi.fn().mockResolvedValue(undefined),
-    setChannelEnabled: vi.fn().mockResolvedValue(undefined),
-    setChannelScale: vi.fn().mockResolvedValue(undefined),
-    setChannelOffset: vi.fn().mockResolvedValue(undefined),
-    setChannelCoupling: vi.fn().mockResolvedValue(undefined),
-    setChannelProbe: vi.fn().mockResolvedValue(undefined),
-    setChannelBwLimit: vi.fn().mockResolvedValue(undefined),
-    setTimebaseScale: vi.fn().mockResolvedValue(undefined),
-    setTimebaseOffset: vi.fn().mockResolvedValue(undefined),
-    setTriggerSource: vi.fn().mockResolvedValue(undefined),
-    setTriggerLevel: vi.fn().mockResolvedValue(undefined),
-    setTriggerEdge: vi.fn().mockResolvedValue(undefined),
-    setTriggerSweep: vi.fn().mockResolvedValue(undefined),
+    getScreenshot: vi.fn().mockResolvedValue(Ok(Buffer.from('screenshot'))),
+    getMeasurement: vi.fn().mockResolvedValue(Ok(1.5)),
+    run: vi.fn().mockResolvedValue(Ok(undefined)),
+    stop: vi.fn().mockResolvedValue(Ok(undefined)),
+    single: vi.fn().mockResolvedValue(Ok(undefined)),
+    autoSetup: vi.fn().mockResolvedValue(Ok(undefined)),
+    forceTrigger: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelEnabled: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelScale: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelOffset: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelCoupling: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelProbe: vi.fn().mockResolvedValue(Ok(undefined)),
+    setChannelBwLimit: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTimebaseScale: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTimebaseOffset: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTriggerSource: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTriggerLevel: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTriggerEdge: vi.fn().mockResolvedValue(Ok(undefined)),
+    setTriggerSweep: vi.fn().mockResolvedValue(Ok(undefined)),
   };
 }
 
@@ -335,10 +336,11 @@ describe('OscilloscopeSession Streaming', () => {
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
 
-      // Make first fetch fail
+      // Clear previous calls and make first fetch fail (return Err), then succeed (return Ok)
+      (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>)
-        .mockRejectedValueOnce(new Error('Fetch failed'))
-        .mockResolvedValue(mockWaveform);
+        .mockResolvedValueOnce(Err(new Error('Fetch failed')))
+        .mockResolvedValue(Ok(mockWaveform));
 
       await session.startStreaming(['CHAN1'], 200);
 

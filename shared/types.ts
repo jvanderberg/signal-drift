@@ -30,6 +30,44 @@ export const tryResultAsync = async <T>(fn: () => Promise<T>): Promise<Result<T,
   }
 };
 
+// Result utilities for ergonomic chaining
+export const Result = {
+  /** Transform the success value */
+  map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E> {
+    return result.ok ? Ok(fn(result.value)) : result;
+  },
+
+  /** Chain operations that return Result (flatMap) */
+  andThen<T, U, E>(result: Result<T, E>, fn: (value: T) => Result<U, E>): Result<U, E> {
+    return result.ok ? fn(result.value) : result;
+  },
+
+  /** Get value or return default */
+  unwrapOr<T, E>(result: Result<T, E>, defaultValue: T): T {
+    return result.ok ? result.value : defaultValue;
+  },
+
+  /** Get value or compute default lazily */
+  unwrapOrElse<T, E>(result: Result<T, E>, fn: (error: E) => T): T {
+    return result.ok ? result.value : fn(result.error);
+  },
+
+  /** Combine multiple Results - returns first error or all values */
+  all<T, E>(results: Result<T, E>[]): Result<T[], E> {
+    const values: T[] = [];
+    for (const result of results) {
+      if (!result.ok) return result;
+      values.push(result.value);
+    }
+    return Ok(values);
+  },
+
+  /** Map error type */
+  mapErr<T, E, F>(result: Result<T, E>, fn: (error: E) => F): Result<T, F> {
+    return result.ok ? result : Err(fn(result.error));
+  },
+};
+
 // ============ Device Types ============
 
 export type DeviceType = 'power-supply' | 'electronic-load' | 'oscilloscope';

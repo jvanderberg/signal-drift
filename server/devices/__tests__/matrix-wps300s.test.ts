@@ -71,14 +71,17 @@ describe('Matrix WPS300S Driver', () => {
   });
 
   describe('probe()', () => {
-    it('should return true when device responds to VOLT?', async () => {
+    it('should return Ok with DeviceInfo when device responds to VOLT?', async () => {
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(true);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.model).toBe('WPS300S');
+      }
       expect(transport.sentCommands).toContain('VOLT?');
     });
 
-    it('should return false when device does not respond', async () => {
+    it('should return Err when device does not respond', async () => {
       transport = createMockTransport({
         responses: {},
         defaultResponse: '',
@@ -86,21 +89,26 @@ describe('Matrix WPS300S Driver', () => {
       driver = createMatrixWPS300S(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.reason).toBe('wrong_device');
+      }
     });
   });
 
   describe('connect() / disconnect()', () => {
     it('should open transport on connect', async () => {
       expect(transport.isOpen()).toBe(false);
-      await driver.connect();
+      const result = await driver.connect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(true);
     });
 
     it('should close transport on disconnect', async () => {
       await driver.connect();
       expect(transport.isOpen()).toBe(true);
-      await driver.disconnect();
+      const result = await driver.disconnect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(false);
     });
   });
@@ -111,13 +119,19 @@ describe('Matrix WPS300S Driver', () => {
     });
 
     it('should return CV mode (mode cannot be queried, defaults to CV)', async () => {
-      const status = await driver.getStatus();
-      expect(status.mode).toBe('CV');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CV');
+      }
     });
 
     it('should return output enabled state when "1"', async () => {
-      const status = await driver.getStatus();
-      expect(status.outputEnabled).toBe(true);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.outputEnabled).toBe(true);
+      }
     });
 
     it('should return OFF state correctly when "0"', async () => {
@@ -132,22 +146,31 @@ describe('Matrix WPS300S Driver', () => {
       });
       driver = createMatrixWPS300S(transport);
       await driver.connect();
-      const status = await driver.getStatus();
-      expect(status.outputEnabled).toBe(false);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.outputEnabled).toBe(false);
+      }
     });
 
     it('should return voltage and current setpoints', async () => {
-      const status = await driver.getStatus();
-      expect(status.setpoints.voltage).toBeCloseTo(12.0);
-      expect(status.setpoints.current).toBeCloseTo(1.0);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.setpoints.voltage).toBeCloseTo(12.0);
+        expect(result.value.setpoints.current).toBeCloseTo(1.0);
+      }
     });
 
     it('should return actual measurements (separate from setpoints)', async () => {
-      const status = await driver.getStatus();
-      expect(status.measurements.voltage).toBeCloseTo(12.345);
-      expect(status.measurements.current).toBeCloseTo(1.234);
-      // Power should be calculated from actual measurements
-      expect(status.measurements.power).toBeCloseTo(12.345 * 1.234, 2);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.measurements.voltage).toBeCloseTo(12.345);
+        expect(result.value.measurements.current).toBeCloseTo(1.234);
+        // Power should be calculated from actual measurements
+        expect(result.value.measurements.power).toBeCloseTo(12.345 * 1.234, 2);
+      }
     });
   });
 
@@ -158,7 +181,8 @@ describe('Matrix WPS300S Driver', () => {
 
     it('should be a no-op (mode is auto-detected)', async () => {
       transport.reset();
-      await driver.setMode('CC');
+      const result = await driver.setMode('CC');
+      expect(result.ok).toBe(true);
       // Should not send any command
       expect(transport.sentCommands.length).toBe(0);
     });
@@ -171,18 +195,21 @@ describe('Matrix WPS300S Driver', () => {
 
     it('should send correct command for voltage', async () => {
       transport.reset();
-      await driver.setValue('voltage', 24.5);
+      const result = await driver.setValue('voltage', 24.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('VOLT 24.5');
     });
 
     it('should send correct command for current', async () => {
       transport.reset();
-      await driver.setValue('current', 2.5);
+      const result = await driver.setValue('current', 2.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('CURR 2.5');
     });
 
-    it('should throw for invalid value name', async () => {
-      await expect(driver.setValue('power', 100)).rejects.toThrow();
+    it('should return Err for invalid value name', async () => {
+      const result = await driver.setValue('power', 100);
+      expect(result.ok).toBe(false);
     });
   });
 
@@ -193,13 +220,15 @@ describe('Matrix WPS300S Driver', () => {
 
     it('should send ON command', async () => {
       transport.reset();
-      await driver.setOutput(true);
+      const result = await driver.setOutput(true);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('OUTP ON');
     });
 
     it('should send OFF command', async () => {
       transport.reset();
-      await driver.setOutput(false);
+      const result = await driver.setOutput(false);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('OUTP OFF');
     });
   });
