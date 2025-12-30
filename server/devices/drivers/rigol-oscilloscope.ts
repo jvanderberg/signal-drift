@@ -12,7 +12,11 @@ import type {
   WaveformData,
   ChannelConfig,
   TriggerStatus,
+  ProbeError,
 } from '../types.js';
+import type { Result } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
+import { ScpiParser } from '../scpi-parser.js';
 
 // Map trigger edge settings
 const EDGE_MAP: Record<string, string> = {
@@ -64,160 +68,161 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     hasAWG: false,
   };
 
-  // Helper to parse SCPI boolean responses
-  function parseBool(response: string): boolean {
-    const val = response.trim();
-    return val === '1' || val.toUpperCase() === 'ON';
-  }
-
-  // Helper to parse SCPI numeric responses
-  function parseNumber(response: string, defaultValue = 0): number {
-    const trimmed = response.trim();
-    // Handle "AUTO" and other non-numeric responses
-    if (isNaN(parseFloat(trimmed))) {
-      return defaultValue;
-    }
-    return parseFloat(trimmed);
-  }
-
-  // Parse TMC block format: #NXXXXXXXX...data...
-  function parseTmcBlock(buffer: Buffer): Buffer {
-    if (buffer.length < 2 || buffer[0] !== 0x23) {  // '#'
-      throw new Error('Invalid TMC block format: missing header');
-    }
-
-    const numDigits = parseInt(String.fromCharCode(buffer[1]), 10);
-    if (isNaN(numDigits) || numDigits < 1 || numDigits > 9) {
-      throw new Error('Invalid TMC block format: invalid digit count');
-    }
-
-    const lengthStr = buffer.slice(2, 2 + numDigits).toString('ascii');
-    const dataLength = parseInt(lengthStr, 10);
-    if (isNaN(dataLength)) {
-      throw new Error('Invalid TMC block format: invalid length');
-    }
-
-    const dataStart = 2 + numDigits;
-    return buffer.slice(dataStart, dataStart + dataLength);
-  }
-
   return {
     info,
     capabilities,
 
-    async probe(): Promise<boolean> {
-      try {
-        const response = await transport.query('*IDN?');
-        if (!response.includes('RIGOL')) {
-          return false;
-        }
-
-        // Parse IDN response: RIGOL TECHNOLOGIES,MODEL,SERIAL,VERSION
-        const parts = response.split(',');
-        if (parts.length < 3) {
-          return false;
-        }
-
-        const model = parts[1].trim();
-        const serial = parts[2].trim();
-
-        // Check if it's an oscilloscope (DS or MSO prefix)
-        if (!model.startsWith('DS') && !model.startsWith('MSO')) {
-          return false;
-        }
-
-        info.model = model;
-        info.serial = serial;
-        info.id = `rigol-${model.toLowerCase()}-${serial}`;
-
-        // Update capabilities based on model
-        if (model.includes('1054') || model.includes('1104')) {
-          capabilities.channels = 4;
-          capabilities.bandwidth = model.includes('1104') ? 100 : 50;
-        } else if (model.includes('1102') || model.includes('1052')) {
-          capabilities.channels = 2;
-          capabilities.bandwidth = model.includes('1102') ? 100 : 50;
-        } else if (model.startsWith('DS2')) {
-          // DS2000 series
-          capabilities.channels = 2;
-          const bwMatch = model.match(/(\d+)A?$/);
-          if (bwMatch) {
-            capabilities.bandwidth = parseInt(bwMatch[1], 10);
-          }
-        } else if (model.startsWith('MSO5')) {
-          // MSO5000 series
-          capabilities.channels = 4;
-          const bwMatch = model.match(/50(\d+)/);
-          if (bwMatch) {
-            capabilities.bandwidth = parseInt(bwMatch[1], 10);
-          }
-          capabilities.hasAWG = true;
-        }
-
-        return true;
-      } catch {
-        return false;
+    async probe(): Promise<Result<OscilloscopeInfo, ProbeError>> {
+      const result = await transport.query('*IDN?');
+      if (!result.ok) {
+        return Err({ reason: 'timeout', message: result.error.message });
       }
+
+      const response = result.value;
+      if (!response.includes('RIGOL')) {
+        return Err({ reason: 'wrong_device', message: 'Not a Rigol device' });
+      }
+
+      // Parse IDN response: RIGOL TECHNOLOGIES,MODEL,SERIAL,VERSION
+      const parts = response.split(',');
+      if (parts.length < 3) {
+        return Err({ reason: 'parse_error', message: 'Invalid IDN format' });
+      }
+
+      const model = parts[1].trim();
+      const serial = parts[2].trim();
+
+      // Check if it's an oscilloscope (DS or MSO prefix)
+      if (!model.startsWith('DS') && !model.startsWith('MSO')) {
+        return Err({ reason: 'wrong_device', message: `Model ${model} is not an oscilloscope` });
+      }
+
+      info.model = model;
+      info.serial = serial;
+      info.id = `rigol-${model.toLowerCase()}-${serial}`;
+
+      // Update capabilities based on model
+      if (model.includes('1054') || model.includes('1104')) {
+        capabilities.channels = 4;
+        capabilities.bandwidth = model.includes('1104') ? 100 : 50;
+      } else if (model.includes('1102') || model.includes('1052')) {
+        capabilities.channels = 2;
+        capabilities.bandwidth = model.includes('1102') ? 100 : 50;
+      } else if (model.startsWith('DS2')) {
+        // DS2000 series
+        capabilities.channels = 2;
+        const bwMatch = model.match(/(\d+)A?$/);
+        if (bwMatch) {
+          capabilities.bandwidth = parseInt(bwMatch[1], 10);
+        }
+      } else if (model.startsWith('MSO5')) {
+        // MSO5000 series
+        capabilities.channels = 4;
+        const bwMatch = model.match(/50(\d+)/);
+        if (bwMatch) {
+          capabilities.bandwidth = parseInt(bwMatch[1], 10);
+        }
+        capabilities.hasAWG = true;
+      }
+
+      return Ok(info);
     },
 
-    async connect(): Promise<void> {
-      await transport.open();
+    async connect(): Promise<Result<void, Error>> {
+      return transport.open();
     },
 
-    async disconnect(): Promise<void> {
-      await transport.close();
+    async disconnect(): Promise<Result<void, Error>> {
+      return transport.close();
     },
 
-    async getStatus(): Promise<OscilloscopeStatus> {
+    async getStatus(): Promise<Result<OscilloscopeStatus, Error>> {
       // Query trigger status
-      const trigStatResp = await transport.query(':TRIG:STAT?');
-      const trigStat = trigStatResp.trim().toUpperCase();
+      const trigStatResult = await transport.query(':TRIG:STAT?');
+      if (!trigStatResult.ok) return trigStatResult;
+      const trigStat = trigStatResult.value.trim().toUpperCase();
       const triggerStatus = TRIGGER_STATUS_MAP[trigStat] || 'stopped';
       const running = triggerStatus !== 'stopped';
 
       // Query sample rate and memory depth
-      const sampleRateResp = await transport.query(':ACQ:SRAT?');
-      const sampleRate = parseNumber(sampleRateResp);
+      const sampleRateResult = await transport.query(':ACQ:SRAT?');
+      if (!sampleRateResult.ok) return sampleRateResult;
+      const sampleRate = ScpiParser.parseNumberOr(sampleRateResult.value, 0);
 
-      const memDepthResp = await transport.query(':ACQ:MDEP?');
-      const memoryDepth = parseNumber(memDepthResp);
+      const memDepthResult = await transport.query(':ACQ:MDEP?');
+      if (!memDepthResult.ok) return memDepthResult;
+      const memoryDepth = ScpiParser.parseNumberOr(memDepthResult.value, 0);
 
       // Query channel configurations
       const channels: Record<string, ChannelConfig> = {};
       for (let i = 1; i <= capabilities.channels; i++) {
         const ch = `CHAN${i}`;
-        const enabled = parseBool(await transport.query(`:${ch}:DISP?`));
-        const scale = parseNumber(await transport.query(`:${ch}:SCAL?`));
-        const offset = parseNumber(await transport.query(`:${ch}:OFFS?`));
-        const couplingResp = (await transport.query(`:${ch}:COUP?`)).trim().toUpperCase();
-        const coupling = couplingResp as 'AC' | 'DC' | 'GND';
-        const probe = parseNumber(await transport.query(`:${ch}:PROB?`));
-        const bwlResp = await transport.query(`:${ch}:BWL?`);
-        const bwLimit = parseBool(bwlResp);
 
-        channels[ch] = {
-          enabled,
-          scale,
-          offset,
-          coupling,
-          probe,
-          bwLimit,
-        };
+        const dispResult = await transport.query(`:${ch}:DISP?`);
+        if (!dispResult.ok) return dispResult;
+        const enabled = ScpiParser.parseBool(dispResult.value);
+
+        const scalResult = await transport.query(`:${ch}:SCAL?`);
+        if (!scalResult.ok) return scalResult;
+        const scale = ScpiParser.parseNumberOr(scalResult.value, 1);
+
+        const offsResult = await transport.query(`:${ch}:OFFS?`);
+        if (!offsResult.ok) return offsResult;
+        const offset = ScpiParser.parseNumberOr(offsResult.value, 0);
+
+        const coupResult = await transport.query(`:${ch}:COUP?`);
+        if (!coupResult.ok) return coupResult;
+        const coupling = coupResult.value.trim().toUpperCase() as 'AC' | 'DC' | 'GND';
+
+        const probResult = await transport.query(`:${ch}:PROB?`);
+        if (!probResult.ok) return probResult;
+        const probe = ScpiParser.parseNumberOr(probResult.value, 1);
+
+        const bwlResult = await transport.query(`:${ch}:BWL?`);
+        if (!bwlResult.ok) return bwlResult;
+        const bwLimit = ScpiParser.parseBool(bwlResult.value);
+
+        channels[ch] = { enabled, scale, offset, coupling, probe, bwLimit };
       }
 
       // Query timebase
-      const timScale = parseNumber(await transport.query(':TIM:SCAL?'));
-      const timOffs = parseNumber(await transport.query(':TIM:OFFS?'));
-      const timModeResp = (await transport.query(':TIM:MODE?')).trim().toUpperCase();
+      const timScalResult = await transport.query(':TIM:SCAL?');
+      if (!timScalResult.ok) return timScalResult;
+      const timScale = ScpiParser.parseNumberOr(timScalResult.value, 0.001);
+
+      const timOffsResult = await transport.query(':TIM:OFFS?');
+      if (!timOffsResult.ok) return timOffsResult;
+      const timOffs = ScpiParser.parseNumberOr(timOffsResult.value, 0);
+
+      const timModeResult = await transport.query(':TIM:MODE?');
+      if (!timModeResult.ok) return timModeResult;
+      const timModeResp = timModeResult.value.trim().toUpperCase();
       const timebaseMode = timModeResp === 'ROLL' ? 'roll' : timModeResp === 'ZOOM' ? 'zoom' : 'main';
 
       // Query trigger settings
-      const trigModeResp = (await transport.query(':TRIG:MODE?')).trim().toUpperCase();
-      const trigCoupResp = (await transport.query(':TRIG:COUP?')).trim().toUpperCase();
-      const trigSrc = (await transport.query(':TRIG:EDG:SOUR?')).trim();
-      const trigLev = parseNumber(await transport.query(':TRIG:EDG:LEV?'));
-      const trigSlopResp = (await transport.query(':TRIG:EDG:SLOP?')).trim().toUpperCase();
-      const trigSweepResp = (await transport.query(':TRIG:SWE?')).trim().toUpperCase();
+      const trigModeResult = await transport.query(':TRIG:MODE?');
+      if (!trigModeResult.ok) return trigModeResult;
+      const trigModeResp = trigModeResult.value.trim().toUpperCase();
+
+      const trigCoupResult = await transport.query(':TRIG:COUP?');
+      if (!trigCoupResult.ok) return trigCoupResult;
+      const trigCoupResp = trigCoupResult.value.trim().toUpperCase();
+
+      const trigSrcResult = await transport.query(':TRIG:EDG:SOUR?');
+      if (!trigSrcResult.ok) return trigSrcResult;
+      const trigSrc = trigSrcResult.value.trim();
+
+      const trigLevResult = await transport.query(':TRIG:EDG:LEV?');
+      if (!trigLevResult.ok) return trigLevResult;
+      const trigLev = ScpiParser.parseNumberOr(trigLevResult.value, 0);
+
+      const trigSlopResult = await transport.query(':TRIG:EDG:SLOP?');
+      if (!trigSlopResult.ok) return trigSlopResult;
+      const trigSlopResp = trigSlopResult.value.trim().toUpperCase();
+
+      const trigSweepResult = await transport.query(':TRIG:SWE?');
+      if (!trigSweepResult.ok) return trigSweepResult;
+      const trigSweepResp = trigSweepResult.value.trim().toUpperCase();
 
       // Map trigger mode
       const trigMode = trigModeResp.toLowerCase() as 'edge' | 'pulse' | 'slope' | 'video';
@@ -231,7 +236,7 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       // Map trigger sweep
       const trigSweep = (trigSweepResp === 'NORM' ? 'normal' : trigSweepResp === 'SING' ? 'single' : 'auto') as 'auto' | 'normal' | 'single';
 
-      return {
+      return Ok({
         running,
         triggerStatus,
         sampleRate,
@@ -251,82 +256,84 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
           sweep: trigSweep,
         },
         measurements: [],  // Measurements are queried on-demand
-      };
+      });
     },
 
-    async run(): Promise<void> {
-      await transport.write(':RUN');
+    async run(): Promise<Result<void, Error>> {
+      return transport.write(':RUN');
     },
 
-    async stop(): Promise<void> {
-      await transport.write(':STOP');
+    async stop(): Promise<Result<void, Error>> {
+      return transport.write(':STOP');
     },
 
-    async single(): Promise<void> {
-      await transport.write(':SING');
+    async single(): Promise<Result<void, Error>> {
+      return transport.write(':SING');
     },
 
-    async autoSetup(): Promise<void> {
-      await transport.write(':AUT');
+    async autoSetup(): Promise<Result<void, Error>> {
+      return transport.write(':AUT');
     },
 
-    async forceTrigger(): Promise<void> {
-      await transport.write(':TFOR');
+    async forceTrigger(): Promise<Result<void, Error>> {
+      return transport.write(':TFOR');
     },
 
-    async setChannelEnabled(channel: string, enabled: boolean): Promise<void> {
-      await transport.write(`:${channel}:DISP ${enabled ? 'ON' : 'OFF'}`);
+    async setChannelEnabled(channel: string, enabled: boolean): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:DISP ${enabled ? 'ON' : 'OFF'}`);
     },
 
-    async setChannelScale(channel: string, scale: number): Promise<void> {
-      await transport.write(`:${channel}:SCAL ${scale}`);
+    async setChannelScale(channel: string, scale: number): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:SCAL ${scale}`);
     },
 
-    async setChannelOffset(channel: string, offset: number): Promise<void> {
-      await transport.write(`:${channel}:OFFS ${offset}`);
+    async setChannelOffset(channel: string, offset: number): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:OFFS ${offset}`);
     },
 
-    async setChannelCoupling(channel: string, coupling: string): Promise<void> {
-      await transport.write(`:${channel}:COUP ${coupling}`);
+    async setChannelCoupling(channel: string, coupling: string): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:COUP ${coupling}`);
     },
 
-    async setChannelProbe(channel: string, ratio: number): Promise<void> {
-      await transport.write(`:${channel}:PROB ${ratio}`);
+    async setChannelProbe(channel: string, ratio: number): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:PROB ${ratio}`);
     },
 
-    async setChannelBwLimit(channel: string, enabled: boolean): Promise<void> {
-      await transport.write(`:${channel}:BWL ${enabled ? 'ON' : 'OFF'}`);
+    async setChannelBwLimit(channel: string, enabled: boolean): Promise<Result<void, Error>> {
+      return transport.write(`:${channel}:BWL ${enabled ? 'ON' : 'OFF'}`);
     },
 
-    async setTimebaseScale(scale: number): Promise<void> {
-      await transport.write(`:TIM:SCAL ${scale}`);
+    async setTimebaseScale(scale: number): Promise<Result<void, Error>> {
+      return transport.write(`:TIM:SCAL ${scale}`);
     },
 
-    async setTimebaseOffset(offset: number): Promise<void> {
-      await transport.write(`:TIM:OFFS ${offset}`);
+    async setTimebaseOffset(offset: number): Promise<Result<void, Error>> {
+      return transport.write(`:TIM:OFFS ${offset}`);
     },
 
-    async setTriggerSource(source: string): Promise<void> {
-      await transport.write(`:TRIG:EDG:SOUR ${source}`);
+    async setTriggerSource(source: string): Promise<Result<void, Error>> {
+      return transport.write(`:TRIG:EDG:SOUR ${source}`);
     },
 
-    async setTriggerLevel(level: number): Promise<void> {
-      await transport.write(`:TRIG:EDG:LEV ${level}`);
+    async setTriggerLevel(level: number): Promise<Result<void, Error>> {
+      return transport.write(`:TRIG:EDG:LEV ${level}`);
     },
 
-    async setTriggerEdge(edge: string): Promise<void> {
+    async setTriggerEdge(edge: string): Promise<Result<void, Error>> {
       const scpiEdge = EDGE_MAP[edge] || 'POS';
-      await transport.write(`:TRIG:EDG:SLOP ${scpiEdge}`);
+      return transport.write(`:TRIG:EDG:SLOP ${scpiEdge}`);
     },
 
-    async setTriggerSweep(sweep: string): Promise<void> {
+    async setTriggerSweep(sweep: string): Promise<Result<void, Error>> {
       const scpiSweep = SWEEP_MAP[sweep] || 'AUTO';
-      await transport.write(`:TRIG:SWE ${scpiSweep}`);
+      return transport.write(`:TRIG:SWE ${scpiSweep}`);
     },
 
-    async getMeasurement(channel: string, type: string): Promise<number | null> {
-      const response = await transport.query(`:MEAS:${type}? ${channel}`);
-      const trimmed = response.trim();
+    async getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>> {
+      const result = await transport.query(`:MEAS:${type}? ${channel}`);
+      if (!result.ok) return result;
+
+      const trimmed = result.value.trim();
 
       // Check for invalid measurement:
       // - **** means no signal/invalid
@@ -334,64 +341,82 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       // - Empty response
       // - Non-numeric response
       if (trimmed.includes('****') || trimmed === '' || isNaN(parseFloat(trimmed))) {
-        return null;
+        return Ok(null);
       }
 
       const value = parseFloat(trimmed);
 
       // 9.9E37 is Rigol's way of indicating an invalid/overflow measurement
       if (Math.abs(value) > 9e36) {
-        return null;
+        return Ok(null);
       }
 
-      return value;
+      return Ok(value);
     },
 
-    async getMeasurements(channel: string, types: string[]): Promise<Record<string, number | null>> {
+    async getMeasurements(channel: string, types: string[]): Promise<Result<Record<string, number | null>, Error>> {
       const results: Record<string, number | null> = {};
 
       for (const type of types) {
-        results[type] = await this.getMeasurement(channel, type);
+        const measResult = await this.getMeasurement(channel, type);
+        if (!measResult.ok) return measResult;
+        results[type] = measResult.value;
       }
 
-      return results;
+      return Ok(results);
     },
 
-    async getWaveform(channel: string, start?: number, count?: number): Promise<WaveformData> {
+    async getWaveform(channel: string, start?: number, count?: number): Promise<Result<WaveformData, Error>> {
       // Set waveform source
-      await transport.write(`:WAV:SOUR ${channel}`);
+      let writeResult = await transport.write(`:WAV:SOUR ${channel}`);
+      if (!writeResult.ok) return writeResult;
 
       // Set mode to NORM (screen data)
-      await transport.write(':WAV:MODE NORM');
+      writeResult = await transport.write(':WAV:MODE NORM');
+      if (!writeResult.ok) return writeResult;
 
       // Set format to BYTE (binary, more efficient)
-      await transport.write(':WAV:FORM BYTE');
+      writeResult = await transport.write(':WAV:FORM BYTE');
+      if (!writeResult.ok) return writeResult;
 
       // Set start/stop if provided
       if (start !== undefined && count !== undefined) {
-        await transport.write(`:WAV:STAR ${start}`);
-        await transport.write(`:WAV:STOP ${start + count - 1}`);
+        writeResult = await transport.write(`:WAV:STAR ${start}`);
+        if (!writeResult.ok) return writeResult;
+        writeResult = await transport.write(`:WAV:STOP ${start + count - 1}`);
+        if (!writeResult.ok) return writeResult;
       }
 
       // Get preamble for scaling
       // DS1000Z series returns 8 values: format,type,points,count,xinc,xorig,xref,yinc
-      const preambleResp = await transport.query(':WAV:PRE?');
-      const preambleParts = preambleResp.split(',').map((s) => parseFloat(s.trim()));
+      const preambleResult = await transport.query(':WAV:PRE?');
+      if (!preambleResult.ok) return preambleResult;
+      const preambleParts = preambleResult.value.split(',').map((s) => parseFloat(s.trim()));
       const [, , , , xIncrement, xOrigin, , yIncrement] = preambleParts;
 
       // Query yOrigin and yReference separately (not in preamble for DS1000Z)
-      const yOrigin = parseNumber(await transport.query(':WAV:YOR?'));
-      const yReference = parseNumber(await transport.query(':WAV:YREF?'));
+      const yOrResult = await transport.query(':WAV:YOR?');
+      if (!yOrResult.ok) return yOrResult;
+      const yOrigin = ScpiParser.parseNumberOr(yOrResult.value, 0);
+
+      const yRefResult = await transport.query(':WAV:YREF?');
+      if (!yRefResult.ok) return yRefResult;
+      const yReference = ScpiParser.parseNumberOr(yRefResult.value, 0);
 
       // Get waveform data (BYTE format)
       if (!transport.queryBinary) {
-        throw new Error('Transport does not support binary queries');
+        return Err(new Error('Transport does not support binary queries'));
       }
-      const rawData = await transport.queryBinary(':WAV:DATA?');
+
+      const rawDataResult = await transport.queryBinary(':WAV:DATA?');
+      if (!rawDataResult.ok) return rawDataResult;
 
       // Parse TMC block format - returns exactly dataLength bytes
-      const waveformBytes = parseTmcBlock(rawData);
-
+      const blockResult = ScpiParser.parseDefiniteLengthBlock(rawDataResult.value);
+      if (!blockResult.ok) {
+        return Err(new Error(blockResult.error));
+      }
+      const waveformBytes = blockResult.value;
 
       // Convert bytes to voltage values
       // Formula per Rigol DS1000Z Programming Guide:
@@ -403,7 +428,7 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
         points.push(voltage);
       }
 
-      return {
+      return Ok({
         channel,
         points,
         xIncrement,
@@ -411,24 +436,26 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
         yIncrement,
         yOrigin,
         yReference,
-      };
+      });
     },
 
-    async getScreenshot(): Promise<Buffer> {
+    async getScreenshot(): Promise<Result<Buffer, Error>> {
       if (!transport.queryBinary) {
-        throw new Error('Transport does not support binary queries');
+        return Err(new Error('Transport does not support binary queries'));
       }
 
-      const rawData = await transport.queryBinary(':DISP:DATA? ON,OFF,PNG');
+      const rawDataResult = await transport.queryBinary(':DISP:DATA? ON,OFF,PNG');
+      if (!rawDataResult.ok) return rawDataResult;
 
       // The screenshot data may or may not be in TMC block format depending on model
       // Try to parse as TMC, otherwise return raw
-      try {
-        return parseTmcBlock(rawData);
-      } catch {
-        // Not TMC format, return raw (minus any header bytes if present)
-        return rawData;
+      const blockResult = ScpiParser.parseDefiniteLengthBlock(rawDataResult.value);
+      if (blockResult.ok) {
+        return Ok(blockResult.value);
       }
+
+      // Not TMC format, return raw (minus any header bytes if present)
+      return Ok(rawDataResult.value);
     },
   };
 }

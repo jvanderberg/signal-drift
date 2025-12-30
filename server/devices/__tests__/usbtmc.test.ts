@@ -154,7 +154,10 @@ describe('USB-TMC Protocol', () => {
       Buffer.from('Hello World').copy(response, 12);
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('Hello World');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('Hello World');
+      }
     });
 
     it('should trim whitespace from response', () => {
@@ -163,7 +166,10 @@ describe('USB-TMC Protocol', () => {
       Buffer.from('test\r\n').copy(response, 12);
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('test');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('test');
+      }
     });
 
     it('should handle empty response', () => {
@@ -171,7 +177,20 @@ describe('USB-TMC Protocol', () => {
       response.writeUInt32LE(0, 4);  // TransferSize = 0
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('');
+      }
+    });
+
+    it('should return Err for response too short', () => {
+      const response = Buffer.alloc(8);  // Less than 12 bytes
+
+      const result = parseDevDepMsgIn(response);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('too short');
+      }
     });
   });
 
@@ -245,7 +264,11 @@ describe('USB-TMC Transport', () => {
       const device = createMockDevice({ claimError: new Error('Claim failed') });
       const transport = createUSBTMCTransport(device);
 
-      await expect(transport.open()).rejects.toThrow('Claim failed');
+      const result = await transport.open();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Claim failed');
+      }
       expect(device.close).toHaveBeenCalled();
       expect(transport.isOpen()).toBe(false);
     });
@@ -295,7 +318,10 @@ describe('USB-TMC Transport', () => {
       await transport.open();
       const result = await transport.query('*IDN?');
 
-      expect(result).toBe('OK');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('OK');
+      }
     });
 
     it('should timeout after configured duration', async () => {
@@ -304,7 +330,11 @@ describe('USB-TMC Transport', () => {
 
       await transport.open();
 
-      await expect(transport.query('*IDN?')).rejects.toThrow('Timeout');
+      const result = await transport.query('*IDN?');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Timeout');
+      }
     });
 
     it('should serialize concurrent queries with mutex', async () => {
@@ -334,7 +364,7 @@ describe('USB-TMC Transport', () => {
       // The mutex ensures they don't interleave
     });
 
-    it('should throw if device is disconnected', async () => {
+    it('should return Err if device is disconnected', async () => {
       const device = createMockDevice({
         transferInError: new Error('LIBUSB_ERROR_NO_DEVICE')
       });
@@ -342,7 +372,11 @@ describe('USB-TMC Transport', () => {
 
       await transport.open();
 
-      await expect(transport.query('*IDN?')).rejects.toThrow('LIBUSB_ERROR_NO_DEVICE');
+      const result = await transport.query('*IDN?');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('LIBUSB_ERROR_NO_DEVICE');
+      }
       expect(transport.isOpen()).toBe(false); // Should mark as disconnected
     });
   });
@@ -358,7 +392,8 @@ describe('USB-TMC Transport', () => {
       expect(transport.isOpen()).toBe(true);
 
       // Query will fail and mark as disconnected
-      await transport.query('TEST').catch(() => {});
+      const result = await transport.query('TEST');
+      expect(result.ok).toBe(false);
       expect(transport.isOpen()).toBe(false);
     });
 
@@ -370,11 +405,12 @@ describe('USB-TMC Transport', () => {
 
       await transport.open();
 
-      await transport.query('TEST').catch(() => {});
+      const result = await transport.query('TEST');
+      expect(result.ok).toBe(false);
       expect(transport.isOpen()).toBe(false);
     });
 
-    it('should reject subsequent queries after disconnection', async () => {
+    it('should return Err for subsequent queries after disconnection', async () => {
       const device = createMockDevice({
         transferInError: new Error('LIBUSB_ERROR_NO_DEVICE')
       });
@@ -383,10 +419,15 @@ describe('USB-TMC Transport', () => {
       await transport.open();
 
       // First query fails and marks disconnected
-      await transport.query('TEST').catch(() => {});
+      const result1 = await transport.query('TEST');
+      expect(result1.ok).toBe(false);
 
       // Subsequent queries should fail immediately with the stored error
-      await expect(transport.query('TEST2')).rejects.toThrow('LIBUSB_ERROR_NO_DEVICE');
+      const result2 = await transport.query('TEST2');
+      expect(result2.ok).toBe(false);
+      if (!result2.ok) {
+        expect(result2.error.message).toContain('LIBUSB_ERROR_NO_DEVICE');
+      }
     });
   });
 });

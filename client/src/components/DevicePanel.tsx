@@ -160,9 +160,9 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
 
               <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
 
-              {/* Setpoint controls */}
-              {device.info.type === 'power-supply' ? (
-                // PSU: Horizontal voltage and current setpoints
+              {/* Setpoint controls - layout based on device class */}
+              {device.capabilities.deviceClass === 'psu' ? (
+                // PSU: Show all outputs (voltage + current) side by side
                 <div className="flex items-center gap-4 flex-wrap">
                   {device.capabilities.outputs.map(output => {
                     const setpointValue = status.setpoints[output.name] ?? 0;
@@ -180,7 +180,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                   })}
                 </div>
               ) : (
-                // Load: Mode selector and setpoint
+                // Load: Mode selector + single active setpoint
                 <div className="flex items-center gap-3 flex-wrap">
                   {device.capabilities.modesSettable && (
                     <ModeSelector

@@ -91,21 +91,24 @@ describe('Rigol DL3021 Driver', () => {
   });
 
   describe('probe()', () => {
-    it('should return true for valid Rigol DL3021 response', async () => {
+    it('should return Ok for valid Rigol DL3021 response', async () => {
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(true);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain('*IDN?');
     });
 
-    it('should return false for non-Rigol device', async () => {
+    it('should return Err for non-Rigol device', async () => {
       transport = createMockTransport({
         responses: { '*IDN?': 'Some Other Device' },
       });
       driver = createRigolDL3021(transport);
       await transport.open();
       const result = await driver.probe();
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.reason).toBe('wrong_device');
+      }
     });
 
     it('should extract serial number from IDN response', async () => {
@@ -118,14 +121,16 @@ describe('Rigol DL3021 Driver', () => {
   describe('connect() / disconnect()', () => {
     it('should open transport on connect', async () => {
       expect(transport.isOpen()).toBe(false);
-      await driver.connect();
+      const result = await driver.connect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(true);
     });
 
     it('should close transport on disconnect', async () => {
       await driver.connect();
       expect(transport.isOpen()).toBe(true);
-      await driver.disconnect();
+      const result = await driver.disconnect();
+      expect(result.ok).toBe(true);
       expect(transport.isOpen()).toBe(false);
     });
   });
@@ -136,25 +141,37 @@ describe('Rigol DL3021 Driver', () => {
     });
 
     it('should return current mode', async () => {
-      const status = await driver.getStatus();
-      expect(status.mode).toBe('CC');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CC');
+      }
     });
 
     it('should return output enabled state', async () => {
-      const status = await driver.getStatus();
-      expect(status.outputEnabled).toBe(true);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.outputEnabled).toBe(true);
+      }
     });
 
     it('should return setpoints for current mode', async () => {
-      const status = await driver.getStatus();
-      expect(status.setpoints.current).toBe(1.5);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.setpoints.current).toBe(1.5);
+      }
     });
 
     it('should return measurements', async () => {
-      const status = await driver.getStatus();
-      expect(status.measurements.voltage).toBeCloseTo(12.345);
-      expect(status.measurements.current).toBeCloseTo(1.234);
-      expect(status.measurements.power).toBeCloseTo(15.234);
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.measurements.voltage).toBeCloseTo(12.345);
+        expect(result.value.measurements.current).toBeCloseTo(1.234);
+        expect(result.value.measurements.power).toBeCloseTo(15.234);
+      }
     });
   });
 
@@ -165,30 +182,35 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should send correct command for CC mode', async () => {
       transport.reset();
-      await driver.setMode('CC');
+      const result = await driver.setMode('CC');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:FUNC CURR');
     });
 
     it('should send correct command for CV mode', async () => {
       transport.reset();
-      await driver.setMode('CV');
+      const result = await driver.setMode('CV');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:FUNC VOLT');
     });
 
     it('should send correct command for CR mode', async () => {
       transport.reset();
-      await driver.setMode('CR');
+      const result = await driver.setMode('CR');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:FUNC RES');
     });
 
     it('should send correct command for CP mode', async () => {
       transport.reset();
-      await driver.setMode('CP');
+      const result = await driver.setMode('CP');
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:FUNC POW');
     });
 
-    it('should throw for invalid mode', async () => {
-      await expect(driver.setMode('INVALID')).rejects.toThrow();
+    it('should return Err for invalid mode', async () => {
+      const result = await driver.setMode('INVALID');
+      expect(result.ok).toBe(false);
     });
   });
 
@@ -199,30 +221,35 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should send correct command for current', async () => {
       transport.reset();
-      await driver.setValue('current', 2.5);
+      const result = await driver.setValue('current', 2.5);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:CURR:LEV 2.5');
     });
 
     it('should send correct command for voltage', async () => {
       transport.reset();
-      await driver.setValue('voltage', 24.0);
+      const result = await driver.setValue('voltage', 24.0);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:VOLT:LEV 24');
     });
 
     it('should send correct command for resistance', async () => {
       transport.reset();
-      await driver.setValue('resistance', 100);
+      const result = await driver.setValue('resistance', 100);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:RES:LEV 100');
     });
 
     it('should send correct command for power', async () => {
       transport.reset();
-      await driver.setValue('power', 50);
+      const result = await driver.setValue('power', 50);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:POW:LEV 50');
     });
 
-    it('should throw for invalid value name', async () => {
-      await expect(driver.setValue('invalid', 1)).rejects.toThrow();
+    it('should return Err for invalid value name', async () => {
+      const result = await driver.setValue('invalid', 1);
+      expect(result.ok).toBe(false);
     });
   });
 
@@ -233,13 +260,15 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should send ON command', async () => {
       transport.reset();
-      await driver.setOutput(true);
+      const result = await driver.setOutput(true);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:INP:STAT ON');
     });
 
     it('should send OFF command', async () => {
       transport.reset();
-      await driver.setOutput(false);
+      const result = await driver.setOutput(false);
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:INP:STAT OFF');
     });
   });
@@ -263,11 +292,12 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should upload list steps with 0-based indexing', async () => {
       transport.reset();
-      await driver.uploadList!('CC', [
+      const result = await driver.uploadList!('CC', [
         { value: 1.0, duration: 0.1 },
         { value: 2.0, duration: 0.2 },
         { value: 1.5, duration: 0.15 },
       ]);
+      expect(result.ok).toBe(true);
 
       // Should set mode, range, and step count
       expect(transport.sentCommands.some(c => c.includes(':SOUR:LIST:MODE'))).toBe(true);
@@ -282,7 +312,8 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should start list execution with trigger setup', async () => {
       transport.reset();
-      await driver.startList!();
+      const result = await driver.startList!();
+      expect(result.ok).toBe(true);
       expect(transport.sentCommands.some(c => c.includes(':SOUR:FUNC:MODE LIST'))).toBe(true);
       expect(transport.sentCommands.some(c => c.includes(':TRIG:SOUR BUS'))).toBe(true);
       expect(transport.sentCommands.some(c => c.includes(':TRIG'))).toBe(true);
@@ -290,7 +321,8 @@ describe('Rigol DL3021 Driver', () => {
 
     it('should stop list execution', async () => {
       transport.reset();
-      await driver.stopList!();
+      const result = await driver.stopList!();
+      expect(result.ok).toBe(true);
       // Should either turn off input or switch back to normal mode
       expect(
         transport.sentCommands.some(c =>

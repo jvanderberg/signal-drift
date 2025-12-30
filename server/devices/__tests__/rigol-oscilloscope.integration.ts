@@ -26,9 +26,14 @@ async function findOscilloscope(): Promise<OscilloscopeDriver | null> {
       const transport = createUSBTMCTransport(device);
       const driver = createRigolOscilloscope(transport);
 
-      await transport.open();
+      const openResult = await transport.open();
+      if (!openResult.ok) {
+        console.log(`Failed to open transport: ${openResult.error.message}`);
+        continue;
+      }
 
-      if (await driver.probe()) {
+      const probeResult = await driver.probe();
+      if (probeResult.ok) {
         console.log(`✓ Identified: ${driver.info.model} (${driver.info.serial})`);
         return driver;
       }
@@ -49,23 +54,35 @@ async function runBenchmarks(driver: OscilloscopeDriver): Promise<void> {
   // Benchmark 1: Status query time
   console.log('Benchmark 1: Status query...');
   const statusStart = Date.now();
-  const status = await driver.getStatus();
+  const statusResult = await driver.getStatus();
   const statusTime = Date.now() - statusStart;
   console.log(`  Status query: ${statusTime}ms`);
-  console.log(`  Trigger status: ${status.triggerStatus}`);
-  console.log(`  Sample rate: ${(status.sampleRate / 1e6).toFixed(2)} MSa/s`);
-  console.log(`  Memory depth: ${status.memoryDepth} points`);
-  console.log(`  Channels:`, Object.keys(status.channels).filter(ch => status.channels[ch].enabled));
+
+  if (statusResult.ok) {
+    const status = statusResult.value;
+    console.log(`  Trigger status: ${status.triggerStatus}`);
+    console.log(`  Sample rate: ${(status.sampleRate / 1e6).toFixed(2)} MSa/s`);
+    console.log(`  Memory depth: ${status.memoryDepth} points`);
+    console.log(`  Channels:`, Object.keys(status.channels).filter(ch => status.channels[ch].enabled));
+  } else {
+    console.log(`  Error: ${statusResult.error.message}`);
+  }
 
   await delay(100);
 
   // Benchmark 2: Measurement query time
   console.log('\nBenchmark 2: Single measurement...');
   const measStart = Date.now();
-  const vpp = await driver.getMeasurement('CHAN1', 'VPP');
+  const vppResult = await driver.getMeasurement('CHAN1', 'VPP');
   const measTime = Date.now() - measStart;
   console.log(`  VPP query: ${measTime}ms`);
-  console.log(`  Value: ${vpp !== null ? vpp.toFixed(3) : 'no signal'} V`);
+
+  if (vppResult.ok) {
+    const vpp = vppResult.value;
+    console.log(`  Value: ${vpp !== null ? vpp.toFixed(3) : 'no signal'} V`);
+  } else {
+    console.log(`  Error: ${vppResult.error.message}`);
+  }
 
   await delay(100);
 
@@ -75,13 +92,14 @@ async function runBenchmarks(driver: OscilloscopeDriver): Promise<void> {
   const results: Record<string, number | null> = {};
   const multiMeasStart = Date.now();
   for (const type of measurementTypes) {
-    try {
-      results[type] = await driver.getMeasurement('CHAN1', type);
-      await delay(50);
-    } catch (err) {
-      console.log(`    ${type}: Error - ${err}`);
+    const measResult = await driver.getMeasurement('CHAN1', type);
+    if (measResult.ok) {
+      results[type] = measResult.value;
+    } else {
+      console.log(`    ${type}: Error - ${measResult.error.message}`);
       results[type] = null;
     }
+    await delay(50);
   }
   const multiMeasTime = Date.now() - multiMeasStart;
   console.log(`  5 measurements: ${multiMeasTime}ms`);
@@ -93,10 +111,12 @@ async function runBenchmarks(driver: OscilloscopeDriver): Promise<void> {
 
   // Benchmark 4: Waveform transfer (NORM mode - 1200 points)
   console.log('\nBenchmark 4: Waveform transfer (NORM mode)...');
-  try {
-    const waveStart = Date.now();
-    const waveform = await driver.getWaveform('CHAN1');
-    const waveTime = Date.now() - waveStart;
+  const waveStart = Date.now();
+  const waveResult = await driver.getWaveform('CHAN1');
+  const waveTime = Date.now() - waveStart;
+
+  if (waveResult.ok) {
+    const waveform = waveResult.value;
     console.log(`  1200 points (NORM): ${waveTime}ms`);
     console.log(`  Actual points: ${waveform.points.length}`);
     console.log(`  X increment: ${waveform.xIncrement.toExponential(3)} s`);
@@ -109,38 +129,41 @@ async function runBenchmarks(driver: OscilloscopeDriver): Promise<void> {
     // Calculate possible FPS for streaming
     const possibleFps = 1000 / waveTime;
     console.log(`  Possible FPS: ${possibleFps.toFixed(1)}`);
-  } catch (err) {
-    console.log(`  Waveform fetch failed: ${err}`);
+  } else {
+    console.log(`  Waveform fetch failed: ${waveResult.error.message}`);
   }
 
   await delay(100);
 
   // Benchmark 5: Screenshot transfer
   console.log('\nBenchmark 5: Screenshot transfer...');
-  try {
-    const screenshotStart = Date.now();
-    const screenshot = await driver.getScreenshot();
-    const screenshotTime = Date.now() - screenshotStart;
+  const screenshotStart = Date.now();
+  const screenshotResult = await driver.getScreenshot();
+  const screenshotTime = Date.now() - screenshotStart;
+
+  if (screenshotResult.ok) {
+    const screenshot = screenshotResult.value;
     console.log(`  Screenshot: ${screenshotTime}ms`);
     console.log(`  Size: ${(screenshot.length / 1024).toFixed(1)} KB`);
-  } catch (err) {
-    console.log(`  Screenshot fetch failed: ${err}`);
+  } else {
+    console.log(`  Screenshot fetch failed: ${screenshotResult.error.message}`);
   }
 
   await delay(100);
 
   // Benchmark 6: Sequential channel waveforms
   console.log('\nBenchmark 6: Sequential channel waveforms...');
-  try {
-    const seqStart = Date.now();
-    await driver.getWaveform('CHAN1');
-    await delay(50);
-    await driver.getWaveform('CHAN2');
-    const seqTime = Date.now() - seqStart;
+  const seqStart = Date.now();
+  const chan1Result = await driver.getWaveform('CHAN1');
+  await delay(50);
+  const chan2Result = await driver.getWaveform('CHAN2');
+  const seqTime = Date.now() - seqStart;
+
+  if (chan1Result.ok && chan2Result.ok) {
     console.log(`  2 channels sequential: ${seqTime}ms`);
     console.log(`  Per channel: ${(seqTime / 2).toFixed(0)}ms`);
-  } catch (err) {
-    console.log(`  Sequential fetch failed: ${err}`);
+  } else {
+    console.log(`  Sequential fetch failed`);
   }
 }
 
@@ -161,13 +184,13 @@ async function testStreamingPerformance(driver: OscilloscopeDriver): Promise<voi
 
   for (let i = 0; i < iterations; i++) {
     const start = Date.now();
-    try {
-      await driver.getWaveform('CHAN1');
+    const result = await driver.getWaveform('CHAN1');
+    if (result.ok) {
       const elapsed = Date.now() - start;
       times.push(elapsed);
       process.stdout.write(`\r  Iteration ${i + 1}/${iterations}: ${elapsed}ms`);
-    } catch (err) {
-      console.log(`\n  Error on iteration ${i}: ${err}`);
+    } else {
+      console.log(`\n  Error on iteration ${i}: ${result.error.message}`);
       break;
     }
   }
@@ -195,13 +218,13 @@ async function testStreamingPerformance(driver: OscilloscopeDriver): Promise<voi
 
   for (let i = 0; i < iterations; i++) {
     const start = Date.now();
-    try {
-      await driver.getWaveform('CHAN1');
+    const result = await driver.getWaveform('CHAN1');
+    if (result.ok) {
       const elapsed = Date.now() - start;
       delayedTimes.push(elapsed);
       await delay(10);
-    } catch (err) {
-      console.log(`  Error on iteration ${i}: ${err}`);
+    } else {
+      console.log(`  Error on iteration ${i}: ${result.error.message}`);
       break;
     }
   }
@@ -228,29 +251,37 @@ async function testBasicControl(driver: OscilloscopeDriver): Promise<void> {
   console.log('\n=== Basic Control Tests ===\n');
 
   // Get current state
-  const initialStatus = await driver.getStatus();
-  console.log(`Initial trigger status: ${initialStatus.triggerStatus}`);
+  const initialResult = await driver.getStatus();
+  if (initialResult.ok) {
+    console.log(`Initial trigger status: ${initialResult.value.triggerStatus}`);
+  }
 
   // Test stop
   console.log('Sending STOP...');
   await driver.stop();
   await new Promise(r => setTimeout(r, 100));
-  const afterStop = await driver.getStatus();
-  console.log(`After stop: ${afterStop.triggerStatus}`);
+  const afterStopResult = await driver.getStatus();
+  if (afterStopResult.ok) {
+    console.log(`After stop: ${afterStopResult.value.triggerStatus}`);
+  }
 
   // Test run
   console.log('Sending RUN...');
   await driver.run();
   await new Promise(r => setTimeout(r, 100));
-  const afterRun = await driver.getStatus();
-  console.log(`After run: ${afterRun.triggerStatus}`);
+  const afterRunResult = await driver.getStatus();
+  if (afterRunResult.ok) {
+    console.log(`After run: ${afterRunResult.value.triggerStatus}`);
+  }
 
   // Test single
   console.log('Sending SINGLE...');
   await driver.single();
   await new Promise(r => setTimeout(r, 100));
-  const afterSingle = await driver.getStatus();
-  console.log(`After single: ${afterSingle.triggerStatus}`);
+  const afterSingleResult = await driver.getStatus();
+  if (afterSingleResult.ok) {
+    console.log(`After single: ${afterSingleResult.value.triggerStatus}`);
+  }
 
   // Restore to running
   await driver.run();

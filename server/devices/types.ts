@@ -3,6 +3,7 @@ export * from '../../shared/types.js';
 
 // Import for use in server-only types
 import type {
+  Result,
   DeviceInfo,
   DeviceCapabilities,
   DeviceStatus,
@@ -15,31 +16,37 @@ import type {
 // Server-only types
 
 export interface Transport {
-  open(): Promise<void>;
-  close(): Promise<void>;
-  query(cmd: string): Promise<string>;
-  queryBinary?(cmd: string): Promise<Buffer>;  // For binary data (waveforms, screenshots)
-  write(cmd: string): Promise<void>;
+  open(): Promise<Result<void, Error>>;
+  close(): Promise<Result<void, Error>>;
+  query(cmd: string): Promise<Result<string, Error>>;
+  queryBinary?(cmd: string): Promise<Result<Buffer, Error>>;
+  write(cmd: string): Promise<Result<void, Error>>;
   isOpen(): boolean;
+}
+
+/** Error type for probe failures with specific reason codes */
+export interface ProbeError {
+  reason: 'timeout' | 'wrong_device' | 'parse_error' | 'connection_failed';
+  message: string;
 }
 
 export interface DeviceDriver {
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
 
-  probe(): Promise<boolean>;
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
+  probe(): Promise<Result<DeviceInfo, ProbeError>>;
+  connect(): Promise<Result<void, Error>>;
+  disconnect(): Promise<Result<void, Error>>;
 
-  getStatus(): Promise<DeviceStatus>;
-  setMode(mode: string): Promise<void>;
-  setValue(name: string, value: number): Promise<void>;
-  getValue?(name: string): Promise<number>;
-  setOutput(enabled: boolean): Promise<void>;
+  getStatus(): Promise<Result<DeviceStatus, Error>>;
+  setMode(mode: string): Promise<Result<void, Error>>;
+  setValue(name: string, value: number): Promise<Result<void, Error>>;
+  getValue?(name: string): Promise<Result<number, Error>>;
+  setOutput(enabled: boolean): Promise<Result<void, Error>>;
 
-  uploadList?(mode: string, steps: ListStep[], repeat?: number): Promise<void>;
-  startList?(): Promise<void>;
-  stopList?(): Promise<void>;
+  uploadList?(mode: string, steps: ListStep[], repeat?: number): Promise<Result<void, Error>>;
+  startList?(): Promise<Result<void, Error>>;
+  stopList?(): Promise<Result<void, Error>>;
 }
 
 export type DriverFactory = (transport: Transport) => DeviceDriver;
@@ -90,47 +97,47 @@ export interface OscilloscopeDriver {
   capabilities: OscilloscopeCapabilities;
 
   // Lifecycle
-  probe(): Promise<boolean>;
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
+  probe(): Promise<Result<OscilloscopeInfo, ProbeError>>;
+  connect(): Promise<Result<void, Error>>;
+  disconnect(): Promise<Result<void, Error>>;
 
   // Status (fast, for polling)
-  getStatus(): Promise<OscilloscopeStatus>;
+  getStatus(): Promise<Result<OscilloscopeStatus, Error>>;
 
   // Control
-  run(): Promise<void>;
-  stop(): Promise<void>;
-  single(): Promise<void>;           // Single trigger mode
-  autoSetup(): Promise<void>;        // Auto-configure for current signal
-  forceTrigger(): Promise<void>;     // Force immediate trigger
+  run(): Promise<Result<void, Error>>;
+  stop(): Promise<Result<void, Error>>;
+  single(): Promise<Result<void, Error>>;           // Single trigger mode
+  autoSetup(): Promise<Result<void, Error>>;        // Auto-configure for current signal
+  forceTrigger(): Promise<Result<void, Error>>;     // Force immediate trigger
 
   // Channel configuration
-  setChannelEnabled(channel: string, enabled: boolean): Promise<void>;
-  setChannelScale(channel: string, scale: number): Promise<void>;
-  setChannelOffset(channel: string, offset: number): Promise<void>;
-  setChannelCoupling(channel: string, coupling: string): Promise<void>;
-  setChannelProbe(channel: string, ratio: number): Promise<void>;
-  setChannelBwLimit(channel: string, enabled: boolean): Promise<void>;
+  setChannelEnabled(channel: string, enabled: boolean): Promise<Result<void, Error>>;
+  setChannelScale(channel: string, scale: number): Promise<Result<void, Error>>;
+  setChannelOffset(channel: string, offset: number): Promise<Result<void, Error>>;
+  setChannelCoupling(channel: string, coupling: string): Promise<Result<void, Error>>;
+  setChannelProbe(channel: string, ratio: number): Promise<Result<void, Error>>;
+  setChannelBwLimit(channel: string, enabled: boolean): Promise<Result<void, Error>>;
 
   // Timebase
-  setTimebaseScale(scale: number): Promise<void>;
-  setTimebaseOffset(offset: number): Promise<void>;
+  setTimebaseScale(scale: number): Promise<Result<void, Error>>;
+  setTimebaseOffset(offset: number): Promise<Result<void, Error>>;
 
   // Trigger
-  setTriggerSource(source: string): Promise<void>;
-  setTriggerLevel(level: number): Promise<void>;
-  setTriggerEdge(edge: string): Promise<void>;
-  setTriggerSweep(sweep: string): Promise<void>;
+  setTriggerSource(source: string): Promise<Result<void, Error>>;
+  setTriggerLevel(level: number): Promise<Result<void, Error>>;
+  setTriggerEdge(edge: string): Promise<Result<void, Error>>;
+  setTriggerSweep(sweep: string): Promise<Result<void, Error>>;
 
   // Measurements (stateless - query specific measurement on demand)
-  getMeasurement(channel: string, type: string): Promise<number | null>;
-  getMeasurements(channel: string, types: string[]): Promise<Record<string, number | null>>;
+  getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>>;
+  getMeasurements(channel: string, types: string[]): Promise<Result<Record<string, number | null>, Error>>;
 
   // Waveform acquisition (slow, on-demand)
-  getWaveform(channel: string, start?: number, count?: number): Promise<WaveformData>;
+  getWaveform(channel: string, start?: number, count?: number): Promise<Result<WaveformData, Error>>;
 
   // Screenshot (download utility, not for primary UI)
-  getScreenshot(): Promise<Buffer>;
+  getScreenshot(): Promise<Result<Buffer, Error>>;
 }
 
 export type OscilloscopeDriverFactory = (transport: Transport) => OscilloscopeDriver;

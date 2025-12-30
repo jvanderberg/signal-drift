@@ -8,7 +8,7 @@
  */
 
 import type { OscilloscopeDriver, OscilloscopeStatus, WaveformData } from '../devices/types.js';
-import type { ConnectionStatus, ServerMessage } from '../../shared/types.js';
+import type { ConnectionStatus, ServerMessage, Result } from '../../shared/types.js';
 
 export interface OscilloscopeSessionConfig {
   statusPollIntervalMs?: number;  // Slow poll for trigger status (default: 500ms)
@@ -65,9 +65,9 @@ export interface OscilloscopeSession {
   setTriggerSweep(sweep: string): Promise<void>;
 
   // On-demand queries
-  getMeasurement(channel: string, type: string): Promise<number | null>;
-  getWaveform(channel: string): Promise<WaveformData>;
-  getScreenshot(): Promise<Buffer>;
+  getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>>;
+  getWaveform(channel: string): Promise<Result<WaveformData, Error>>;
+  getScreenshot(): Promise<Result<Buffer, Error>>;
 
   // Streaming
   startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
@@ -327,8 +327,10 @@ export function createOscilloscopeSession(
   async function pollStatus(): Promise<void> {
     if (!isRunning) return;
 
-    try {
-      status = await driver.getStatus();
+    const statusResult = await driver.getStatus();
+
+    if (statusResult.ok) {
+      status = statusResult.value;
       lastUpdated = Date.now();
 
       if (consecutiveErrors > 0 || connectionStatus !== 'connected') {
@@ -371,7 +373,7 @@ export function createOscilloscopeSession(
           return; // Don't schedule another poll - streaming handles it
         }
       }
-    } catch (err) {
+    } else {
       consecutiveErrors++;
       lastUpdated = Date.now();
 
@@ -392,7 +394,7 @@ export function createOscilloscopeSession(
           field: 'connectionStatus',
           value: 'error',
         });
-        console.error(`Poll error for oscilloscope ${driver.info.id}:`, err);
+        console.error(`Poll error for oscilloscope ${driver.info.id}:`, statusResult.error);
       }
     }
 
@@ -456,8 +458,9 @@ export function createOscilloscopeSession(
             return;
           }
 
-          try {
-            const waveform = await driver.getWaveform(channel);
+          const waveformResult = await driver.getWaveform(channel);
+          if (waveformResult.ok) {
+            const waveform = waveformResult.value;
             // Double-check generation before broadcasting
             if (myGeneration === streamingGeneration) {
               broadcast({
@@ -489,9 +492,9 @@ export function createOscilloscopeSession(
             if (consecutiveErrors > 0) {
               consecutiveErrors = 0;
             }
-          } catch (err: any) {
+          } else {
             // Check for fatal USB errors that indicate disconnection
-            const errorMsg = err?.message || String(err);
+            const errorMsg = waveformResult.error?.message || '';
             if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
                 errorMsg.includes('LIBUSB_ERROR_IO') ||
                 errorMsg.includes('LIBUSB_ERROR_PIPE')) {
@@ -519,8 +522,9 @@ export function createOscilloscopeSession(
           lastStatusPoll = now;
 
           // Fetch status
-          try {
-            status = await driver.getStatus();
+          const statusResult = await driver.getStatus();
+          if (statusResult.ok) {
+            status = statusResult.value;
             lastUpdated = Date.now();
             broadcast({
               type: 'field',
@@ -528,9 +532,8 @@ export function createOscilloscopeSession(
               field: 'oscilloscopeStatus',
               value: status,
             });
-          } catch (err) {
-            // Status fetch failed, continue streaming
           }
+          // Status fetch failed, continue streaming
         }
 
         // Measurements are now calculated locally from waveform data - no SCPI needed!
@@ -586,8 +589,9 @@ export function createOscilloscopeSession(
       await driver.autoSetup();
       // Auto setup takes time - wait for scope to settle then refresh status
       await new Promise(resolve => setTimeout(resolve, 1500));
-      try {
-        status = await driver.getStatus();
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -595,8 +599,6 @@ export function createOscilloscopeSession(
           field: 'oscilloscopeStatus',
           value: status,
         });
-      } catch (err) {
-        // Status fetch failed, continue
       }
     },
 
@@ -669,15 +671,15 @@ export function createOscilloscopeSession(
     },
 
     // On-demand queries
-    async getMeasurement(channel: string, type: string): Promise<number | null> {
+    async getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>> {
       return driver.getMeasurement(channel, type);
     },
 
-    async getWaveform(channel: string): Promise<WaveformData> {
+    async getWaveform(channel: string): Promise<Result<WaveformData, Error>> {
       return driver.getWaveform(channel);
     },
 
-    async getScreenshot(): Promise<Buffer> {
+    async getScreenshot(): Promise<Result<Buffer, Error>> {
       return driver.getScreenshot();
     },
 

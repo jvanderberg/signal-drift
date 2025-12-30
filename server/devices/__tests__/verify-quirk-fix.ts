@@ -25,8 +25,18 @@ async function test() {
   const transport = createUSBTMCTransport(device, { rigolQuirk: true });
   const scope = createRigolOscilloscope(transport);
 
-  await transport.open();
-  await scope.probe();
+  const openResult = await transport.open();
+  if (!openResult.ok) {
+    console.log('Failed to open transport:', openResult.error.message);
+    return;
+  }
+
+  const probeResult = await scope.probe();
+  if (!probeResult.ok) {
+    console.log('Failed to probe scope:', probeResult.error.message);
+    await transport.close();
+    return;
+  }
 
   console.log('=== TESTING RIGOL QUIRK MODE (single REQUEST, IEEE block header) ===\n');
   console.log(`Device: ${scope.info.model} (${scope.info.serial})\n`);
@@ -35,9 +45,18 @@ async function test() {
   await transport.write(':WAV:SOUR CHAN1');
   await transport.write(':WAV:MODE NORM');
   await transport.write(':WAV:FORM BYTE');
-  const rawData = await transport.queryBinary(':WAV:DATA?');
+  if (!transport.queryBinary) {
+    throw new Error('Transport does not support binary queries');
+  }
+  const rawDataResult = await transport.queryBinary(':WAV:DATA?');
+  if (!rawDataResult.ok) {
+    console.log('Failed to query binary data:', rawDataResult.error.message);
+    await transport.close();
+    return;
+  }
+  const rawData = rawDataResult.value;
   console.log(`Raw queryBinary returned: ${rawData.length} bytes`);
-  console.log(`First 20 bytes: ${Array.from(rawData.subarray(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+  console.log(`First 20 bytes: ${Array.from(rawData.subarray(0, 20)).map((b: number) => b.toString(16).padStart(2, '0')).join(' ')}`);
   if (rawData[0] === 0x23) {
     const numDigits = parseInt(String.fromCharCode(rawData[1]), 10);
     const lengthStr = rawData.subarray(2, 2 + numDigits).toString('ascii');
@@ -46,20 +65,26 @@ async function test() {
   console.log('');
 
   for (let i = 1; i <= 3; i++) {
-    const wf = await scope.getWaveform('CHAN1');
+    const wfResult = await scope.getWaveform('CHAN1');
+    if (!wfResult.ok) {
+      console.log(`--- Read ${i} ---`);
+      console.log(`  FAILED: ${wfResult.error.message}`);
+      continue;
+    }
+    const wf = wfResult.value;
     console.log(`--- Read ${i} ---`);
     console.log(`  Points: ${wf.points.length}`);
 
     // Check the problematic region (685-694)
-    const region = wf.points.slice(685, 695).map(v => v.toFixed(2)).join(', ');
+    const region = wf.points.slice(685, 695).map((v: number) => v.toFixed(2)).join(', ');
     console.log(`  Points 685-694: ${region}`);
 
     // Check for suspicious values (corruption showed ~-5V or huge jumps)
-    const suspicious = wf.points.slice(680, 700).filter(v => v < -4 || v > 10);
+    const suspicious = wf.points.slice(680, 700).filter((v: number) => v < -4 || v > 10);
     if (suspicious.length > 0) {
-      console.log(`  ⚠️ SUSPICIOUS VALUES: ${suspicious.map(v => v.toFixed(2)).join(', ')}`);
+      console.log(`  SUSPICIOUS VALUES: ${suspicious.map((v: number) => v.toFixed(2)).join(', ')}`);
     } else {
-      console.log(`  ✓ No suspicious values in region 680-700`);
+      console.log(`  No suspicious values in region 680-700`);
     }
 
     // Check max voltage jump in problem region

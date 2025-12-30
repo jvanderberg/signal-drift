@@ -1,6 +1,106 @@
 // Shared types for client and server
 
+// ============ Result Type ============
+// Use Result<T, E> instead of throwing exceptions.
+// Try/catch only at boundaries (transport layer wrapping external libs).
+
+export type Result<T, E = Error> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+
+// Helper constructors
+export function Ok(): Result<void, never>;
+export function Ok<T>(value: T): Result<T, never>;
+export function Ok<T>(value?: T): Result<T | void, never> {
+  return { ok: true, value: value as T };
+}
+export const Err = <E>(error: E): Result<never, E> => ({ ok: false, error });
+
+// Helper to wrap a throwing function into Result
+export const tryResult = <T>(fn: () => T): Result<T, Error> => {
+  try {
+    return Ok(fn());
+  } catch (e) {
+    return Err(e instanceof Error ? e : new Error(String(e)));
+  }
+};
+
+// Async version
+export const tryResultAsync = async <T>(fn: () => Promise<T>): Promise<Result<T, Error>> => {
+  try {
+    return Ok(await fn());
+  } catch (e) {
+    return Err(e instanceof Error ? e : new Error(String(e)));
+  }
+};
+
+// Result utilities for ergonomic chaining
+export const Result = {
+  /** Transform the success value */
+  map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E> {
+    return result.ok ? Ok(fn(result.value)) : result;
+  },
+
+  /** Chain operations that return Result (flatMap) */
+  andThen<T, U, E>(result: Result<T, E>, fn: (value: T) => Result<U, E>): Result<U, E> {
+    return result.ok ? fn(result.value) : result;
+  },
+
+  /** Get value or return default */
+  unwrapOr<T, E>(result: Result<T, E>, defaultValue: T): T {
+    return result.ok ? result.value : defaultValue;
+  },
+
+  /** Get value or compute default lazily */
+  unwrapOrElse<T, E>(result: Result<T, E>, fn: (error: E) => T): T {
+    return result.ok ? result.value : fn(result.error);
+  },
+
+  /** Combine multiple Results - returns first error or all values */
+  all<T, E>(results: Result<T, E>[]): Result<T[], E> {
+    const values: T[] = [];
+    for (const result of results) {
+      if (!result.ok) return result;
+      values.push(result.value);
+    }
+    return Ok(values);
+  },
+
+  /** Map error type */
+  mapErr<T, E, F>(result: Result<T, E>, fn: (error: E) => F): Result<T, F> {
+    return result.ok ? result : Err(fn(result.error));
+  },
+};
+
+// ============ Device Types ============
+
 export type DeviceType = 'power-supply' | 'electronic-load' | 'oscilloscope';
+
+/**
+ * Device class describes common capability patterns.
+ * UI uses this to determine control layout without model-specific checks.
+ */
+export type DeviceClass = 'psu' | 'load' | 'oscilloscope' | 'awg';
+
+/**
+ * Feature flags for optional device capabilities.
+ * Drivers set these based on what features they support.
+ * UI uses these for conditional feature rendering.
+ */
+export interface DeviceFeatures {
+  /** Device supports programmable sequences (list mode) */
+  listMode?: boolean;
+  /** PSU supports 4-wire remote sensing */
+  remoteSensing?: boolean;
+  /** Device has external trigger input */
+  externalTrigger?: boolean;
+  /** PSU supports programmable soft-start */
+  softStart?: boolean;
+  /** Device supports OCP (over-current protection) configuration */
+  ocp?: boolean;
+  /** Device supports OVP (over-voltage protection) configuration */
+  ovp?: boolean;
+}
 
 export interface ValueDescriptor {
   name: string;
@@ -25,10 +125,19 @@ export interface ListModeCapability {
 }
 
 export interface DeviceCapabilities {
+  /** Device class for UI layout decisions */
+  deviceClass: DeviceClass;
+  /** Feature flags for optional capabilities */
+  features: DeviceFeatures;
+  /** Available operating modes (e.g., ['CC', 'CV', 'CR', 'CP']) */
   modes: string[];
+  /** Whether mode can be changed programmatically (false for auto-ranging PSUs) */
   modesSettable: boolean;
+  /** Controllable outputs/setpoints */
   outputs: ValueDescriptor[];
+  /** Readable measurements */
   measurements: ValueDescriptor[];
+  /** List mode configuration (if features.listMode is true) */
   listMode?: ListModeCapability;
 }
 
