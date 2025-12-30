@@ -18,6 +18,8 @@ function createMockDriver(overrides: Partial<{
   };
 
   const capabilities: DeviceCapabilities = {
+    deviceClass: 'load',
+    features: {},
     modes: ['CC', 'CV', 'CR', 'CP'],
     modesSettable: true,
     outputs: [{ name: 'current', unit: 'A', decimals: 3, min: 0, max: 40 }],

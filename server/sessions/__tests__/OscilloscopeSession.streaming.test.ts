@@ -23,8 +23,9 @@ const mockStatus: OscilloscopeStatus = {
     CHAN1: { enabled: true, scale: 1, offset: 0, coupling: 'DC', probe: 1, bwLimit: false },
     CHAN2: { enabled: false, scale: 1, offset: 0, coupling: 'DC', probe: 1, bwLimit: false },
   },
-  trigger: { source: 'CHAN1', level: 0, edge: 'rising', sweep: 'auto' },
+  trigger: { source: 'CHAN1', mode: 'edge', coupling: 'DC', level: 0, edge: 'rising', sweep: 'auto' },
   timebase: { scale: 0.001, offset: 0, mode: 'main' },
+  measurements: [],
 };
 
 function createMockDriver(): OscilloscopeDriver {
@@ -37,11 +38,17 @@ function createMockDriver(): OscilloscopeDriver {
     },
     capabilities: {
       channels: 2,
-      bandwidthMHz: 200,
+      bandwidth: 200,
       maxSampleRate: 1e9,
       maxMemoryDepth: 24000000,
+      supportedMeasurements: ['VPP', 'FREQ'],
+      hasAWG: false,
     },
+    probe: vi.fn().mockResolvedValue(true),
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
     getStatus: vi.fn().mockResolvedValue(mockStatus),
+    getMeasurements: vi.fn().mockResolvedValue({}),
     getWaveform: vi.fn().mockImplementation(async (channel: string) => ({
       ...mockWaveform,
       channel,

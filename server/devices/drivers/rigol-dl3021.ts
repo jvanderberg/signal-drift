@@ -42,6 +42,10 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
   };
 
   const capabilities: DeviceCapabilities = {
+    deviceClass: 'load',
+    features: {
+      listMode: true,
+    },
     modes: ['CC', 'CV', 'CR', 'CP'],
     modesSettable: true,
     outputs: [

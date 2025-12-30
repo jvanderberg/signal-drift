@@ -14,6 +14,8 @@ function createMockDriver(id: string): DeviceDriver {
   };
 
   const capabilities: DeviceCapabilities = {
+    deviceClass: 'load',
+    features: {},
     modes: ['CC', 'CV'],
     modesSettable: true,
     outputs: [{ name: 'current', unit: 'A', decimals: 3, min: 0, max: 40 }],

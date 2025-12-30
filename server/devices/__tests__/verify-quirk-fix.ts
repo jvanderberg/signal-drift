@@ -35,6 +35,9 @@ async function test() {
   await transport.write(':WAV:SOUR CHAN1');
   await transport.write(':WAV:MODE NORM');
   await transport.write(':WAV:FORM BYTE');
+  if (!transport.queryBinary) {
+    throw new Error('Transport does not support binary queries');
+  }
   const rawData = await transport.queryBinary(':WAV:DATA?');
   console.log(`Raw queryBinary returned: ${rawData.length} bytes`);
   console.log(`First 20 bytes: ${Array.from(rawData.subarray(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);

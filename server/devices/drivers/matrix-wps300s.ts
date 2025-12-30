@@ -30,6 +30,8 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
   };
 
   const capabilities: DeviceCapabilities = {
+    deviceClass: 'psu',
+    features: {},  // No special features on this basic PSU
     modes: ['CV', 'CC'],
     modesSettable: false,  // Mode is auto-detected based on load, cannot be set or queried
     outputs: [

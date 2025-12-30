@@ -51,6 +51,8 @@ function createMockSessionState(deviceId: string): DeviceSessionState {
       model: 'Device',
     },
     capabilities: {
+      deviceClass: 'load',
+      features: {},
       modes: ['CC', 'CV'],
       modesSettable: true,
       outputs: [],

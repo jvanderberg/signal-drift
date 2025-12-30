@@ -21,6 +21,8 @@ function createMockDriver(id: string, probeShouldSucceed = true): DeviceDriver {
       model: 'Device',
     },
     capabilities: {
+      deviceClass: 'load',
+      features: {},
       modes: ['CC'],
       modesSettable: true,
       outputs: [],
