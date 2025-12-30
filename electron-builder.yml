@@ -1,0 +1,55 @@
+appId: com.labcontroller.app
+productName: Lab Controller
+copyright: Copyright © 2024
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - client/dist/**/*
+  - electron/preload.js
+  - node_modules/**/*
+  - package.json
+  - "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!node_modules/**/*.d.ts"
+  - "!**/*.map"
+
+asar: true
+
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Utility
+
+# Native module rebuilding
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+npmRebuild: true

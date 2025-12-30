@@ -29,9 +29,19 @@ export interface WebSocketManager {
   onStateChange(handler: StateHandler): () => void;
 }
 
+// Detect if running in Electron production (file:// protocol)
+function getWebSocketUrl(): string {
+  const isElectronProd = window.location.protocol === 'file:';
+  if (isElectronProd) {
+    // Electron production: connect directly to server
+    return 'ws://localhost:3001/ws';
+  }
+  // Web or Electron dev: use relative URL through proxy
+  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+}
+
 const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
-  // Use relative URL to go through vite proxy (works for both dev and phone access)
-  url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
+  url: getWebSocketUrl(),
   maxReconnectDelay: 30000,
   initialReconnectDelay: 1000,
 };

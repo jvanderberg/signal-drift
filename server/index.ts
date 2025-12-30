@@ -155,25 +155,46 @@ async function start() {
   });
 }
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Shutting down...');
-  wsHandler.close();
-  sessionManager.stop();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
+// Graceful shutdown - close all resources properly
+async function stop(): Promise<void> {
+  console.log('Shutting down server...');
 
-process.on('SIGINT', () => {
-  console.log('Shutting down...');
+  // Stop WebSocket handler first (prevents new connections)
   wsHandler.close();
-  sessionManager.stop();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
 
-start();
+  // Stop session polling
+  sessionManager.stop();
+
+  // Close all device transports (USB, serial) - critical for clean shutdown
+  console.log('Closing device transports...');
+  await registry.clearDevices();
+
+  // Close HTTP server
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      console.log('Server closed');
+      resolve();
+    });
+  });
+}
+
+// Graceful shutdown handler for CLI mode
+function setupShutdownHandlers() {
+  const shutdown = async () => {
+    await stop();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+// Export for Electron integration
+export { start as startServer, stop as stopServer };
+
+// Auto-start when run directly (not imported)
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  setupShutdownHandlers();
+  start();
+}

@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: './', // Relative paths for Electron production
   server: {
     host: true,
     port: 5173,
