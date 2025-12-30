@@ -75,25 +75,25 @@ export function buildRequestDevDepMsgIn(maxLength: number, bTag: number): Buffer
 }
 
 // Exported for testing - parse response from device
-export function parseDevDepMsgIn(response: Buffer): string {
+export function parseDevDepMsgIn(response: Buffer): Result<string, Error> {
   if (response.length < 12) {
-    throw new Error(`USBTMC response too short: ${response.length} bytes (need at least 12)`);
+    return Err(new Error(`USBTMC response too short: ${response.length} bytes (need at least 12)`));
   }
   const transferSize = response.readUInt32LE(4);
   const data = response.subarray(12, 12 + transferSize);
-  return data.toString('ascii').trim();
+  return Ok(data.toString('ascii').trim());
 }
 
 // Parse binary response - returns raw Buffer
-export function parseDevDepMsgInBinary(response: Buffer): { data: Buffer; eom: boolean } {
+export function parseDevDepMsgInBinary(response: Buffer): Result<{ data: Buffer; eom: boolean }, Error> {
   if (response.length < 12) {
-    throw new Error(`USBTMC binary response too short: ${response.length} bytes (need at least 12)`);
+    return Err(new Error(`USBTMC binary response too short: ${response.length} bytes (need at least 12)`));
   }
   const transferSize = response.readUInt32LE(4);
   const bmTransferAttributes = response[8];
   const eom = (bmTransferAttributes & 0x01) !== 0;  // EOM bit
   const data = response.subarray(12, 12 + transferSize);
-  return { data, eom };
+  return Ok({ data, eom });
 }
 
 // Tag generator - cycles 1-255
@@ -194,7 +194,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
 
   return {
     async open(): Promise<Result<void, Error>> {
-      if (opened) return Ok(undefined);
+      if (opened) return Ok();
 
       try {
         device.open();
@@ -234,7 +234,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         opened = true;
         disconnected = false;
         disconnectError = null;
-        return Ok(undefined);
+        return Ok();
       } catch (err) {
         // Clean up on partial open failure
         try {
@@ -247,7 +247,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
     },
 
     async close(): Promise<Result<void, Error>> {
-      if (!opened && !disconnected) return Ok(undefined);
+      if (!opened && !disconnected) return Ok();
 
       // Acquire lock to wait for any in-flight operations
       await withLock(async () => {
@@ -267,7 +267,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         disconnected = false;
         disconnectError = null;
       });
-      return Ok(undefined);
+      return Ok();
     },
 
     async query(cmd: string): Promise<Result<string, Error>> {
@@ -289,7 +289,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
           // Read response
           const response = await transferIn(1024);
 
-          return Ok(parseDevDepMsgIn(response));
+          return parseDevDepMsgIn(response);
         } catch (e) {
           return Err(e instanceof Error ? e : new Error(String(e)));
         }
@@ -306,7 +306,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         try {
           const outBuf = buildDevDepMsgOut(cmd + '\n', nextTag());
           await transferOut(outBuf);
-          return Ok(undefined);
+          return Ok();
         } catch (e) {
           return Err(e instanceof Error ? e : new Error(String(e)));
         }

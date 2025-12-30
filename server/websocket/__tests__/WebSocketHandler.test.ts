@@ -4,6 +4,7 @@ import { createWebSocketHandler, WebSocketHandler } from '../WebSocketHandler.js
 import type { SessionManager } from '../../sessions/SessionManager.js';
 import type { DeviceSession } from '../../sessions/DeviceSession.js';
 import type { ClientMessage, ServerMessage, DeviceSessionState, DeviceSummary } from '../../../shared/types.js';
+import { Ok, Err } from '../../../shared/types.js';
 
 // Mock WebSocket class that emits events like the real one
 class MockWebSocket extends EventEmitter {
@@ -158,34 +159,34 @@ function createMockSessionManager(): SessionManager & {
       const session = sessions.get(deviceId);
       return session ? session.hasSubscriber(clientId) : false;
     },
-    setMode: vi.fn(),
-    setOutput: vi.fn(),
-    setValue: vi.fn(),
+    setMode: vi.fn().mockResolvedValue(Ok()),
+    setOutput: vi.fn().mockResolvedValue(Ok()),
+    setValue: vi.fn().mockResolvedValue(Ok()),
     stop: vi.fn(),
     // Oscilloscope methods
     getOscilloscopeSession: (_id: string) => undefined,
-    oscilloscopeRun: vi.fn(),
-    oscilloscopeStop: vi.fn(),
-    oscilloscopeSingle: vi.fn(),
-    oscilloscopeAutoSetup: vi.fn(),
-    oscilloscopeGetWaveform: vi.fn(),
-    oscilloscopeGetMeasurement: vi.fn(),
-    oscilloscopeGetScreenshot: vi.fn(),
+    oscilloscopeRun: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeStop: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSingle: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeAutoSetup: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeGetWaveform: vi.fn().mockResolvedValue(Ok({ channel: 'CHAN1', points: [], xIncrement: 1, xOrigin: 0, yIncrement: 1, yOrigin: 0, yReference: 0 })),
+    oscilloscopeGetMeasurement: vi.fn().mockResolvedValue(Ok(1.5)),
+    oscilloscopeGetScreenshot: vi.fn().mockResolvedValue(Ok(Buffer.from('test'))),
     // Oscilloscope setters
-    oscilloscopeSetChannelEnabled: vi.fn(),
-    oscilloscopeSetChannelScale: vi.fn(),
-    oscilloscopeSetChannelOffset: vi.fn(),
-    oscilloscopeSetChannelCoupling: vi.fn(),
-    oscilloscopeSetChannelProbe: vi.fn(),
-    oscilloscopeSetChannelBwLimit: vi.fn(),
-    oscilloscopeSetTimebaseScale: vi.fn(),
-    oscilloscopeSetTimebaseOffset: vi.fn(),
-    oscilloscopeSetTriggerSource: vi.fn(),
-    oscilloscopeSetTriggerLevel: vi.fn(),
-    oscilloscopeSetTriggerEdge: vi.fn(),
-    oscilloscopeSetTriggerSweep: vi.fn(),
-    oscilloscopeStartStreaming: vi.fn(),
-    oscilloscopeStopStreaming: vi.fn(),
+    oscilloscopeSetChannelEnabled: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetChannelScale: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetChannelOffset: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetChannelCoupling: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetChannelProbe: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetChannelBwLimit: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTimebaseScale: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTimebaseOffset: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTriggerSource: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTriggerLevel: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTriggerEdge: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeSetTriggerSweep: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeStartStreaming: vi.fn().mockResolvedValue(Ok()),
+    oscilloscopeStopStreaming: vi.fn().mockResolvedValue(Ok()),
   };
 }
 
@@ -338,7 +339,7 @@ describe('WebSocketHandler', () => {
 
     it('should send error for unknown device', async () => {
       const client = wss.simulateConnection();
-      sessionManager.setMode = vi.fn().mockRejectedValue(new Error('Session not found'));
+      sessionManager.setMode = vi.fn().mockResolvedValue(Err(new Error('Session not found')));
 
       client.receiveMessage({ type: 'setMode', deviceId: 'unknown', mode: 'CV' });
 

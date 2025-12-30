@@ -9,7 +9,11 @@ export type Result<T, E = Error> =
   | { ok: false; error: E };
 
 // Helper constructors
-export const Ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
+export function Ok(): Result<void, never>;
+export function Ok<T>(value: T): Result<T, never>;
+export function Ok<T>(value?: T): Result<T | void, never> {
+  return { ok: true, value: value as T };
+}
 export const Err = <E>(error: E): Result<never, E> => ({ ok: false, error });
 
 // Helper to wrap a throwing function into Result

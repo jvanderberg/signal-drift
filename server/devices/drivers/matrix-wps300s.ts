@@ -136,7 +136,7 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
     async setMode(_mode: string): Promise<Result<void, Error>> {
       // No-op: Mode is auto-detected based on load conditions
       // The PSU switches between CV and CC automatically
-      return Ok(undefined);
+      return Ok();
     },
 
     async setValue(name: string, value: number): Promise<Result<void, Error>> {
@@ -158,7 +158,7 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
         return Err(new Error(`Value rejected: requested ${value}, device reports ${actual}`));
       }
 
-      return Ok(undefined);
+      return Ok();
     },
 
     async setOutput(enabled: boolean): Promise<Result<void, Error>> {

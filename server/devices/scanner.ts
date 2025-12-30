@@ -400,7 +400,12 @@ export async function scanDevices(
         }
 
         // Probe to populate driver info (like serial number)
-        await driver.probe();
+        const probeResult = await driver.probe();
+        if (!probeResult.ok) {
+          await transport.close();
+          console.log(`[Scanner] Probe failed for ${port.path}: ${probeResult.error.message}`);
+          continue;
+        }
 
         // Keep transport open for use
         registry.addDevice(driver);

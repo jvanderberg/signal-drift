@@ -9,7 +9,8 @@
 
 import type { DeviceRegistry } from '../devices/registry.js';
 import type { DeviceDriver, OscilloscopeDriver, WaveformData } from '../devices/types.js';
-import type { DeviceSummary, ServerMessage } from '../../shared/types.js';
+import type { DeviceSummary, ServerMessage, Result } from '../../shared/types.js';
+import { Ok, Err } from '../../shared/types.js';
 import { createDeviceSession, DeviceSession, DeviceSessionConfig } from './DeviceSession.js';
 import { createOscilloscopeSession, OscilloscopeSession } from './OscilloscopeSession.js';
 
@@ -35,41 +36,41 @@ export interface SessionManager {
   isSubscribed(deviceId: string, clientId: string): boolean;
 
   // Standard device actions
-  setMode(deviceId: string, mode: string): Promise<void>;
-  setOutput(deviceId: string, enabled: boolean): Promise<void>;
-  setValue(deviceId: string, name: string, value: number, immediate?: boolean): Promise<void>;
+  setMode(deviceId: string, mode: string): Promise<Result<void, Error>>;
+  setOutput(deviceId: string, enabled: boolean): Promise<Result<void, Error>>;
+  setValue(deviceId: string, name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
 
   // Oscilloscope-specific
   getOscilloscopeSession(deviceId: string): OscilloscopeSession | undefined;
-  oscilloscopeRun(deviceId: string): Promise<void>;
-  oscilloscopeStop(deviceId: string): Promise<void>;
-  oscilloscopeSingle(deviceId: string): Promise<void>;
-  oscilloscopeAutoSetup(deviceId: string): Promise<void>;
-  oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<WaveformData>;
-  oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<number | null>;
-  oscilloscopeGetScreenshot(deviceId: string): Promise<Buffer>;
+  oscilloscopeRun(deviceId: string): Promise<Result<void, Error>>;
+  oscilloscopeStop(deviceId: string): Promise<Result<void, Error>>;
+  oscilloscopeSingle(deviceId: string): Promise<Result<void, Error>>;
+  oscilloscopeAutoSetup(deviceId: string): Promise<Result<void, Error>>;
+  oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<Result<WaveformData, Error>>;
+  oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<Result<number | null, Error>>;
+  oscilloscopeGetScreenshot(deviceId: string): Promise<Result<Buffer, Error>>;
 
   // Oscilloscope channel settings
-  oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<void>;
-  oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<void>;
-  oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<void>;
-  oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void>;
-  oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<void>;
-  oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<void>;
+  oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<Result<void, Error>>;
+  oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<Result<void, Error>>;
+  oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<Result<void, Error>>;
+  oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<Result<void, Error>>;
+  oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<Result<void, Error>>;
+  oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<Result<void, Error>>;
 
   // Oscilloscope timebase settings
-  oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<void>;
-  oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<void>;
+  oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<Result<void, Error>>;
+  oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<Result<void, Error>>;
 
   // Oscilloscope trigger settings
-  oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<void>;
-  oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<void>;
-  oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<void>;
-  oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<void>;
+  oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<Result<void, Error>>;
+  oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<Result<void, Error>>;
+  oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<Result<void, Error>>;
+  oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<Result<void, Error>>;
 
   // Oscilloscope streaming
-  oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
-  oscilloscopeStopStreaming(deviceId: string): Promise<void>;
+  oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<Result<void, Error>>;
+  oscilloscopeStopStreaming(deviceId: string): Promise<Result<void, Error>>;
 
   stop(): void;
 }
@@ -239,20 +240,20 @@ export function createSessionManager(
     return false;
   }
 
-  async function setMode(deviceId: string, mode: string): Promise<void> {
+  async function setMode(deviceId: string, mode: string): Promise<Result<void, Error>> {
     const session = sessions.get(deviceId);
     if (!session) {
-      throw new Error(`Session not found: ${deviceId}`);
+      return Err(new Error(`Session not found: ${deviceId}`));
     }
-    await session.setMode(mode);
+    return session.setMode(mode);
   }
 
-  async function setOutput(deviceId: string, enabled: boolean): Promise<void> {
+  async function setOutput(deviceId: string, enabled: boolean): Promise<Result<void, Error>> {
     const session = sessions.get(deviceId);
     if (!session) {
-      throw new Error(`Session not found: ${deviceId}`);
+      return Err(new Error(`Session not found: ${deviceId}`));
     }
-    await session.setOutput(enabled);
+    return session.setOutput(enabled);
   }
 
   async function setValue(
@@ -260,143 +261,161 @@ export function createSessionManager(
     name: string,
     value: number,
     immediate = false
-  ): Promise<void> {
+  ): Promise<Result<void, Error>> {
     const session = sessions.get(deviceId);
     if (!session) {
-      throw new Error(`Session not found: ${deviceId}`);
+      return Err(new Error(`Session not found: ${deviceId}`));
     }
-    await session.setValue(name, value, immediate);
+    return session.setValue(name, value, immediate);
   }
 
   // Oscilloscope-specific methods
-  async function oscilloscopeRun(deviceId: string): Promise<void> {
+  async function oscilloscopeRun(deviceId: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.run();
+    return Ok();
   }
 
-  async function oscilloscopeStop(deviceId: string): Promise<void> {
+  async function oscilloscopeStop(deviceId: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.stop();
+    return Ok();
   }
 
-  async function oscilloscopeSingle(deviceId: string): Promise<void> {
+  async function oscilloscopeSingle(deviceId: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.single();
+    return Ok();
   }
 
-  async function oscilloscopeAutoSetup(deviceId: string): Promise<void> {
+  async function oscilloscopeAutoSetup(deviceId: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.autoSetup();
+    return Ok();
   }
 
-  async function oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<WaveformData> {
+  async function oscilloscopeGetWaveform(deviceId: string, channel: string): Promise<Result<WaveformData, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     return session.getWaveform(channel);
   }
 
-  async function oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<number | null> {
+  async function oscilloscopeGetMeasurement(deviceId: string, channel: string, type: string): Promise<Result<number | null, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     return session.getMeasurement(channel, type);
   }
 
-  async function oscilloscopeGetScreenshot(deviceId: string): Promise<Buffer> {
+  async function oscilloscopeGetScreenshot(deviceId: string): Promise<Result<Buffer, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     return session.getScreenshot();
   }
 
   // Oscilloscope channel settings
-  async function oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<void> {
+  async function oscilloscopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelEnabled(channel, enabled);
+    return Ok();
   }
 
-  async function oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<void> {
+  async function oscilloscopeSetChannelScale(deviceId: string, channel: string, scale: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelScale(channel, scale);
+    return Ok();
   }
 
-  async function oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<void> {
+  async function oscilloscopeSetChannelOffset(deviceId: string, channel: string, offset: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelOffset(channel, offset);
+    return Ok();
   }
 
-  async function oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
+  async function oscilloscopeSetChannelCoupling(deviceId: string, channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelCoupling(channel, coupling);
+    return Ok();
   }
 
-  async function oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<void> {
+  async function oscilloscopeSetChannelProbe(deviceId: string, channel: string, ratio: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelProbe(channel, ratio);
+    return Ok();
   }
 
-  async function oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<void> {
+  async function oscilloscopeSetChannelBwLimit(deviceId: string, channel: string, enabled: boolean): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setChannelBwLimit(channel, enabled);
+    return Ok();
   }
 
   // Oscilloscope timebase settings
-  async function oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<void> {
+  async function oscilloscopeSetTimebaseScale(deviceId: string, scale: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTimebaseScale(scale);
+    return Ok();
   }
 
-  async function oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<void> {
+  async function oscilloscopeSetTimebaseOffset(deviceId: string, offset: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTimebaseOffset(offset);
+    return Ok();
   }
 
   // Oscilloscope trigger settings
-  async function oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<void> {
+  async function oscilloscopeSetTriggerSource(deviceId: string, source: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTriggerSource(source);
+    return Ok();
   }
 
-  async function oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<void> {
+  async function oscilloscopeSetTriggerLevel(deviceId: string, level: number): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTriggerLevel(level);
+    return Ok();
   }
 
-  async function oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<void> {
+  async function oscilloscopeSetTriggerEdge(deviceId: string, edge: 'rising' | 'falling' | 'either'): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTriggerEdge(edge);
+    return Ok();
   }
 
-  async function oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<void> {
+  async function oscilloscopeSetTriggerSweep(deviceId: string, sweep: 'auto' | 'normal' | 'single'): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.setTriggerSweep(sweep);
+    return Ok();
   }
 
   // Oscilloscope streaming
-  async function oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<void> {
+  async function oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.startStreaming(channels, intervalMs, measurements);
+    return Ok();
   }
 
-  async function oscilloscopeStopStreaming(deviceId: string): Promise<void> {
+  async function oscilloscopeStopStreaming(deviceId: string): Promise<Result<void, Error>> {
     const session = oscilloscopeSessions.get(deviceId);
-    if (!session) throw new Error(`Oscilloscope session not found: ${deviceId}`);
+    if (!session) return Err(new Error(`Oscilloscope session not found: ${deviceId}`));
     await session.stopStreaming();
+    return Ok();
   }
 
   function stop(): void {

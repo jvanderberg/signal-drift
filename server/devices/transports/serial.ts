@@ -42,7 +42,7 @@ export function createSerialTransport(config: SerialConfig): Transport {
 
   return {
     async open(): Promise<Result<void, Error>> {
-      if (opened) return Ok(undefined);
+      if (opened) return Ok();
 
       port = new SerialPort({
         path,
@@ -78,11 +78,11 @@ export function createSerialTransport(config: SerialConfig): Transport {
       opened = true;
       disconnected = false;
       disconnectError = null;
-      return Ok(undefined);
+      return Ok();
     },
 
     async close(): Promise<Result<void, Error>> {
-      if (!port) return Ok(undefined);
+      if (!port) return Ok();
 
       // Acquire lock to wait for any in-flight operations
       await withLock(async () => {
@@ -106,7 +106,7 @@ export function createSerialTransport(config: SerialConfig): Transport {
         disconnected = false;
         disconnectError = null;
       });
-      return Ok(undefined);
+      return Ok();
     },
 
     async query(cmd: string): Promise<Result<string, Error>> {
@@ -185,7 +185,7 @@ export function createSerialTransport(config: SerialConfig): Transport {
 
         // Add delay after write for device to process
         await delay(commandDelay);
-        return Ok(undefined);
+        return Ok();
       });
     },
 

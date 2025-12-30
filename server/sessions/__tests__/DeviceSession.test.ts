@@ -42,8 +42,8 @@ function createMockDriver(overrides: Partial<{
     info,
     capabilities,
     async probe() { return Ok(info); },
-    async connect() { return Ok(undefined); },
-    async disconnect() { return Ok(undefined); },
+    async connect() { return Ok(); },
+    async disconnect() { return Ok(); },
     async getStatus() {
       if (overrides.getStatusImpl) {
         return overrides.getStatusImpl();
@@ -55,21 +55,21 @@ function createMockDriver(overrides: Partial<{
         return overrides.setModeImpl(mode);
       }
       currentStatus = { ...currentStatus, mode };
-      return Ok(undefined);
+      return Ok();
     },
     async setValue(name: string, value: number) {
       if (overrides.setValueImpl) {
         return overrides.setValueImpl(name, value);
       }
       currentStatus = { ...currentStatus, setpoints: { ...currentStatus.setpoints, [name]: value } };
-      return Ok(undefined);
+      return Ok();
     },
     async setOutput(enabled: boolean) {
       if (overrides.setOutputImpl) {
         return overrides.setOutputImpl(enabled);
       }
       currentStatus = { ...currentStatus, outputEnabled: enabled };
-      return Ok(undefined);
+      return Ok();
     },
   };
 }
@@ -472,7 +472,7 @@ describe('DeviceSession', () => {
       const driver = createMockDriver({
         setModeImpl: async () => {
           hardwareExecuted = true;
-          return Ok(undefined);
+          return Ok();
         },
       });
 
@@ -594,7 +594,7 @@ describe('DeviceSession', () => {
   });
 
   describe('Optimistic Rollback', () => {
-    it('should rollback setMode on failure', async () => {
+    it('should rollback setMode on failure and return Err', async () => {
       const driver = createMockDriver({
         setModeImpl: async () => {
           return Err(new Error('Hardware error'));
@@ -610,8 +610,12 @@ describe('DeviceSession', () => {
       // Initial mode is CC
       expect(session.getState().mode).toBe('CC');
 
-      // Attempt to set mode - should fail
-      await expect(session.setMode('CV')).rejects.toThrow('Hardware error');
+      // Attempt to set mode - should return Err, not throw
+      const result = await session.setMode('CV');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Hardware error');
+      }
 
       // Mode should be reverted back to CC
       expect(session.getState().mode).toBe('CC');
@@ -623,7 +627,7 @@ describe('DeviceSession', () => {
       expect(modeNotifications[1].value).toBe('CC'); // Rollback
     });
 
-    it('should rollback setOutput on failure', async () => {
+    it('should rollback setOutput on failure and return Err', async () => {
       const driver = createMockDriver({
         setOutputImpl: async () => {
           return Err(new Error('Hardware error'));
@@ -639,8 +643,12 @@ describe('DeviceSession', () => {
       // Initial output is false
       expect(session.getState().outputEnabled).toBe(false);
 
-      // Attempt to enable output - should fail
-      await expect(session.setOutput(true)).rejects.toThrow('Hardware error');
+      // Attempt to enable output - should return Err, not throw
+      const result = await session.setOutput(true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Hardware error');
+      }
 
       // Output should be reverted back to false
       expect(session.getState().outputEnabled).toBe(false);
@@ -650,6 +658,65 @@ describe('DeviceSession', () => {
       expect(outputNotifications.length).toBe(2); // Optimistic + rollback
       expect(outputNotifications[0].value).toBe(true); // Optimistic
       expect(outputNotifications[1].value).toBe(false); // Rollback
+    });
+
+    it('should rollback setValue on failure and return Err', async () => {
+      const driver = createMockDriver({
+        setValueImpl: async () => {
+          return Err(new Error('Hardware error'));
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Initial setpoint
+      expect(session.getState().setpoints.current).toBe(1.0);
+
+      // Attempt to set value with immediate=true - should return Err, not throw
+      const result = await session.setValue('current', 5.0, true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Hardware error');
+      }
+
+      // Setpoint should be reverted back
+      expect(session.getState().setpoints.current).toBe(1.0);
+    });
+  });
+
+  describe('Actions return Result', () => {
+    it('should return Ok on successful setMode', async () => {
+      const driver = createMockDriver();
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const result = await session.setMode('CV');
+      expect(result.ok).toBe(true);
+      expect(session.getState().mode).toBe('CV');
+    });
+
+    it('should return Ok on successful setOutput', async () => {
+      const driver = createMockDriver();
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const result = await session.setOutput(true);
+      expect(result.ok).toBe(true);
+      expect(session.getState().outputEnabled).toBe(true);
+    });
+
+    it('should return Ok on successful setValue with immediate=true', async () => {
+      const driver = createMockDriver();
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const result = await session.setValue('current', 2.5, true);
+      expect(result.ok).toBe(true);
+      expect(session.getState().setpoints.current).toBe(2.5);
     });
   });
 });

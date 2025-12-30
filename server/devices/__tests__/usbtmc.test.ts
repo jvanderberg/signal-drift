@@ -154,7 +154,10 @@ describe('USB-TMC Protocol', () => {
       Buffer.from('Hello World').copy(response, 12);
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('Hello World');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('Hello World');
+      }
     });
 
     it('should trim whitespace from response', () => {
@@ -163,7 +166,10 @@ describe('USB-TMC Protocol', () => {
       Buffer.from('test\r\n').copy(response, 12);
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('test');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('test');
+      }
     });
 
     it('should handle empty response', () => {
@@ -171,7 +177,20 @@ describe('USB-TMC Protocol', () => {
       response.writeUInt32LE(0, 4);  // TransferSize = 0
 
       const result = parseDevDepMsgIn(response);
-      expect(result).toBe('');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe('');
+      }
+    });
+
+    it('should return Err for response too short', () => {
+      const response = Buffer.alloc(8);  // Less than 12 bytes
+
+      const result = parseDevDepMsgIn(response);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('too short');
+      }
     });
   });
 

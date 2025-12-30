@@ -31,8 +31,8 @@ function createMockDriver(id: string): DeviceDriver {
     info,
     capabilities,
     async probe() { return Ok(info); },
-    async connect() { return Ok(undefined); },
-    async disconnect() { return Ok(undefined); },
+    async connect() { return Ok(); },
+    async disconnect() { return Ok(); },
     async getStatus() {
       return Ok({
         mode: 'CC',
@@ -41,9 +41,9 @@ function createMockDriver(id: string): DeviceDriver {
         measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
       });
     },
-    async setMode() { return Ok(undefined); },
-    async setValue() { return Ok(undefined); },
-    async setOutput() { return Ok(undefined); },
+    async setMode() { return Ok(); },
+    async setValue() { return Ok(); },
+    async setOutput() { return Ok(); },
   };
 }
 
@@ -287,7 +287,7 @@ describe('SessionManager', () => {
   });
 
   describe('Action Forwarding', () => {
-    it('should forward setMode to the correct session', async () => {
+    it('should forward setMode to the correct session and return Ok', async () => {
       manager = createSessionManager(registry, { pollIntervalMs: 250 });
 
       const driver = createMockDriver('device-1');
@@ -295,12 +295,13 @@ describe('SessionManager', () => {
       registry.addDevice(driver);
       manager.syncDevices();
 
-      await manager.setMode('device-1', 'CV');
+      const result = await manager.setMode('device-1', 'CV');
 
+      expect(result.ok).toBe(true);
       expect(setModeSpy).toHaveBeenCalledWith('CV');
     });
 
-    it('should forward setOutput to the correct session', async () => {
+    it('should forward setOutput to the correct session and return Ok', async () => {
       manager = createSessionManager(registry, { pollIntervalMs: 250 });
 
       const driver = createMockDriver('device-1');
@@ -308,12 +309,13 @@ describe('SessionManager', () => {
       registry.addDevice(driver);
       manager.syncDevices();
 
-      await manager.setOutput('device-1', true);
+      const result = await manager.setOutput('device-1', true);
 
+      expect(result.ok).toBe(true);
       expect(setOutputSpy).toHaveBeenCalledWith(true);
     });
 
-    it('should forward setValue to the correct session', async () => {
+    it('should forward setValue to the correct session and return Ok', async () => {
       manager = createSessionManager(registry, { pollIntervalMs: 250 });
 
       const driver = createMockDriver('device-1');
@@ -321,15 +323,59 @@ describe('SessionManager', () => {
       registry.addDevice(driver);
       manager.syncDevices();
 
-      await manager.setValue('device-1', 'current', 2.5, true);
+      const result = await manager.setValue('device-1', 'current', 2.5, true);
 
+      expect(result.ok).toBe(true);
       expect(setValueSpy).toHaveBeenCalledWith('current', 2.5);
     });
 
-    it('should throw error when action targets unknown device', async () => {
+    it('should return Err when action targets unknown device', async () => {
       manager = createSessionManager(registry, { pollIntervalMs: 250 });
 
-      await expect(manager.setMode('unknown', 'CV')).rejects.toThrow('Session not found');
+      const result = await manager.setMode('unknown', 'CV');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Session not found');
+      }
+    });
+
+    it('should return Err when setOutput targets unknown device', async () => {
+      manager = createSessionManager(registry, { pollIntervalMs: 250 });
+
+      const result = await manager.setOutput('unknown', true);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Session not found');
+      }
+    });
+
+    it('should return Err when setValue targets unknown device', async () => {
+      manager = createSessionManager(registry, { pollIntervalMs: 250 });
+
+      const result = await manager.setValue('unknown', 'current', 1.0, true);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain('Session not found');
+      }
+    });
+
+    it('should propagate driver error as Err from setMode', async () => {
+      manager = createSessionManager(registry, { pollIntervalMs: 250 });
+
+      const driver = createMockDriver('device-1');
+      driver.setMode = vi.fn().mockResolvedValue(Err(new Error('Hardware failure')));
+      registry.addDevice(driver);
+      manager.syncDevices();
+
+      const result = await manager.setMode('device-1', 'CV');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Hardware failure');
+      }
     });
   });
 });

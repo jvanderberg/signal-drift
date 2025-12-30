@@ -16,7 +16,9 @@ import type {
   HistoryData,
   ServerMessage,
   MeasurementUpdate,
+  Result,
 } from '../../shared/types.js';
+import { Ok, Err } from '../../shared/types.js';
 
 export interface DeviceSessionConfig {
   pollIntervalMs?: number;
@@ -33,9 +35,9 @@ export interface DeviceSession {
   hasSubscriber(clientId: string): boolean;
   subscribe(clientId: string, callback: SubscriberCallback): void;
   unsubscribe(clientId: string): void;
-  setMode(mode: string): Promise<void>;
-  setOutput(enabled: boolean): Promise<void>;
-  setValue(name: string, value: number, immediate?: boolean): Promise<void>;
+  setMode(mode: string): Promise<Result<void, Error>>;
+  setOutput(enabled: boolean): Promise<Result<void, Error>>;
+  setValue(name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
   reconnect(newDriver: DeviceDriver): Promise<void>;
   stop(): void;
 }
@@ -255,7 +257,7 @@ export function createDeviceSession(
   }
 
   // Actions
-  async function setModeAction(newMode: string): Promise<void> {
+  async function setModeAction(newMode: string): Promise<Result<void, Error>> {
     // Save old value for rollback
     const oldMode = mode;
 
@@ -279,11 +281,12 @@ export function createDeviceSession(
         field: 'mode',
         value: oldMode,
       });
-      throw result.error;
+      return result;
     }
+    return Ok();
   }
 
-  async function setOutputAction(enabled: boolean): Promise<void> {
+  async function setOutputAction(enabled: boolean): Promise<Result<void, Error>> {
     // Save old value for rollback
     const oldEnabled = outputEnabled;
 
@@ -307,11 +310,12 @@ export function createDeviceSession(
         field: 'outputEnabled',
         value: oldEnabled,
       });
-      throw result.error;
+      return result;
     }
+    return Ok();
   }
 
-  async function setValueAction(name: string, value: number, immediate = false): Promise<void> {
+  async function setValueAction(name: string, value: number, immediate = false): Promise<Result<void, Error>> {
     if (immediate) {
       // Save old value before updating
       const oldValue = setpoints[name];
@@ -346,9 +350,9 @@ export function createDeviceSession(
           field: 'setpoints',
           value: { ...setpoints },
         });
-        throw result.error;
+        return result;
       }
-      return;
+      return Ok();
     }
 
     // Debounced execution
@@ -412,6 +416,9 @@ export function createDeviceSession(
     }, cfg.debounceMs);
 
     pendingValues.set(name, { value, timer });
+
+    // Debounced: return Ok immediately, actual result comes via broadcast
+    return Ok();
   }
 
   async function reconnect(newDriver: DeviceDriver): Promise<void> {

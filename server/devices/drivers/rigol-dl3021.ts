@@ -192,7 +192,7 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
         return Err(new Error(`Device error: ${errResp}`));
       }
 
-      return Ok(undefined);
+      return Ok();
     },
 
     async getValue(name: string): Promise<Result<number, Error>> {
@@ -253,7 +253,7 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
         }
       }
 
-      return Ok(undefined);
+      return Ok();
     },
 
     async startList(): Promise<Result<void, Error>> {
@@ -270,7 +270,7 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
       result = await transport.write(':TRIG');
       if (!result.ok) return result;
 
-      return Ok(undefined);
+      return Ok();
     },
 
     async stopList(): Promise<Result<void, Error>> {

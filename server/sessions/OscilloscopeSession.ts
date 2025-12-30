@@ -8,7 +8,7 @@
  */
 
 import type { OscilloscopeDriver, OscilloscopeStatus, WaveformData } from '../devices/types.js';
-import type { ConnectionStatus, ServerMessage } from '../../shared/types.js';
+import type { ConnectionStatus, ServerMessage, Result } from '../../shared/types.js';
 
 export interface OscilloscopeSessionConfig {
   statusPollIntervalMs?: number;  // Slow poll for trigger status (default: 500ms)
@@ -65,9 +65,9 @@ export interface OscilloscopeSession {
   setTriggerSweep(sweep: string): Promise<void>;
 
   // On-demand queries
-  getMeasurement(channel: string, type: string): Promise<number | null>;
-  getWaveform(channel: string): Promise<WaveformData>;
-  getScreenshot(): Promise<Buffer>;
+  getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>>;
+  getWaveform(channel: string): Promise<Result<WaveformData, Error>>;
+  getScreenshot(): Promise<Result<Buffer, Error>>;
 
   // Streaming
   startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
@@ -671,28 +671,16 @@ export function createOscilloscopeSession(
     },
 
     // On-demand queries
-    async getMeasurement(channel: string, type: string): Promise<number | null> {
-      const result = await driver.getMeasurement(channel, type);
-      if (result.ok) {
-        return result.value;
-      }
-      throw result.error;
+    async getMeasurement(channel: string, type: string): Promise<Result<number | null, Error>> {
+      return driver.getMeasurement(channel, type);
     },
 
-    async getWaveform(channel: string): Promise<WaveformData> {
-      const result = await driver.getWaveform(channel);
-      if (result.ok) {
-        return result.value;
-      }
-      throw result.error;
+    async getWaveform(channel: string): Promise<Result<WaveformData, Error>> {
+      return driver.getWaveform(channel);
     },
 
-    async getScreenshot(): Promise<Buffer> {
-      const result = await driver.getScreenshot();
-      if (result.ok) {
-        return result.value;
-      }
-      throw result.error;
+    async getScreenshot(): Promise<Result<Buffer, Error>> {
+      return driver.getScreenshot();
     },
 
     // Streaming

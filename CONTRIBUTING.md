@@ -53,7 +53,23 @@ interface ParsedResponse { value: number; unit: string; }
 const value: ParsedResponse = JSON.parse(response);
 ```
 
-### 3. Factory Functions Over Classes
+### 3. No `undefined` Literal
+
+Never use the `undefined` literal directly. It's a code smell that usually indicates a missing abstraction or improper API design.
+
+```typescript
+// Bad
+return undefined;
+return Ok(undefined);
+const x = undefined;
+
+// Good
+return;                    // implicit undefined for void functions
+return Ok();               // Ok() helper handles void case
+let x: string | undefined; // declare without initializing
+```
+
+### 4. Factory Functions Over Classes
 
 Use factory functions that return interfaces, not ES6 classes:
 

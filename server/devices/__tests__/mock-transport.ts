@@ -52,12 +52,12 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
 
     async open(): Promise<Result<void, Error>> {
       opened = true;
-      return Ok(undefined);
+      return Ok();
     },
 
     async close(): Promise<Result<void, Error>> {
       opened = false;
-      return Ok(undefined);
+      return Ok();
     },
 
     async query(cmd: string): Promise<Result<string, Error>> {
@@ -100,7 +100,7 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
       if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
       handleWrite(cmd);
-      return Ok(undefined);
+      return Ok();
     },
 
     isOpen(): boolean {

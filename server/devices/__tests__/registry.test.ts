@@ -52,13 +52,13 @@ function createMockDriver(id: string, probeShouldSucceed = true): DeviceDriver {
       });
     },
     async setMode() {
-      return Ok(undefined);
+      return Ok();
     },
     async setValue() {
-      return Ok(undefined);
+      return Ok();
     },
     async setOutput() {
-      return Ok(undefined);
+      return Ok();
     },
   };
 }
