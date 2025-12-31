@@ -38,8 +38,8 @@ export interface VirtualConnectionConfig {
 
   /**
    * PSU output impedance in ohms. Affects voltage droop under load.
-   * Typical bench supplies: 0.01-0.1 ohms
-   * Default: 0.05 ohms
+   * Typical regulated bench supplies: 1-10 mΩ
+   * Default: 0.005 ohms (5mΩ)
    */
   psuOutputImpedance?: number;
 
@@ -88,7 +88,7 @@ export interface VirtualConnectionState {
 const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   measurementStabilityPPM: 100,
   measurementNoiseFloorMv: 1.0,
-  psuOutputImpedance: 0.05,
+  psuOutputImpedance: 0.005, // 5mΩ - typical for regulated bench PSU
   loadCvGain: 10,
 };
 

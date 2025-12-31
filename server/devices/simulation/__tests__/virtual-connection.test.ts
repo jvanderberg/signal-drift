@@ -378,7 +378,8 @@ describe('VirtualConnection', () => {
       const defaultConn = createVirtualConnection();
       const config = defaultConn.getConfig();
       expect(config.measurementStabilityPPM).toBe(100);
-      expect(config.psuOutputImpedance).toBe(0.05);
+      expect(config.measurementNoiseFloorMv).toBe(1.0);
+      expect(config.psuOutputImpedance).toBe(0.005);
       expect(config.loadCvGain).toBe(10);
     });
   });
