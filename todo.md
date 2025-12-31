@@ -100,3 +100,88 @@ quirks:
 3. Build generic driver factory that loads configs
 4. Loader scans configs at startup, registers drivers
 5. Validation at load time (schema + command syntax check)
+
+---
+
+## Software AWG / Sequencer
+
+Software-driven arbitrary waveform control for any settable device parameter.
+
+### Concept
+Send setpoint commands at timed intervals to create waveforms. Works with any device, no hardware list mode required.
+
+```
+Fixed intervals, waveform shape in values:
+Time:  0     100    200    300    400    500ms
+       │      │      │      │      │      │
+Value: 5.0   7.1    9.0    7.1    5.0    7.1
+```
+
+### Constraints
+- USB/serial latency: ~20-50ms per command
+- Practical max frequency: ~5-10 Hz
+- Slower devices further limited (e.g., Matrix PSU with 50ms command delay)
+
+### Waveform Definition
+
+**Standard shapes:**
+- Sine, triangle, ramp, square, steps
+- Parameters: min, max, points per cycle, interval
+
+**Arbitrary upload (CSV):**
+```csv
+# Dwell time format (industry standard)
+value, dwell_ms
+5.0, 100
+10.0, 500
+0.0, 100
+```
+
+### Parameters
+- Target device + parameter (whitelisted in driver config)
+- Waveform type or arbitrary data
+- Interval (fixed ms between points)
+- Interpolation: step (hold) or linear (ramp between points)
+
+### Repeat Behavior
+- Once
+- N times
+- Continuous (until stopped)
+
+### Triggers
+
+**Start when:**
+- Immediately
+- Output enabled
+- Measurement threshold (e.g., "when current > 1A")
+- Manual button
+
+**Run until:**
+- Waveform complete
+- N cycles
+- Measurement threshold (e.g., "stop if voltage < 2V")
+- Manual stop
+
+### Additional Features
+- Pre/post values (set before start, after complete)
+- Scaling (multiply all values by factor)
+- Offset (add constant to all values)
+- Max value clamp (safety limit)
+- Max slew rate (protect DUT)
+- Save/load named sequences to library
+
+### Driver Config
+```yaml
+awgAllowed:
+  - voltage
+  - current
+# Whitelist sensible parameters only
+```
+
+### Implementation
+1. AWG controller wraps device session
+2. Timer-based execution of setpoints
+3. WebSocket events for progress/status
+4. API for upload, start, stop, pause
+5. UI for waveform config and visualization
+6. Sequence library (save/load)
