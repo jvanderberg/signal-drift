@@ -185,3 +185,42 @@ awgAllowed:
 4. API for upload, start, stop, pause
 5. UI for waveform config and visualization
 6. Sequence library (save/load)
+
+---
+
+## Click-to-Measure (Oscilloscope)
+
+Replace clunky hardware cursors with intuitive click-based measurements.
+
+### Concept
+Click two points on the waveform, get instant measurements. No cursor modes, no knob nudging, no separate readout panels.
+
+### Interaction
+1. Click point A on waveform → mark it
+2. Click point B on waveform → show measurements
+
+**Displays:**
+- V₁, V₂, ΔV
+- T₁, T₂, ΔT
+- Slew rate (ΔV/ΔT) in V/s or V/ms
+- Frequency (1/ΔT)
+
+### Additional Interactions
+- Hover: show instantaneous V/T at cursor position
+- Drag: select range (alternative to two clicks)
+- Click-drag on waveform: quick slope measurement
+- Right-click: pin measurement (keep visible)
+- ESC or click elsewhere: clear measurement
+
+### UI
+- Overlay on waveform canvas
+- Minimal, non-intrusive display
+- Lines connecting measured points
+- Values near the selection, not in a separate panel
+
+### Implementation
+1. Canvas click handlers for point selection
+2. Find nearest waveform sample to click coordinates
+3. Calculate derived values (ΔV, ΔT, slew, freq)
+4. Render overlay with measurement lines and values
+5. State management for pinned measurements
