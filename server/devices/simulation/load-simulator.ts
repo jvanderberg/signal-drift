@@ -195,8 +195,6 @@ export function createLoadSimulator(connection: VirtualConnection, serialNumber 
     // :MEAS:RES? - Measure resistance
     if (normalized === 'MEAS:RES?') {
       const resistance = connection.getLoadResistance();
-      // Cap very high resistance values like real device
-      if (resistance > 9999999) return '9.9E37';
       return resistance.toFixed(4);
     }
 

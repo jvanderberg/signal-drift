@@ -104,27 +104,41 @@ async function start() {
   if (USE_SIMULATED_DEVICES) {
     // Create simulated devices instead of scanning for real hardware
     console.log('Creating simulated devices...');
-    const { psuDriver, loadDriver } = createSimulatedDevices();
 
-    // Open the simulated transports
-    await psuDriver.connect();
-    await loadDriver.connect();
+    try {
+      const { psuDriver, loadDriver, connection } = createSimulatedDevices();
 
-    // Probe to populate driver info
-    await psuDriver.probe();
-    await loadDriver.probe();
+      // Log simulation configuration
+      const simConfig = connection.getConfig();
+      console.log('Simulation config:');
+      console.log(`  Measurement stability: ${simConfig.measurementStabilityPPM} PPM`);
+      console.log(`  Measurement noise floor: ${simConfig.measurementNoiseFloorMv} mV`);
+      console.log(`  PSU output impedance: ${simConfig.psuOutputImpedance} ohms`);
+      console.log(`  Load CV gain: ${simConfig.loadCvGain} A/V`);
 
-    // Add to registry
-    registry.addDevice(psuDriver);
-    registry.addDevice(loadDriver);
+      // Open the simulated transports
+      await psuDriver.connect();
+      await loadDriver.connect();
 
-    console.log('Simulated devices created:');
-    console.log(`  - ${psuDriver.info.manufacturer} ${psuDriver.info.model} (${psuDriver.info.type})`);
-    console.log(`  - ${loadDriver.info.manufacturer} ${loadDriver.info.model} (${loadDriver.info.type})`);
+      // Probe to populate driver info
+      await psuDriver.probe();
+      await loadDriver.probe();
 
-    // Sync session manager with simulated devices
-    await sessionManager.syncDevices();
-    console.log(`Created ${sessionManager.getSessionCount()} session(s)`);
+      // Add to registry
+      registry.addDevice(psuDriver);
+      registry.addDevice(loadDriver);
+
+      console.log('Simulated devices created:');
+      console.log(`  - ${psuDriver.info.manufacturer} ${psuDriver.info.model} (${psuDriver.info.type})`);
+      console.log(`  - ${loadDriver.info.manufacturer} ${loadDriver.info.model} (${loadDriver.info.type})`);
+
+      // Sync session manager with simulated devices
+      await sessionManager.syncDevices();
+      console.log(`Created ${sessionManager.getSessionCount()} session(s)`);
+    } catch (err) {
+      console.error('Failed to create simulated devices:', err);
+      process.exit(1);
+    }
 
     // No periodic scanning needed for simulated devices
   } else {
