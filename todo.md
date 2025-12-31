@@ -343,3 +343,83 @@ at t=60s:
 4. Integrates with sequencer for `run sequence` actions
 5. GUI builder for no-code trigger creation
 6. Save/load trigger sets
+
+---
+
+## Storage & Persistence
+
+SQLite on the server for all deployment modes. Data lives where the equipment is.
+
+### Deployment Modes
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        SERVER                               │
+│  (Local machine, Electron main process, or Raspberry Pi)   │
+│                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
+│  │ Device      │  │ Sessions    │  │ SQLite              │ │
+│  │ Drivers     │  │ WebSocket   │  │ - sequences         │ │
+│  │ USB/Serial  │  │ REST API    │  │ - triggers          │ │
+│  └─────────────┘  └─────────────┘  │ - snapshots/logs    │ │
+│                                     │ - device configs    │ │
+│                                     └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+          │                    │                    │
+          ▼                    ▼                    ▼
+   ┌────────────┐       ┌────────────┐       ┌────────────┐
+   │ Electron   │       │ Browser    │       │ Browser    │
+   │ (renderer) │       │ localhost  │       │ remote     │
+   └────────────┘       └────────────┘       └────────────┘
+```
+
+**1. Local/Browser** - Server runs locally, UI in web browser
+**2. Electron** - All-in-one desktop app
+**3. Remote/Pi** - Server on Raspberry Pi, browser over network
+
+### Database Location
+- Local: `~/.lab-controller/data.db`
+- Electron: `app.getPath('userData')/data.db`
+- Pi: `/var/lib/lab-controller/data.db`
+
+### What Gets Stored
+
+**Server-side (SQLite):**
+- Saved sequences (AWG waveforms)
+- Trigger configurations
+- Measurement snapshots
+- Session history / logs
+- Device calibration / notes
+- Exported data sets
+
+**Browser-side (localStorage):**
+- UI preferences (dark mode, layout)
+- Last-used device selections
+- Window positions (Electron)
+
+### Technology
+- `better-sqlite3` - synchronous, fast, native
+- Already have native module build pipeline (usb, serialport)
+- SQLite ideal for Pi - no separate database daemon
+
+### API
+REST endpoints for CRUD operations:
+```
+GET    /api/sequences
+POST   /api/sequences
+GET    /api/sequences/:id
+PUT    /api/sequences/:id
+DELETE /api/sequences/:id
+
+GET    /api/snapshots?from=...&to=...&device=...
+POST   /api/snapshots
+...
+```
+
+### Implementation
+1. Add better-sqlite3 dependency
+2. Create schema migrations system
+3. Database service with typed queries
+4. REST endpoints for persistence
+5. Client hooks/services for data access
+6. Handle DB path per deployment mode
