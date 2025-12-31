@@ -224,3 +224,122 @@ Click two points on the waveform, get instant measurements. No cursor modes, no 
 3. Calculate derived values (ΔV, ΔT, slew, freq)
 4. Render overlay with measurement lines and values
 5. State management for pinned measurements
+
+---
+
+## Reactive Triggers + Scripting
+
+Event-driven automation using live device values. No polling loops, no explicit reads - values are already streaming.
+
+### Concept
+Combine reactive triggers with the sequencer for powerful automation without a general-purpose scripting language.
+
+**Triggers** = "when X, do Y" (reactive)
+**Sequences** = "do these steps" (imperative)
+**Together** = automated test procedures, safety interlocks, conditional workflows
+
+### Trigger Types
+
+**Value triggers:**
+```
+when psu.voltage > 10:
+  load.resistance = 20
+```
+
+**Time triggers (relative to script start):**
+```
+at t=0:      psu.output = on
+at t=10s:    run sequence "ramp_up"
+at t=100s:   snapshot
+at t=120s:   end
+```
+
+**Event-relative time:**
+```
+when psu.output == on:
+  at t+5s: run sequence "ramp"   # 5s after trigger fired
+```
+
+**Edge detection:**
+```
+when rising psu.current > 1:    # trigger on transition, not steady state
+  log "current exceeded 1A"
+```
+
+### Trigger Modifiers
+- `once` - fire only first time condition met
+- `repeat` - fire every time (with debounce)
+- `debounce: 100ms` - don't re-trigger within window
+- `rising` / `falling` - edge detection
+
+### Actions
+- Set device value
+- Start/stop/pause sequence
+- Output on/off
+- Snapshot (log all current values)
+- Export data
+- End script
+- Alert/notification
+
+### GUI Trigger Builder
+```
+┌─────────────────────────────────────────────────────┐
+│ Trigger 1                                      [x]  │
+├─────────────────────────────────────────────────────┤
+│ WHEN: [psu.voltage ▼] [> ▼] [10 V    ]             │
+│ THEN: [set value   ▼] [load.resistance] [20 Ω]    │
+│       [x] Once  [ ] Repeat  Debounce: [100ms]      │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│ Trigger 2 (time)                               [x]  │
+├─────────────────────────────────────────────────────┤
+│ AT:   [30 s] from start                            │
+│ THEN: [snapshot ▼]                                 │
+└─────────────────────────────────────────────────────┘
+
+         [+ Add Trigger]    [▶ Run Script]
+```
+
+### Example: Automated Load Test
+```
+# Setup
+at t=0:
+  psu.voltage = 5
+  psu.current = 2
+  psu.output = on
+
+# Ramp load after stabilization
+at t=2s:
+  run sequence "load_ramp"
+
+# Safety interlock
+when psu.current > 1.9:
+  snapshot
+  psu.output = off
+  alert "Current limit reached"
+  end
+
+# Periodic logging
+every 1s:
+  snapshot
+
+# End after 60s
+at t=60s:
+  psu.output = off
+  export "load_test_results.csv"
+  end
+```
+
+### Advanced Features
+- Access to history: `psu.voltage.avg(1s) > 10`
+- Multiple conditions: `when psu.voltage > 10 and load.current < 0.5`
+- Trigger chaining: `when sequence "ramp" complete: run sequence "hold"`
+
+### Implementation
+1. Trigger engine evaluates conditions against live values
+2. Time triggers use elapsed time from script start
+3. Action dispatcher executes trigger actions
+4. Integrates with sequencer for `run sequence` actions
+5. GUI builder for no-code trigger creation
+6. Save/load trigger sets
