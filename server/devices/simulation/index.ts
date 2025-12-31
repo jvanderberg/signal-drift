@@ -8,7 +8,7 @@
  * Configuration via environment variables:
  *   SIM_MEASUREMENT_STABILITY_PPM - Proportional measurement noise (default: 100 PPM)
  *   SIM_MEASUREMENT_NOISE_FLOOR_MV - Absolute noise floor in mV (default: 1.0)
- *   SIM_PSU_OUTPUT_IMPEDANCE - PSU output impedance in ohms (default: 0.05)
+ *   SIM_PSU_OUTPUT_IMPEDANCE - PSU output impedance in ohms (default: 0.005)
  *   SIM_LOAD_CV_GAIN - Load CV mode gain in A/V (default: 10)
  *   SIM_PSU_LATENCY_MS - PSU command latency (default: 50ms)
  *   SIM_LOAD_LATENCY_MS - Load command latency (default: 20ms)
@@ -56,7 +56,7 @@ function loadConfigFromEnv(): SimulatedDevicesConfig {
   return {
     measurementStabilityPPM: parseFloat(process.env.SIM_MEASUREMENT_STABILITY_PPM, 100),
     measurementNoiseFloorMv: parseFloat(process.env.SIM_MEASUREMENT_NOISE_FLOOR_MV, 1.0),
-    psuOutputImpedance: parseFloat(process.env.SIM_PSU_OUTPUT_IMPEDANCE, 0.05),
+    psuOutputImpedance: parseFloat(process.env.SIM_PSU_OUTPUT_IMPEDANCE, 0.005),
     loadCvGain: parseFloat(process.env.SIM_LOAD_CV_GAIN, 10),
     psuLatencyMs: parseFloat(process.env.SIM_PSU_LATENCY_MS, 50),
     loadLatencyMs: parseFloat(process.env.SIM_LOAD_LATENCY_MS, 20),
@@ -79,7 +79,7 @@ export function createSimulatedDevices(
   const resolvedConfig: Required<SimulatedDevicesConfig> = {
     measurementStabilityPPM: config.measurementStabilityPPM ?? envConfig.measurementStabilityPPM ?? 100,
     measurementNoiseFloorMv: config.measurementNoiseFloorMv ?? envConfig.measurementNoiseFloorMv ?? 1.0,
-    psuOutputImpedance: config.psuOutputImpedance ?? envConfig.psuOutputImpedance ?? 0.05,
+    psuOutputImpedance: config.psuOutputImpedance ?? envConfig.psuOutputImpedance ?? 0.005,
     loadCvGain: config.loadCvGain ?? envConfig.loadCvGain ?? 10,
     psuLatencyMs: config.psuLatencyMs ?? envConfig.psuLatencyMs ?? 50,
     loadLatencyMs: config.loadLatencyMs ?? envConfig.loadLatencyMs ?? 20,
