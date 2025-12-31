@@ -4,3 +4,10 @@ dist/
 *.log
 .env
 .vite/
+
+# Electron build output
+release/
+
+# Compiled JS (TypeScript outputs to dist/)
+server/**/*.js
+shared/**/*.js
