@@ -13,6 +13,7 @@ import { createRigolDL3021 } from './devices/drivers/rigol-dl3021.js';
 import { createMatrixWPS300S } from './devices/drivers/matrix-wps300s.js';
 import { createRigolOscilloscope } from './devices/drivers/rigol-oscilloscope.js';
 import { scanDevices } from './devices/scanner.js';
+import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
 
@@ -21,6 +22,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL || '250', 10);
 const HISTORY_WINDOW_MS = parseInt(process.env.HISTORY_WINDOW || String(30 * 60 * 1000), 10);
 const SCAN_INTERVAL_MS = parseInt(process.env.SCAN_INTERVAL || '10000', 10);
+const USE_SIMULATED_DEVICES = process.env.USE_SIMULATED_DEVICES === 'true';
 
 // Create registry and register drivers
 const registry = createDeviceRegistry();
@@ -96,44 +98,75 @@ async function start() {
   console.log(`  Poll interval: ${POLL_INTERVAL_MS}ms`);
   console.log(`  History window: ${HISTORY_WINDOW_MS / 1000 / 60} minutes`);
   console.log(`  Scan interval: ${SCAN_INTERVAL_MS / 1000} seconds`);
+  console.log(`  Simulation mode: ${USE_SIMULATED_DEVICES ? 'ENABLED' : 'disabled'}`);
   console.log('');
-  console.log('Scanning for devices...');
 
-  try {
-    const result = await scanDevices(registry, sessionManager);
-    const totalDevices = registry.getDevices().length + registry.getOscilloscopes().length;
-    console.log(`Found ${totalDevices} device(s):`);
-    for (const device of result.devices) {
-      console.log(`  - ${device.manufacturer} ${device.model} (${device.type})`);
-    }
+  if (USE_SIMULATED_DEVICES) {
+    // Create simulated devices instead of scanning for real hardware
+    console.log('Creating simulated devices...');
+    const { psuDriver, loadDriver } = createSimulatedDevices();
 
-    // Sync session manager with found devices
+    // Open the simulated transports
+    await psuDriver.connect();
+    await loadDriver.connect();
+
+    // Probe to populate driver info
+    await psuDriver.probe();
+    await loadDriver.probe();
+
+    // Add to registry
+    registry.addDevice(psuDriver);
+    registry.addDevice(loadDriver);
+
+    console.log('Simulated devices created:');
+    console.log(`  - ${psuDriver.info.manufacturer} ${psuDriver.info.model} (${psuDriver.info.type})`);
+    console.log(`  - ${loadDriver.info.manufacturer} ${loadDriver.info.model} (${loadDriver.info.type})`);
+
+    // Sync session manager with simulated devices
     await sessionManager.syncDevices();
     console.log(`Created ${sessionManager.getSessionCount()} session(s)`);
-  } catch (err) {
-    console.error('Device scan failed:', err);
-  }
 
-  // Periodic scan for device changes (disconnect/reconnect)
-  setInterval(async () => {
+    // No periodic scanning needed for simulated devices
+  } else {
+    // Normal hardware scanning
+    console.log('Scanning for devices...');
+
     try {
-      // Scan for new devices or reconnect disconnected ones
       const result = await scanDevices(registry, sessionManager);
-
-      // Sync sessions with newly found devices
-      if (result.added > 0) {
-        await sessionManager.syncDevices();
-        console.log(`Added ${result.added} device(s)`);
+      const totalDevices = registry.getDevices().length + registry.getOscilloscopes().length;
+      console.log(`Found ${totalDevices} device(s):`);
+      for (const device of result.devices) {
+        console.log(`  - ${device.manufacturer} ${device.model} (${device.type})`);
       }
 
-      // Broadcast if anything changed
-      if (result.added > 0 || result.reconnected > 0) {
-        wsHandler.broadcastDeviceList();
-      }
+      // Sync session manager with found devices
+      await sessionManager.syncDevices();
+      console.log(`Created ${sessionManager.getSessionCount()} session(s)`);
     } catch (err) {
-      console.error('Periodic scan failed:', err);
+      console.error('Device scan failed:', err);
     }
-  }, SCAN_INTERVAL_MS);
+
+    // Periodic scan for device changes (disconnect/reconnect)
+    setInterval(async () => {
+      try {
+        // Scan for new devices or reconnect disconnected ones
+        const result = await scanDevices(registry, sessionManager);
+
+        // Sync sessions with newly found devices
+        if (result.added > 0) {
+          await sessionManager.syncDevices();
+          console.log(`Added ${result.added} device(s)`);
+        }
+
+        // Broadcast if anything changed
+        if (result.added > 0 || result.reconnected > 0) {
+          wsHandler.broadcastDeviceList();
+        }
+      } catch (err) {
+        console.error('Periodic scan failed:', err);
+      }
+    }, SCAN_INTERVAL_MS);
+  }
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log('');
