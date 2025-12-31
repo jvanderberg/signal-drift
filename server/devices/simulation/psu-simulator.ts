@@ -66,8 +66,8 @@ export function createPsuSimulator(connection: VirtualConnection): PsuSimulator 
     // Measurements
     if (trimmed === 'MEAS:VOLT?') {
       if (!outputEnabled) return '0.000';
-      // Return actual voltage (from virtual connection)
-      const voltage = connection.getLoadVoltage();
+      // Return actual voltage PSU is outputting
+      const voltage = connection.getPsuVoltage();
       return voltage.toFixed(3);
     }
 

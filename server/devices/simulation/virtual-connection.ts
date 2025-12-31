@@ -11,6 +11,7 @@ export interface VirtualConnection {
   setPsuVoltage(voltage: number): void;
   setPsuCurrentLimit(limit: number): void;
   setPsuOutputEnabled(enabled: boolean): void;
+  getPsuVoltage(): number;   // Voltage PSU is outputting (setpoint, or drooped under load)
   getPsuCurrent(): number;
   getPsuMode(): 'CV' | 'CC';
 
@@ -18,7 +19,7 @@ export interface VirtualConnection {
   setLoadMode(mode: 'CC' | 'CV' | 'CR' | 'CP'): void;
   setLoadSetpoint(value: number): void;
   setLoadInputEnabled(enabled: boolean): void;
-  getLoadVoltage(): number;
+  getLoadVoltage(): number;  // Voltage at load terminals (from PSU)
   getLoadCurrent(): number;
   getLoadPower(): number;
   getLoadResistance(): number;
@@ -128,6 +129,12 @@ export function createVirtualConnection(): VirtualConnection {
       state.psuOutputEnabled = enabled;
     },
 
+    getPsuVoltage(): number {
+      // PSU outputs its setpoint voltage when enabled (may droop under load)
+      if (!state.psuOutputEnabled) return 0;
+      return calculateCircuit().voltage;
+    },
+
     getPsuCurrent(): number {
       return calculateCircuit().current;
     },
@@ -155,7 +162,9 @@ export function createVirtualConnection(): VirtualConnection {
     },
 
     getLoadVoltage(): number {
-      if (!state.loadInputEnabled) return 0;
+      // Load sees PSU voltage at its terminals even when input is disabled
+      // (no current flows, but voltage is present)
+      if (!state.psuOutputEnabled) return 0;
       return calculateCircuit().voltage;
     },
 
