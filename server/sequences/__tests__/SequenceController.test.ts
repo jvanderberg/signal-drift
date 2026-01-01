@@ -578,29 +578,41 @@ describe('SequenceController', () => {
       expect(messages.some(m => m.type === 'sequenceError')).toBe(true);
     });
 
-    it('should throw if start called while running', async () => {
+    it('should return error if start called while running', async () => {
       session = createMockSession();
       controller = createSequenceController(createTestDefinition(), createTestRunConfig(), session);
 
       await controller.start();
 
-      await expect(controller.start()).rejects.toThrow('Sequence already running');
+      const result = await controller.start();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Sequence already running');
+      }
     });
 
-    it('should throw if pause called while not running', () => {
+    it('should return error if pause called while not running', () => {
       session = createMockSession();
       controller = createSequenceController(createTestDefinition(), createTestRunConfig(), session);
 
-      expect(() => controller.pause()).toThrow('Sequence not running');
+      const result = controller.pause();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Sequence not running');
+      }
     });
 
-    it('should throw if resume called while not paused', async () => {
+    it('should return error if resume called while not paused', async () => {
       session = createMockSession();
       controller = createSequenceController(createTestDefinition(), createTestRunConfig(), session);
 
       await controller.start();
 
-      expect(() => controller.resume()).toThrow('Sequence not paused');
+      const result = controller.resume();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe('Sequence not paused');
+      }
     });
   });
 

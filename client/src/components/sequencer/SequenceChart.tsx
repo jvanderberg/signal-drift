@@ -7,9 +7,9 @@
  * - Pre/post values if configured
  */
 
-import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { useMemo, useRef, useEffect, useState } from 'react';
 import type { SequenceDefinition, SequenceState } from '../../types';
-import { isArbitrary, isRandomWalk, resolveWaveformSteps, applyModifiers } from '../../types';
+import { isRandomWalk, resolveWaveformSteps, applyModifiers } from '../../types';
 
 // Hook to detect dark mode (same as LiveChart)
 function useIsDarkMode(): boolean {

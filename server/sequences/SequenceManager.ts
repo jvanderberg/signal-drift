@@ -212,21 +212,22 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
     controllerUnsubscribe = activeController.subscribe((message) => {
       broadcast(message);
 
-      // Clean up when sequence ends
+      // Defer cleanup to allow run() to complete and return state
       if (message.type === 'sequenceCompleted' ||
           message.type === 'sequenceAborted' ||
           message.type === 'sequenceError') {
-        cleanupController();
+        queueMicrotask(() => cleanupController());
       }
     });
 
-    try {
-      await activeController.start();
-      return Ok(activeController.getState());
-    } catch (err) {
+    // Capture controller reference before start() since cleanup may happen during execution
+    const controller = activeController;
+    const startResult = await controller.start();
+    if (!startResult.ok) {
       cleanupController();
-      return Err(err instanceof Error ? err : new Error(String(err)));
+      return startResult;
     }
+    return Ok(controller.getState());
   }
 
   async function abort(): Promise<void> {

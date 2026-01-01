@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { Device } from '../types';
+import type { DeviceSummary } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
 import { WaveformDisplay } from './WaveformDisplay';
@@ -10,7 +10,7 @@ import { ChannelSettings } from './ChannelSettings';
 import { TimebaseControls } from './TimebaseControls';
 
 interface OscilloscopePanelProps {
-  device: Device;
+  device: DeviceSummary;
   onClose: () => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
@@ -55,7 +55,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     stop,
     single,
     autoSetup,
-    getWaveform,
     getScreenshot,
     clearError,
     setChannelEnabled,

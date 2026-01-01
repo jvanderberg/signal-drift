@@ -182,7 +182,7 @@ function formToDefinition(
 }
 
 export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorProps) {
-  const { library, saveSequence, updateSequence, deleteSequence } = useSequencer();
+  const { saveSequence, updateSequence, deleteSequence } = useSequencer();
 
   const [form, setForm] = useState<FormState>(
     sequence ? definitionToForm(sequence) : defaultFormState

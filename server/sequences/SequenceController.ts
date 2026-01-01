@@ -16,7 +16,9 @@ import type {
   SequenceExecutionState,
   ServerMessage,
   RandomWalkParams,
+  Result,
 } from '../../shared/types.js';
+import { Ok, Err } from '../../shared/types.js';
 import { createWaveformGenerator } from './WaveformGenerator.js';
 
 export interface SequenceControllerConfig {
@@ -28,9 +30,9 @@ type SubscriberCallback = (message: ServerMessage) => void;
 export interface SequenceController {
   getState(): SequenceState;
 
-  start(): Promise<void>;
-  pause(): void;
-  resume(): void;
+  start(): Promise<Result<void, Error>>;
+  pause(): Result<void, Error>;
+  resume(): Result<void, Error>;
   abort(): Promise<void>;
 
   subscribe(callback: SubscriberCallback): () => void;
@@ -68,7 +70,7 @@ export function createSequenceController(
   let pausedAt: number | null = null;
   let pauseElapsedMs = 0;  // Accumulated pause time
   let stepTimer: ReturnType<typeof setTimeout> | null = null;
-  let errorMessage: string | undefined;
+  let errorMessage = '';
   let commandedValue = 0;
   let skippedSteps = 0;  // Count of steps skipped to maintain schedule
 
@@ -113,7 +115,7 @@ export function createSequenceController(
       startedAt,
       elapsedMs: getElapsedMs(),
       commandedValue,
-      error: errorMessage,
+      error: errorMessage || undefined,
     };
   }
 
@@ -250,9 +252,9 @@ export function createSequenceController(
     });
   }
 
-  async function start(): Promise<void> {
+  async function start(): Promise<Result<void, Error>> {
     if (executionState === 'running') {
-      throw new Error('Sequence already running');
+      return Err(new Error('Sequence already running'));
     }
 
     // Reset state
@@ -261,7 +263,7 @@ export function createSequenceController(
     startedAt = Date.now();
     pausedAt = null;
     pauseElapsedMs = 0;
-    errorMessage = undefined;
+    errorMessage = '';
     skippedSteps = 0;
     executionState = 'running';
 
@@ -276,7 +278,7 @@ export function createSequenceController(
       const result = await session.setValue(runConfig.parameter, preValue, true);
       if (!result.ok) {
         handleError(`Failed to set pre-value: ${result.error.message}`);
-        return;
+        return Err(result.error);
       }
       commandedValue = preValue;
     }
@@ -291,11 +293,12 @@ export function createSequenceController(
 
     // Start execution
     await executeStep();
+    return Ok();
   }
 
-  function pause(): void {
+  function pause(): Result<void, Error> {
     if (executionState !== 'running') {
-      throw new Error('Sequence not running');
+      return Err(new Error('Sequence not running'));
     }
 
     executionState = 'paused';
@@ -307,11 +310,12 @@ export function createSequenceController(
     }
 
     broadcastProgress();
+    return Ok();
   }
 
-  function resume(): void {
+  function resume(): Result<void, Error> {
     if (executionState !== 'paused') {
-      throw new Error('Sequence not paused');
+      return Err(new Error('Sequence not paused'));
     }
 
     // Calculate how long we were paused
@@ -332,6 +336,7 @@ export function createSequenceController(
     stepTimer = setTimeout(() => {
       executeStep();
     }, cfg.minIntervalMs);
+    return Ok();
   }
 
   async function abort(): Promise<void> {

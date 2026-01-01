@@ -82,7 +82,7 @@ export function SequencePanel() {
   }, [selectedDevice, selectedSequence]);
 
   // Reset parameter when device or sequence changes
-  useMemo(() => {
+  useEffect(() => {
     if (availableParameters.length > 0) {
       const current = availableParameters.find((p) => p.name === selectedParameter);
       if (!current) {

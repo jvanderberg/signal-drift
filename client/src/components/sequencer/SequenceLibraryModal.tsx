@@ -14,7 +14,7 @@ import type {
   WaveformParams,
   ArbitraryWaveform,
 } from '../../types';
-import { isArbitrary, parseArbitraryStepsCSV, stepsToCSV, calculateDuration } from '../../types';
+import { isArbitrary, isRandomWalk, parseArbitraryStepsCSV, stepsToCSV, calculateDuration } from '../../types';
 
 interface SequenceLibraryModalProps {
   isOpen: boolean;
@@ -26,7 +26,7 @@ type ViewMode = 'list' | 'edit';
 interface FormState {
   name: string;
   unit: string;
-  waveformType: WaveformType | 'arbitrary';
+  waveformType: WaveformType | 'random' | 'arbitrary';
   // Standard waveform params
   min: number;
   max: number;
@@ -63,15 +63,13 @@ const WAVEFORM_TYPES: { value: WaveformType | 'arbitrary'; label: string }[] = [
   { value: 'triangle', label: 'Triangle' },
   { value: 'ramp', label: 'Ramp' },
   { value: 'square', label: 'Square' },
-  { value: 'steps', label: 'Linear Steps' },
   { value: 'arbitrary', label: 'Arbitrary (CSV)' },
 ];
 
 const UNITS = ['V', 'A', 'W', 'Ω'];
 
 function formToDefinition(
-  form: FormState,
-  existingId?: string
+  form: FormState
 ): Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'> | null {
   let waveform: WaveformParams | ArbitraryWaveform;
 
@@ -79,6 +77,9 @@ function formToDefinition(
     const steps = parseArbitraryStepsCSV(form.arbitrarySteps);
     if (!steps) return null;
     waveform = { steps };
+  } else if (form.waveformType === 'random') {
+    // Random walk sequences should be edited in SequenceEditor, not this modal
+    return null;
   } else {
     waveform = {
       type: form.waveformType,
@@ -129,6 +130,12 @@ function definitionToForm(def: SequenceDefinition): FormState {
   if (isArbitrary(def.waveform)) {
     form.waveformType = 'arbitrary';
     form.arbitrarySteps = stepsToCSV(def.waveform.steps);
+  } else if (isRandomWalk(def.waveform)) {
+    form.waveformType = 'random';
+    form.min = def.waveform.min;
+    form.max = def.waveform.max;
+    form.pointsPerCycle = def.waveform.pointsPerCycle;
+    form.intervalMs = def.waveform.intervalMs;
   } else {
     form.waveformType = def.waveform.type;
     form.min = def.waveform.min;

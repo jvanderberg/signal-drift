@@ -10,7 +10,7 @@
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { SessionManager } from '../sessions/SessionManager.js';
 import type { SequenceManager } from '../sequences/SequenceManager.js';
-import type { ClientMessage, ServerMessage } from '../../shared/types.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState } from '../../shared/types.js';
 
 export interface WebSocketHandler {
   getClientCount(): number;
@@ -239,12 +239,15 @@ export function createWebSocketHandler(
         handleScopeStopStreaming(clientState, message.deviceId);
         break;
 
-      default:
+      default: {
+        // Extract type from unknown message for error reporting
+        const unknownMessage = message as { type?: string };
         send(clientState.ws, {
           type: 'error',
           code: 'UNKNOWN_MESSAGE_TYPE',
-          message: `Unknown message type: ${(message as any).type}`,
+          message: `Unknown message type: ${unknownMessage.type ?? 'unknown'}`,
         });
+      }
     }
   }
 
@@ -292,12 +295,12 @@ export function createWebSocketHandler(
           state: session.getState(),
         });
       } else if (scopeSession) {
-        // For oscilloscopes, we send the state via field message
-        // since OscilloscopeSessionState has different shape
+        // OscilloscopeSessionState differs from DeviceSessionState
+        // Client hook (useOscilloscopeSocket) expects the oscilloscope shape
         send(clientState.ws, {
           type: 'subscribed',
           deviceId,
-          state: scopeSession.getState() as any,  // Different state shape
+          state: scopeSession.getState() as unknown as DeviceSessionState,
         });
       }
     } else {
