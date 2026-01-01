@@ -199,7 +199,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
         }),
         createTestRunConfig({ repeatMode: 'once' }),
         session
@@ -226,7 +226,7 @@ describe('SequenceController', () => {
 
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 1, pointsPerCycle: 2, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 1, pointsPerCycle: 2, intervalMs: 100 },
         }),
         createTestRunConfig({ repeatMode: 'count', repeatCount: 2 }),
         session
@@ -257,7 +257,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
         }),
         createTestRunConfig(),
         session
@@ -333,7 +333,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
         }),
         createTestRunConfig(),
         session
@@ -390,7 +390,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
         }),
         createTestRunConfig(),
         session
@@ -412,7 +412,7 @@ describe('SequenceController', () => {
 
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
           postValue: 0,
         }),
         createTestRunConfig(),
@@ -435,7 +435,7 @@ describe('SequenceController', () => {
 
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 5, max: 10, pointsPerCycle: 2, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 5, max: 10, pointsPerCycle: 2, intervalMs: 100 },
           preValue: 0,
         }),
         createTestRunConfig(),
@@ -456,7 +456,7 @@ describe('SequenceController', () => {
 
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 5, max: 10, pointsPerCycle: 2, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 5, max: 10, pointsPerCycle: 2, intervalMs: 100 },
           postValue: 0,
         }),
         createTestRunConfig(),
@@ -501,7 +501,7 @@ describe('SequenceController', () => {
 
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 2, pointsPerCycle: 3, intervalMs: 100 },
           offset: 5,
         }),
         createTestRunConfig(),
@@ -804,7 +804,7 @@ describe('SequenceController', () => {
       // Try to use 10ms interval, but minIntervalMs is 50
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 1, pointsPerCycle: 2, intervalMs: 10 },
+          waveform: { type: 'ramp', min: 0, max: 1, pointsPerCycle: 2, intervalMs: 10 },
         }),
         createTestRunConfig(),
         session,
@@ -826,7 +826,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
         }),
         createTestRunConfig(),
         session
@@ -843,7 +843,7 @@ describe('SequenceController', () => {
       session = createMockSession();
       controller = createSequenceController(
         createTestDefinition({
-          waveform: { type: 'steps', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
+          waveform: { type: 'ramp', min: 0, max: 4, pointsPerCycle: 5, intervalMs: 100 },
         }),
         createTestRunConfig(),
         session
@@ -861,6 +861,137 @@ describe('SequenceController', () => {
 
       // Elapsed should be approximately same as before pause (not +500)
       expect(controller.getState().elapsedMs).toBeCloseTo(elapsedBeforePause, -1);
+    });
+  });
+
+  describe('Random Walk', () => {
+    it('should execute random walk steps', async () => {
+      session = createMockSession();
+      const callValues: number[] = [];
+      vi.spyOn(session, 'setValue').mockImplementation(async (name, value) => {
+        callValues.push(value as number);
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            type: 'random',
+            startValue: 5,
+            maxStepSize: 1,
+            min: 0,
+            max: 10,
+            pointsPerCycle: 5,
+            intervalMs: 100,
+          },
+        }),
+        createTestRunConfig(),
+        session
+      );
+
+      await controller.start();
+
+      // Execute all steps
+      for (let i = 0; i < 4; i++) {
+        await vi.advanceTimersByTimeAsync(100);
+      }
+
+      expect(callValues).toHaveLength(5);
+
+      // All values should be within bounds
+      for (const value of callValues) {
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(10);
+      }
+
+      // Each step should be within maxStepSize of the previous
+      for (let i = 1; i < callValues.length; i++) {
+        const diff = Math.abs(callValues[i] - callValues[i - 1]);
+        expect(diff).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('should regenerate steps for each cycle using last commanded value', async () => {
+      session = createMockSession();
+      const callValues: number[] = [];
+      vi.spyOn(session, 'setValue').mockImplementation(async (name, value) => {
+        callValues.push(value as number);
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            type: 'random',
+            startValue: 5,
+            maxStepSize: 0.5,
+            min: 0,
+            max: 10,
+            pointsPerCycle: 3,
+            intervalMs: 100,
+          },
+        }),
+        createTestRunConfig({ repeatMode: 'count', repeatCount: 2 }),
+        session
+      );
+
+      await controller.start();
+
+      // Execute cycle 1 (3 steps)
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Execute cycle 2 (3 steps)
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(controller.getState().executionState).toBe('completed');
+      expect(callValues).toHaveLength(6);
+
+      // The first step of cycle 2 (index 3) should be within maxStepSize of
+      // the last step of cycle 1 (index 2) - proving continuity
+      const lastOfCycle1 = callValues[2];
+      const firstOfCycle2 = callValues[3];
+      const diff = Math.abs(firstOfCycle2 - lastOfCycle1);
+      expect(diff).toBeLessThanOrEqual(0.5);
+    });
+
+    it('should use startValue for first cycle only', async () => {
+      session = createMockSession();
+      const callValues: number[] = [];
+      vi.spyOn(session, 'setValue').mockImplementation(async (name, value) => {
+        callValues.push(value as number);
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            type: 'random',
+            startValue: 5,
+            maxStepSize: 0.1,
+            min: 0,
+            max: 10,
+            pointsPerCycle: 2,
+            intervalMs: 100,
+          },
+        }),
+        createTestRunConfig({ repeatMode: 'count', repeatCount: 2 }),
+        session
+      );
+
+      await controller.start();
+
+      // First step should be within maxStepSize of startValue (5)
+      expect(Math.abs(callValues[0] - 5)).toBeLessThanOrEqual(0.1);
+
+      // Complete both cycles
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(callValues).toHaveLength(4);
     });
   });
 });

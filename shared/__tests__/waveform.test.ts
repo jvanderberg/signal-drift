@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   validateWaveformParams,
   validateArbitraryWaveform,
+  validateRandomWalkParams,
   validateSequenceDefinition,
   isArbitrary,
+  isRandomWalk,
   generateWaveformSteps,
+  generateRandomWalk,
   resolveWaveformSteps,
   applyModifiers,
   calculateDuration,
@@ -12,7 +15,7 @@ import {
   stepsToCSV,
   WAVEFORM_LIMITS,
 } from '../waveform.js';
-import type { WaveformParams, ArbitraryWaveform, SequenceStep } from '../types.js';
+import type { WaveformParams, ArbitraryWaveform, RandomWalkParams, SequenceStep } from '../types.js';
 
 describe('Waveform Validation', () => {
   describe('validateWaveformParams', () => {
@@ -121,7 +124,7 @@ describe('Waveform Validation', () => {
     });
 
     it('should accept all valid waveform types', () => {
-      const types: WaveformParams['type'][] = ['sine', 'triangle', 'ramp', 'square', 'steps'];
+      const types: WaveformParams['type'][] = ['sine', 'triangle', 'ramp', 'square'];
       for (const type of types) {
         const result = validateWaveformParams({ ...validParams, type });
         expect(result.ok).toBe(true);
@@ -268,6 +271,79 @@ describe('Waveform Validation', () => {
         steps: [{ value: -10, dwellMs: 100 }],
       });
       expect(result.ok).toBe(true);
+    });
+  });
+
+  describe('validateRandomWalkParams', () => {
+    const validParams: RandomWalkParams = {
+      type: 'random',
+      startValue: 5,
+      maxStepSize: 1,
+      min: 0,
+      max: 10,
+      pointsPerCycle: 20,
+      intervalMs: 100,
+    };
+
+    it('should accept valid random walk parameters', () => {
+      const result = validateRandomWalkParams(validParams);
+      expect(result.ok).toBe(true);
+    });
+
+    it('should reject min >= max', () => {
+      const result = validateRandomWalkParams({ ...validParams, min: 10, max: 5 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('min/max');
+      }
+    });
+
+    it('should reject startValue outside bounds', () => {
+      const result = validateRandomWalkParams({ ...validParams, startValue: 15 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('startValue');
+      }
+    });
+
+    it('should reject negative maxStepSize', () => {
+      const result = validateRandomWalkParams({ ...validParams, maxStepSize: -1 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('maxStepSize');
+      }
+    });
+
+    it('should reject zero maxStepSize', () => {
+      const result = validateRandomWalkParams({ ...validParams, maxStepSize: 0 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('maxStepSize');
+      }
+    });
+
+    it('should reject NaN values', () => {
+      const result = validateRandomWalkParams({ ...validParams, startValue: NaN });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('startValue');
+      }
+    });
+
+    it('should reject pointsPerCycle below minimum', () => {
+      const result = validateRandomWalkParams({ ...validParams, pointsPerCycle: 1 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('pointsPerCycle');
+      }
+    });
+
+    it('should reject intervalMs below minimum', () => {
+      const result = validateRandomWalkParams({ ...validParams, intervalMs: 5 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('intervalMs');
+      }
     });
   });
 
@@ -448,6 +524,123 @@ describe('Type Guards', () => {
       };
       expect(isArbitrary(waveform)).toBe(false);
     });
+
+    it('should return false for random walk', () => {
+      const waveform: RandomWalkParams = {
+        type: 'random',
+        startValue: 5,
+        maxStepSize: 1,
+        min: 0,
+        max: 10,
+        pointsPerCycle: 20,
+        intervalMs: 100,
+      };
+      expect(isArbitrary(waveform)).toBe(false);
+    });
+  });
+
+  describe('isRandomWalk', () => {
+    it('should return true for random walk', () => {
+      const waveform: RandomWalkParams = {
+        type: 'random',
+        startValue: 5,
+        maxStepSize: 1,
+        min: 0,
+        max: 10,
+        pointsPerCycle: 20,
+        intervalMs: 100,
+      };
+      expect(isRandomWalk(waveform)).toBe(true);
+    });
+
+    it('should return false for standard waveform', () => {
+      const waveform: WaveformParams = {
+        type: 'sine',
+        min: 0,
+        max: 10,
+        pointsPerCycle: 20,
+        intervalMs: 100,
+      };
+      expect(isRandomWalk(waveform)).toBe(false);
+    });
+
+    it('should return false for arbitrary waveform', () => {
+      const waveform: ArbitraryWaveform = { steps: [{ value: 1, dwellMs: 100 }] };
+      expect(isRandomWalk(waveform)).toBe(false);
+    });
+  });
+});
+
+describe('Random Walk Generation', () => {
+  describe('generateRandomWalk', () => {
+    const baseParams: RandomWalkParams = {
+      type: 'random',
+      startValue: 5,
+      maxStepSize: 1,
+      min: 0,
+      max: 10,
+      pointsPerCycle: 10,
+      intervalMs: 100,
+    };
+
+    it('should generate correct number of points', () => {
+      const steps = generateRandomWalk(baseParams);
+      expect(steps).toHaveLength(10);
+    });
+
+    it('should start from startValue on first call', () => {
+      const steps = generateRandomWalk(baseParams);
+      // First step should be within maxStepSize of startValue
+      expect(Math.abs(steps[0].value - baseParams.startValue)).toBeLessThanOrEqual(baseParams.maxStepSize);
+    });
+
+    it('should start from lastValue when provided', () => {
+      const lastValue = 7;
+      const steps = generateRandomWalk(baseParams, lastValue);
+      // First step should be within maxStepSize of lastValue
+      expect(Math.abs(steps[0].value - lastValue)).toBeLessThanOrEqual(baseParams.maxStepSize);
+    });
+
+    it('should clamp values to min/max bounds', () => {
+      const params: RandomWalkParams = {
+        ...baseParams,
+        startValue: 9,
+        maxStepSize: 5, // Large step to force clamping
+        pointsPerCycle: 50,
+      };
+      const steps = generateRandomWalk(params);
+
+      for (const step of steps) {
+        expect(step.value).toBeGreaterThanOrEqual(params.min);
+        expect(step.value).toBeLessThanOrEqual(params.max);
+      }
+    });
+
+    it('should have correct dwell time for each step', () => {
+      const steps = generateRandomWalk(baseParams);
+      for (const step of steps) {
+        expect(step.dwellMs).toBe(baseParams.intervalMs);
+      }
+    });
+
+    it('should produce different values on subsequent calls (randomness)', () => {
+      const steps1 = generateRandomWalk(baseParams);
+      const steps2 = generateRandomWalk(baseParams);
+
+      // With 10 random steps, extremely unlikely to be identical
+      const values1 = steps1.map(s => s.value);
+      const values2 = steps2.map(s => s.value);
+      expect(values1).not.toEqual(values2);
+    });
+
+    it('should have each step within maxStepSize of previous step', () => {
+      const steps = generateRandomWalk(baseParams);
+
+      for (let i = 1; i < steps.length; i++) {
+        const diff = Math.abs(steps[i].value - steps[i - 1].value);
+        expect(diff).toBeLessThanOrEqual(baseParams.maxStepSize);
+      }
+    });
   });
 });
 
@@ -497,10 +690,6 @@ describe('Waveform Resolution', () => {
       // Square starts at max
       const square = generateWaveformSteps({ ...baseParams, type: 'square' });
       expect(square[0].value).toBe(10);
-
-      // Steps starts at min
-      const steps = generateWaveformSteps({ ...baseParams, type: 'steps' });
-      expect(steps[0].value).toBe(0);
     });
   });
 });
@@ -529,18 +718,23 @@ describe('Modifiers', () => {
     });
 
     it('should apply maxClamp', () => {
-      const result = applyModifiers(baseSteps, undefined, undefined, 7);
+      const result = applyModifiers(baseSteps, undefined, undefined, undefined, 7);
       expect(result.map(s => s.value)).toEqual([0, 5, 7]);
+    });
+
+    it('should apply minClamp', () => {
+      const result = applyModifiers(baseSteps, undefined, undefined, 3, undefined);
+      expect(result.map(s => s.value)).toEqual([3, 5, 10]);
     });
 
     it('should apply modifiers in order: scale, offset, clamp', () => {
       // value=10: scale(2)=20, offset(+5)=25, clamp(15)=15
-      const result = applyModifiers(baseSteps, 2, 5, 15);
+      const result = applyModifiers(baseSteps, 2, 5, undefined, 15);
       expect(result[2].value).toBe(15);
     });
 
     it('should preserve dwellMs', () => {
-      const result = applyModifiers(baseSteps, 2, 5, 15);
+      const result = applyModifiers(baseSteps, 2, 5, undefined, 15);
       expect(result.map(s => s.dwellMs)).toEqual([100, 100, 100]);
     });
 
@@ -559,7 +753,7 @@ describe('Modifiers', () => {
 
     it('should not mutate original steps', () => {
       const original = [...baseSteps.map(s => ({ ...s }))];
-      applyModifiers(baseSteps, 2, 5, 15);
+      applyModifiers(baseSteps, 2, 5, undefined, 15);
       expect(baseSteps).toEqual(original);
     });
   });

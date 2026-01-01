@@ -2,13 +2,14 @@
  * Shared waveform utilities for client and server
  *
  * Contains:
- * - Waveform generation (sine, triangle, ramp, square, steps)
+ * - Waveform generation (sine, triangle, ramp, square, random walk)
  * - Validation functions
  * - Type guards and helper functions
  */
 
 import type {
   WaveformParams,
+  RandomWalkParams,
   ArbitraryWaveform,
   SequenceStep,
   SequenceDefinition,
@@ -79,7 +80,7 @@ export function validateWaveformParams(params: WaveformParams): Result<void, Val
   }
 
   // Validate waveform type
-  const validTypes = ['sine', 'triangle', 'ramp', 'square', 'steps'];
+  const validTypes = ['sine', 'triangle', 'ramp', 'square'];
   if (!validTypes.includes(params.type)) {
     return Err({ field: 'type', message: `Invalid waveform type: ${params.type}` });
   }
@@ -150,6 +151,9 @@ export function validateSequenceDefinition(
   if (isArbitrary(def.waveform)) {
     const result = validateArbitraryWaveform(def.waveform);
     if (!result.ok) return result;
+  } else if (isRandomWalk(def.waveform)) {
+    const result = validateRandomWalkParams(def.waveform);
+    if (!result.ok) return result;
   } else {
     const result = validateWaveformParams(def.waveform);
     if (!result.ok) return result;
@@ -161,6 +165,9 @@ export function validateSequenceDefinition(
   }
   if (def.offset !== undefined && !Number.isFinite(def.offset)) {
     return Err({ field: 'offset', message: 'Offset must be a finite number' });
+  }
+  if (def.minClamp !== undefined && !Number.isFinite(def.minClamp)) {
+    return Err({ field: 'minClamp', message: 'Min clamp must be a finite number' });
   }
   if (def.maxClamp !== undefined && !Number.isFinite(def.maxClamp)) {
     return Err({ field: 'maxClamp', message: 'Max clamp must be a finite number' });
@@ -180,13 +187,75 @@ export function validateSequenceDefinition(
   return Ok();
 }
 
+/**
+ * Validate random walk parameters
+ */
+export function validateRandomWalkParams(params: RandomWalkParams): Result<void, ValidationError> {
+  // Check min/max relationship
+  if (params.min >= params.max) {
+    return Err({ field: 'min/max', message: 'Min must be less than max' });
+  }
+
+  // Check for NaN or Infinity
+  if (!Number.isFinite(params.min)) {
+    return Err({ field: 'min', message: 'Min must be a finite number' });
+  }
+  if (!Number.isFinite(params.max)) {
+    return Err({ field: 'max', message: 'Max must be a finite number' });
+  }
+
+  // Check startValue is within bounds
+  if (!Number.isFinite(params.startValue)) {
+    return Err({ field: 'startValue', message: 'Start value must be a finite number' });
+  }
+  if (params.startValue < params.min || params.startValue > params.max) {
+    return Err({ field: 'startValue', message: 'Start value must be within min/max bounds' });
+  }
+
+  // Check maxStepSize
+  if (!Number.isFinite(params.maxStepSize) || params.maxStepSize <= 0) {
+    return Err({ field: 'maxStepSize', message: 'Max step size must be a positive number' });
+  }
+
+  // Check pointsPerCycle
+  if (!Number.isInteger(params.pointsPerCycle)) {
+    return Err({ field: 'pointsPerCycle', message: 'Points per cycle must be an integer' });
+  }
+  if (params.pointsPerCycle < WAVEFORM_LIMITS.MIN_POINTS) {
+    return Err({ field: 'pointsPerCycle', message: `Points per cycle must be at least ${WAVEFORM_LIMITS.MIN_POINTS}` });
+  }
+  if (params.pointsPerCycle > WAVEFORM_LIMITS.MAX_POINTS) {
+    return Err({ field: 'pointsPerCycle', message: `Points per cycle must be at most ${WAVEFORM_LIMITS.MAX_POINTS}` });
+  }
+
+  // Check intervalMs
+  if (!Number.isFinite(params.intervalMs)) {
+    return Err({ field: 'intervalMs', message: 'Interval must be a finite number' });
+  }
+  if (params.intervalMs < WAVEFORM_LIMITS.MIN_INTERVAL_MS) {
+    return Err({ field: 'intervalMs', message: `Interval must be at least ${WAVEFORM_LIMITS.MIN_INTERVAL_MS}ms` });
+  }
+  if (params.intervalMs > WAVEFORM_LIMITS.MAX_INTERVAL_MS) {
+    return Err({ field: 'intervalMs', message: `Interval must be at most ${WAVEFORM_LIMITS.MAX_INTERVAL_MS}ms` });
+  }
+
+  return Ok();
+}
+
 // ============ Type Guards ============
 
 /**
  * Type guard: check if waveform is arbitrary (has steps array)
  */
-export function isArbitrary(waveform: WaveformParams | ArbitraryWaveform): waveform is ArbitraryWaveform {
+export function isArbitrary(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): waveform is ArbitraryWaveform {
   return 'steps' in waveform;
+}
+
+/**
+ * Type guard: check if waveform is random walk
+ */
+export function isRandomWalk(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): waveform is RandomWalkParams {
+  return 'type' in waveform && waveform.type === 'random';
 }
 
 // ============ Waveform Generation ============
@@ -271,16 +340,29 @@ export function generateSquare(params: WaveformParams): SequenceStep[] {
 }
 
 /**
- * Generate discrete steps from min to max
+ * Generate random walk steps
+ * Each step changes by a random amount within [-maxStepSize, +maxStepSize]
+ * Values are clamped to min/max bounds
+ *
+ * @param params - Random walk parameters
+ * @param lastValue - Optional starting value (for cycle continuation). If not provided, uses params.startValue
  */
-export function generateSteps(params: WaveformParams): SequenceStep[] {
-  const { min, max, pointsPerCycle, intervalMs } = params;
+export function generateRandomWalk(params: RandomWalkParams, lastValue?: number): SequenceStep[] {
+  const { min, max, maxStepSize, pointsPerCycle, intervalMs, startValue } = params;
   const steps: SequenceStep[] = [];
 
+  // Use lastValue if provided (for cycle continuation), otherwise use startValue
+  let currentValue = lastValue !== undefined ? lastValue : startValue;
+
   for (let i = 0; i < pointsPerCycle; i++) {
-    const t = pointsPerCycle > 1 ? i / (pointsPerCycle - 1) : 0;
-    const value = min + (max - min) * t;
-    steps.push({ value, dwellMs: intervalMs });
+    // Generate random step in [-maxStepSize, +maxStepSize]
+    const step = (Math.random() * 2 - 1) * maxStepSize;
+    currentValue = currentValue + step;
+
+    // Clamp to bounds
+    currentValue = Math.max(min, Math.min(max, currentValue));
+
+    steps.push({ value: currentValue, dwellMs: intervalMs });
   }
 
   return steps;
@@ -299,8 +381,6 @@ export function generateWaveformSteps(params: WaveformParams): SequenceStep[] {
       return generateRamp(params);
     case 'square':
       return generateSquare(params);
-    case 'steps':
-      return generateSteps(params);
     default: {
       const exhaustiveCheck: never = params.type;
       throw new Error(`Unknown waveform type: ${exhaustiveCheck}`);
@@ -325,9 +405,10 @@ export function applyModifiers(
   steps: SequenceStep[],
   scale?: number,
   offset?: number,
+  minClamp?: number,
   maxClamp?: number
 ): SequenceStep[] {
-  if (scale === undefined && offset === undefined && maxClamp === undefined) {
+  if (scale === undefined && offset === undefined && minClamp === undefined && maxClamp === undefined) {
     return steps;
   }
 
@@ -335,6 +416,7 @@ export function applyModifiers(
     let value = step.value;
     if (scale !== undefined) value *= scale;
     if (offset !== undefined) value += offset;
+    if (minClamp !== undefined) value = Math.max(value, minClamp);
     if (maxClamp !== undefined) value = Math.min(value, maxClamp);
     return { ...step, value };
   });

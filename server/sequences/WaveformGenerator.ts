@@ -5,15 +5,16 @@
  * factory interface expected by existing server code.
  */
 
-import type { WaveformParams, SequenceStep, ArbitraryWaveform } from '../../shared/types.js';
+import type { WaveformParams, RandomWalkParams, SequenceStep, ArbitraryWaveform } from '../../shared/types.js';
 import {
   generateSine,
   generateTriangle,
   generateRamp,
   generateSquare,
-  generateSteps,
   generateWaveformSteps,
+  generateRandomWalk,
   isArbitrary,
+  isRandomWalk,
 } from '../../shared/waveform.js';
 
 export interface WaveformGenerator {
@@ -21,9 +22,10 @@ export interface WaveformGenerator {
   generateTriangle(params: WaveformParams): SequenceStep[];
   generateRamp(params: WaveformParams): SequenceStep[];
   generateSquare(params: WaveformParams): SequenceStep[];
-  generateSteps(params: WaveformParams): SequenceStep[];
+  generateRandomWalk(params: RandomWalkParams, lastValue?: number): SequenceStep[];
   generate(params: WaveformParams): SequenceStep[];
-  isArbitrary(waveform: WaveformParams | ArbitraryWaveform): waveform is ArbitraryWaveform;
+  isArbitrary(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): waveform is ArbitraryWaveform;
+  isRandomWalk(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): waveform is RandomWalkParams;
 }
 
 export function createWaveformGenerator(): WaveformGenerator {
@@ -32,9 +34,10 @@ export function createWaveformGenerator(): WaveformGenerator {
     generateTriangle,
     generateRamp,
     generateSquare,
-    generateSteps,
+    generateRandomWalk,
     generate: generateWaveformSteps,
     isArbitrary,
+    isRandomWalk,
   };
 }
 
@@ -44,7 +47,8 @@ export {
   generateTriangle,
   generateRamp,
   generateSquare,
-  generateSteps,
   generateWaveformSteps,
+  generateRandomWalk,
   isArbitrary,
+  isRandomWalk,
 };

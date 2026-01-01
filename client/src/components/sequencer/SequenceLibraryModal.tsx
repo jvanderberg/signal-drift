@@ -50,7 +50,7 @@ const defaultFormState: FormState = {
   max: 10,
   pointsPerCycle: 20,
   intervalMs: 100,
-  arbitrarySteps: '0,100\n5,100\n10,100\n5,100',
+  arbitrarySteps: '0,2000\n5,2000\n10,2000\n5,2000',
   preValue: '',
   postValue: '',
   scale: '',
@@ -403,7 +403,7 @@ export function SequenceLibraryModal({ isOpen, onClose }: SequenceLibraryModalPr
                   <textarea
                     value={form.arbitrarySteps}
                     onChange={(e) => updateForm('arbitrarySteps', e.target.value)}
-                    placeholder="0,100&#10;5,100&#10;10,100"
+                    placeholder="0,2000&#10;5,2000&#10;10,2000"
                     rows={6}
                     className="w-full px-2 py-1.5 text-sm font-mono rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
                   />

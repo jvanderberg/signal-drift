@@ -246,51 +246,17 @@ describe('WaveformGenerator', () => {
     });
   });
 
-  describe('generateSteps', () => {
-    it('should generate correct number of points', () => {
-      const params: WaveformParams = {
-        type: 'steps',
-        min: 0,
-        max: 10,
-        pointsPerCycle: 5,
-        intervalMs: 100,
-      };
-
-      const steps = generator.generateSteps(params);
-      expect(steps.length).toBe(5);
-    });
-
-    it('should produce discrete evenly-spaced values', () => {
-      const params: WaveformParams = {
-        type: 'steps',
-        min: 0,
-        max: 8,
-        pointsPerCycle: 5,
-        intervalMs: 100,
-      };
-
-      const steps = generator.generateSteps(params);
-      expect(steps[0].value).toBe(0);
-      expect(steps[1].value).toBe(2);
-      expect(steps[2].value).toBe(4);
-      expect(steps[3].value).toBe(6);
-      expect(steps[4].value).toBe(8);
-    });
-  });
-
   describe('generate', () => {
     it('should dispatch to correct generator based on type', () => {
       const sineParams: WaveformParams = { type: 'sine', min: 0, max: 10, pointsPerCycle: 10, intervalMs: 100 };
       const triangleParams: WaveformParams = { type: 'triangle', min: 0, max: 10, pointsPerCycle: 10, intervalMs: 100 };
       const rampParams: WaveformParams = { type: 'ramp', min: 0, max: 10, pointsPerCycle: 10, intervalMs: 100 };
       const squareParams: WaveformParams = { type: 'square', min: 0, max: 10, pointsPerCycle: 10, intervalMs: 100 };
-      const stepsParams: WaveformParams = { type: 'steps', min: 0, max: 10, pointsPerCycle: 10, intervalMs: 100 };
 
       expect(generator.generate(sineParams)).toEqual(generator.generateSine(sineParams));
       expect(generator.generate(triangleParams)).toEqual(generator.generateTriangle(triangleParams));
       expect(generator.generate(rampParams)).toEqual(generator.generateRamp(rampParams));
       expect(generator.generate(squareParams)).toEqual(generator.generateSquare(squareParams));
-      expect(generator.generate(stepsParams)).toEqual(generator.generateSteps(stepsParams));
     });
   });
 

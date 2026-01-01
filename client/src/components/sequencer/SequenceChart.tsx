@@ -68,7 +68,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
   // Compute steps from sequence definition (using shared utilities)
   const steps = useMemo(() => {
     const rawSteps = resolveWaveformSteps(sequence.waveform);
-    return applyModifiers(rawSteps, sequence.scale, sequence.offset, sequence.maxClamp);
+    return applyModifiers(rawSteps, sequence.scale, sequence.offset, sequence.minClamp, sequence.maxClamp);
   }, [sequence]);
 
   // Compute timing for all steps
@@ -97,6 +97,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
       let preVal = sequence.preValue;
       if (sequence.scale !== undefined) preVal *= sequence.scale;
       if (sequence.offset !== undefined) preVal += sequence.offset;
+      if (sequence.minClamp !== undefined) preVal = Math.max(preVal, sequence.minClamp);
       if (sequence.maxClamp !== undefined) preVal = Math.min(preVal, sequence.maxClamp);
       min = Math.min(min, preVal);
       max = Math.max(max, preVal);
@@ -105,6 +106,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
       let postVal = sequence.postValue;
       if (sequence.scale !== undefined) postVal *= sequence.scale;
       if (sequence.offset !== undefined) postVal += sequence.offset;
+      if (sequence.minClamp !== undefined) postVal = Math.max(postVal, sequence.minClamp);
       if (sequence.maxClamp !== undefined) postVal = Math.min(postVal, sequence.maxClamp);
       min = Math.min(min, postVal);
       max = Math.max(max, postVal);

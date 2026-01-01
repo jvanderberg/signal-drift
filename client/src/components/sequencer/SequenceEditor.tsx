@@ -12,9 +12,10 @@ import type {
   SequenceDefinition,
   WaveformType,
   WaveformParams,
+  RandomWalkParams,
   ArbitraryWaveform,
 } from '../../types';
-import { isArbitrary, parseArbitraryStepsCSV, stepsToCSV, calculateDuration } from '../../types';
+import { isArbitrary, isRandomWalk, parseArbitraryStepsCSV, stepsToCSV, calculateDuration } from '../../types';
 
 interface SequenceEditorProps {
   /** Sequence to edit, or null for creating new */
@@ -28,16 +29,22 @@ interface SequenceEditorProps {
 interface FormState {
   name: string;
   unit: string;
-  waveformType: WaveformType | 'arbitrary';
+  waveformType: WaveformType | 'random' | 'arbitrary';
   min: number;
   max: number;
   pointsPerCycle: number;
   intervalMs: number;
+  // Random walk specific
+  startValue: number;
+  maxStepSize: number;
+  // Arbitrary
   arbitrarySteps: string;
+  // Modifiers
   preValue: string;
   postValue: string;
   scale: string;
   offset: string;
+  minClamp: string;
   maxClamp: string;
 }
 
@@ -49,20 +56,23 @@ const defaultFormState: FormState = {
   max: 10,
   pointsPerCycle: 20,
   intervalMs: 100,
-  arbitrarySteps: '0,100\n5,100\n10,100\n5,100',
+  startValue: 5,
+  maxStepSize: 1,
+  arbitrarySteps: '0,2000\n5,2000\n10,2000\n5,2000',
   preValue: '',
   postValue: '',
   scale: '',
   offset: '',
+  minClamp: '',
   maxClamp: '',
 };
 
-const WAVEFORM_TYPES: { value: WaveformType | 'arbitrary'; label: string }[] = [
+const WAVEFORM_TYPES: { value: WaveformType | 'random' | 'arbitrary'; label: string }[] = [
   { value: 'sine', label: 'Sine' },
   { value: 'triangle', label: 'Triangle' },
   { value: 'ramp', label: 'Ramp' },
   { value: 'square', label: 'Square' },
-  { value: 'steps', label: 'Linear Steps' },
+  { value: 'random', label: 'Random Walk' },
   { value: 'arbitrary', label: 'Arbitrary (CSV)' },
 ];
 
@@ -82,6 +92,14 @@ function definitionToForm(def: SequenceDefinition): FormState {
   if (isArbitrary(def.waveform)) {
     form.waveformType = 'arbitrary';
     form.arbitrarySteps = stepsToCSV(def.waveform.steps);
+  } else if (isRandomWalk(def.waveform)) {
+    form.waveformType = 'random';
+    form.min = def.waveform.min;
+    form.max = def.waveform.max;
+    form.startValue = def.waveform.startValue;
+    form.maxStepSize = def.waveform.maxStepSize;
+    form.pointsPerCycle = def.waveform.pointsPerCycle;
+    form.intervalMs = def.waveform.intervalMs;
   } else {
     form.waveformType = def.waveform.type;
     form.min = def.waveform.min;
@@ -94,6 +112,7 @@ function definitionToForm(def: SequenceDefinition): FormState {
   if (def.postValue !== undefined) form.postValue = String(def.postValue);
   if (def.scale !== undefined) form.scale = String(def.scale);
   if (def.offset !== undefined) form.offset = String(def.offset);
+  if (def.minClamp !== undefined) form.minClamp = String(def.minClamp);
   if (def.maxClamp !== undefined) form.maxClamp = String(def.maxClamp);
 
   return form;
@@ -102,12 +121,22 @@ function definitionToForm(def: SequenceDefinition): FormState {
 function formToDefinition(
   form: FormState
 ): Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'> | null {
-  let waveform: WaveformParams | ArbitraryWaveform;
+  let waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform;
 
   if (form.waveformType === 'arbitrary') {
     const steps = parseArbitraryStepsCSV(form.arbitrarySteps);
     if (!steps) return null;
     waveform = { steps };
+  } else if (form.waveformType === 'random') {
+    waveform = {
+      type: 'random',
+      startValue: form.startValue,
+      maxStepSize: form.maxStepSize,
+      min: form.min,
+      max: form.max,
+      pointsPerCycle: form.pointsPerCycle,
+      intervalMs: form.intervalMs,
+    };
   } else {
     waveform = {
       type: form.waveformType,
@@ -139,6 +168,10 @@ function formToDefinition(
   if (form.offset.trim()) {
     const val = parseFloat(form.offset);
     if (!isNaN(val)) definition.offset = val;
+  }
+  if (form.minClamp.trim()) {
+    const val = parseFloat(form.minClamp);
+    if (!isNaN(val)) definition.minClamp = val;
   }
   if (form.maxClamp.trim()) {
     const val = parseFloat(form.maxClamp);
@@ -180,6 +213,7 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
       if (!steps) return null;
       return calculateDuration(steps);
     }
+    // Standard waveforms and random walk all use pointsPerCycle * intervalMs
     return form.pointsPerCycle * form.intervalMs;
   }, [form]);
 
@@ -303,7 +337,7 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
               </select>
             </div>
 
-            {/* Standard waveform params */}
+            {/* Standard waveform params (not arbitrary) */}
             {form.waveformType !== 'arbitrary' && (
               <>
                 <div>
@@ -324,6 +358,33 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
                     className="w-full px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
                   />
                 </div>
+
+                {/* Random walk specific fields */}
+                {form.waveformType === 'random' && (
+                  <>
+                    <div>
+                      <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Start Value</label>
+                      <input
+                        type="number"
+                        value={form.startValue}
+                        onChange={(e) => updateForm('startValue', parseFloat(e.target.value) || 0)}
+                        className="w-full px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Max Step</label>
+                      <input
+                        type="number"
+                        min={0.01}
+                        step={0.1}
+                        value={form.maxStepSize}
+                        onChange={(e) => updateForm('maxStepSize', parseFloat(e.target.value) || 0.1)}
+                        className="w-full px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
+                      />
+                    </div>
+                  </>
+                )}
+
                 <div>
                   <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Points</label>
                   <input
@@ -356,7 +417,7 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
                 <textarea
                   value={form.arbitrarySteps}
                   onChange={(e) => updateForm('arbitrarySteps', e.target.value)}
-                  placeholder="0,100&#10;5,100&#10;10,100"
+                  placeholder="0,2000&#10;5,2000&#10;10,2000"
                   rows={6}
                   className="w-full px-2 py-1 text-xs font-mono rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
                 />
@@ -407,8 +468,18 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
               />
             </div>
 
-            {/* Max Clamp */}
-            <div className="col-span-2">
+            {/* Clamps */}
+            <div>
+              <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Min Clamp</label>
+              <input
+                type="text"
+                value={form.minClamp}
+                onChange={(e) => updateForm('minClamp', e.target.value)}
+                placeholder="—"
+                className="w-full px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
+              />
+            </div>
+            <div>
               <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Max Clamp</label>
               <input
                 type="text"
@@ -430,7 +501,12 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
 
         {/* Preview chart - right side */}
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="text-xs text-[var(--color-text-secondary)] mb-2 flex-shrink-0">Preview</div>
+          <div className="text-xs text-[var(--color-text-secondary)] mb-2 flex-shrink-0">
+            Preview
+            {form.waveformType === 'random' && (
+              <span className="ml-2 text-yellow-500/70">(actual values will vary)</span>
+            )}
+          </div>
           <div className="flex-1 min-h-0">
             {previewSequence ? (
               <SequenceChart sequence={previewSequence} activeState={null} />

@@ -364,7 +364,7 @@ export interface DeviceSummary {
 // ============ Sequence / AWG Types ============
 
 /** Standard waveform shapes */
-export type WaveformType = 'sine' | 'triangle' | 'ramp' | 'square' | 'steps';
+export type WaveformType = 'sine' | 'triangle' | 'ramp' | 'square';
 
 /** How the sequence repeats (chosen at runtime) */
 export type RepeatMode = 'once' | 'count' | 'continuous';
@@ -387,6 +387,17 @@ export interface WaveformParams {
   intervalMs: number;
 }
 
+/** Random walk parameters */
+export interface RandomWalkParams {
+  type: 'random';
+  startValue: number;       // Initial value for first cycle
+  maxStepSize: number;      // Max change per step (uniform random in [-maxStepSize, +maxStepSize])
+  min: number;              // Lower bound (clamp)
+  max: number;              // Upper bound (clamp)
+  pointsPerCycle: number;
+  intervalMs: number;
+}
+
 /** Arbitrary waveform data (user-defined steps) */
 export interface ArbitraryWaveform {
   steps: SequenceStep[];
@@ -397,11 +408,12 @@ export interface SequenceDefinition {
   id: string;
   name: string;
   unit: string;  // 'V', 'A', 'Ω', 'W' - filters valid target parameters
-  waveform: WaveformParams | ArbitraryWaveform;
+  waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform;
   preValue?: number;      // Set before starting
   postValue?: number;     // Set after completing
   scale?: number;         // Multiply all values (default: 1.0)
   offset?: number;        // Add to all values (default: 0)
+  minClamp?: number;      // Safety limit - clamp values below this
   maxClamp?: number;      // Safety limit - clamp values above this
   maxSlewRate?: number;   // V/s or A/s - limit rate of change
   createdAt: number;

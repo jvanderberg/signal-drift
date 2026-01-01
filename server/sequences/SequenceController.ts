@@ -15,6 +15,7 @@ import type {
   SequenceStep,
   SequenceExecutionState,
   ServerMessage,
+  RandomWalkParams,
 } from '../../shared/types.js';
 import { createWaveformGenerator } from './WaveformGenerator.js';
 
@@ -50,11 +51,14 @@ export function createSequenceController(
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const waveformGenerator = createWaveformGenerator();
 
-  // Generate steps from definition
+  // Check if this is a random walk waveform (needs regeneration per cycle)
+  const isRandomWalkWaveform = waveformGenerator.isRandomWalk(definition.waveform);
+
+  // Generate initial steps from definition
   const steps = resolveSteps(definition, waveformGenerator);
 
-  // Apply modifiers to steps
-  const processedSteps = applyModifiers(steps, definition);
+  // Apply modifiers to steps (mutable for random walk regeneration)
+  let processedSteps = applyModifiers(steps, definition);
 
   // State
   let executionState: SequenceExecutionState = 'idle';
@@ -167,6 +171,13 @@ export function createSequenceController(
         return;
       }
 
+      // For random walk, regenerate steps using the last commanded value
+      if (isRandomWalkWaveform) {
+        const randomWalkParams = definition.waveform as RandomWalkParams;
+        const newSteps = waveformGenerator.generateRandomWalk(randomWalkParams, commandedValue);
+        processedSteps = applyModifiers(newSteps, definition);
+      }
+
       // Start next cycle from when this cycle should have ended (not from now)
       // This prevents drift across cycles
       buildSchedule(cycleEndTime);
@@ -210,6 +221,7 @@ export function createSequenceController(
       let postValue = definition.postValue;
       if (definition.scale !== undefined) postValue *= definition.scale;
       if (definition.offset !== undefined) postValue += definition.offset;
+      if (definition.minClamp !== undefined) postValue = Math.max(postValue, definition.minClamp);
       if (definition.maxClamp !== undefined) postValue = Math.min(postValue, definition.maxClamp);
 
       await session.setValue(runConfig.parameter, postValue, true);
@@ -258,6 +270,7 @@ export function createSequenceController(
       let preValue = definition.preValue;
       if (definition.scale !== undefined) preValue *= definition.scale;
       if (definition.offset !== undefined) preValue += definition.offset;
+      if (definition.minClamp !== undefined) preValue = Math.max(preValue, definition.minClamp);
       if (definition.maxClamp !== undefined) preValue = Math.min(preValue, definition.maxClamp);
 
       const result = await session.setValue(runConfig.parameter, preValue, true);
@@ -339,6 +352,7 @@ export function createSequenceController(
       let postValue = definition.postValue;
       if (definition.scale !== undefined) postValue *= definition.scale;
       if (definition.offset !== undefined) postValue += definition.offset;
+      if (definition.minClamp !== undefined) postValue = Math.max(postValue, definition.minClamp);
       if (definition.maxClamp !== undefined) postValue = Math.min(postValue, definition.maxClamp);
 
       await session.setValue(runConfig.parameter, postValue, true);
@@ -383,14 +397,17 @@ function resolveSteps(
   if (generator.isArbitrary(definition.waveform)) {
     return definition.waveform.steps;
   }
+  if (generator.isRandomWalk(definition.waveform)) {
+    return generator.generateRandomWalk(definition.waveform);
+  }
   return generator.generate(definition.waveform);
 }
 
 // Helper: Apply modifiers (scale, offset, clamp) to steps
 function applyModifiers(steps: SequenceStep[], definition: SequenceDefinition): SequenceStep[] {
-  const { scale, offset, maxClamp } = definition;
+  const { scale, offset, minClamp, maxClamp } = definition;
 
-  if (scale === undefined && offset === undefined && maxClamp === undefined) {
+  if (scale === undefined && offset === undefined && minClamp === undefined && maxClamp === undefined) {
     return steps;
   }
 
@@ -398,6 +415,7 @@ function applyModifiers(steps: SequenceStep[], definition: SequenceDefinition): 
     let value = step.value;
     if (scale !== undefined) value *= scale;
     if (offset !== undefined) value += offset;
+    if (minClamp !== undefined) value = Math.max(value, minClamp);
     if (maxClamp !== undefined) value = Math.min(value, maxClamp);
     return { ...step, value };
   });

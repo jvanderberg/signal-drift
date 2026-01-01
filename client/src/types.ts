@@ -4,7 +4,9 @@ export * from '../../shared/types';
 // Re-export waveform utilities (generation, validation, helpers)
 export {
   isArbitrary,
+  isRandomWalk,
   generateWaveformSteps,
+  generateRandomWalk,
   resolveWaveformSteps,
   applyModifiers,
   calculateDuration,
@@ -12,6 +14,7 @@ export {
   stepsToCSV,
   validateWaveformParams,
   validateArbitraryWaveform,
+  validateRandomWalkParams,
   validateSequenceDefinition,
   WAVEFORM_LIMITS,
 } from '../../shared/waveform';
