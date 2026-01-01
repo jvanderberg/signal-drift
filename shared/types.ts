@@ -316,7 +316,15 @@ export type ClientMessage =
   | { type: 'scopeSetTriggerSweep'; deviceId: string; sweep: 'auto' | 'normal' | 'single' }
   // Oscilloscope messages - streaming
   | { type: 'scopeStartStreaming'; deviceId: string; channels: string[]; intervalMs: number; measurements?: string[] }
-  | { type: 'scopeStopStreaming'; deviceId: string };
+  | { type: 'scopeStopStreaming'; deviceId: string }
+  // Sequence messages - library
+  | { type: 'sequenceLibraryList' }
+  | { type: 'sequenceLibrarySave'; definition: Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'> }
+  | { type: 'sequenceLibraryUpdate'; definition: SequenceDefinition }
+  | { type: 'sequenceLibraryDelete'; sequenceId: string }
+  // Sequence messages - playback
+  | { type: 'sequenceRun'; config: SequenceRunConfig }
+  | { type: 'sequenceAbort' };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner
@@ -333,7 +341,17 @@ export type ServerMessage =
   // Oscilloscope responses
   | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData }
   | { type: 'scopeMeasurement'; deviceId: string; channel: string; measurementType: string; value: number | null }
-  | { type: 'scopeScreenshot'; deviceId: string; data: string };  // Base64-encoded PNG
+  | { type: 'scopeScreenshot'; deviceId: string; data: string }  // Base64-encoded PNG
+  // Sequence responses - library
+  | { type: 'sequenceLibrary'; sequences: SequenceDefinition[] }
+  | { type: 'sequenceLibrarySaved'; sequenceId: string }
+  | { type: 'sequenceLibraryDeleted'; sequenceId: string }
+  // Sequence responses - playback
+  | { type: 'sequenceStarted'; state: SequenceState }
+  | { type: 'sequenceProgress'; state: SequenceState }
+  | { type: 'sequenceCompleted'; sequenceId: string }
+  | { type: 'sequenceAborted'; sequenceId: string }
+  | { type: 'sequenceError'; sequenceId: string; error: string };
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {
@@ -341,4 +359,83 @@ export interface DeviceSummary {
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
   connectionStatus: ConnectionStatus;
+}
+
+// ============ Sequence / AWG Types ============
+
+/** Standard waveform shapes */
+export type WaveformType = 'sine' | 'triangle' | 'ramp' | 'square' | 'steps';
+
+/** How the sequence repeats (chosen at runtime) */
+export type RepeatMode = 'once' | 'count' | 'continuous';
+
+/** Current execution state of a sequence */
+export type SequenceExecutionState = 'idle' | 'running' | 'paused' | 'completed' | 'error';
+
+/** A single step in a sequence */
+export interface SequenceStep {
+  value: number;
+  dwellMs: number;
+}
+
+/** Standard waveform parameters (generates steps automatically) */
+export interface WaveformParams {
+  type: WaveformType;
+  min: number;
+  max: number;
+  pointsPerCycle: number;
+  intervalMs: number;
+}
+
+/** Arbitrary waveform data (user-defined steps) */
+export interface ArbitraryWaveform {
+  steps: SequenceStep[];
+}
+
+/** Complete sequence definition - saved in library, device-agnostic */
+export interface SequenceDefinition {
+  id: string;
+  name: string;
+  unit: string;  // 'V', 'A', 'Ω', 'W' - filters valid target parameters
+  waveform: WaveformParams | ArbitraryWaveform;
+  preValue?: number;      // Set before starting
+  postValue?: number;     // Set after completing
+  scale?: number;         // Multiply all values (default: 1.0)
+  offset?: number;        // Add to all values (default: 0)
+  maxClamp?: number;      // Safety limit - clamp values above this
+  maxSlewRate?: number;   // V/s or A/s - limit rate of change
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Runtime config - chosen when you hit "Run" */
+export interface SequenceRunConfig {
+  sequenceId: string;
+  deviceId: string;
+  parameter: string;
+  repeatMode: RepeatMode;
+  repeatCount?: number;  // For 'count' mode
+}
+
+/** Runtime state of a running sequence */
+export interface SequenceState {
+  sequenceId: string;
+  runConfig: SequenceRunConfig;
+  executionState: SequenceExecutionState;
+
+  // Progress tracking
+  currentStepIndex: number;
+  totalSteps: number;
+  currentCycle: number;
+  totalCycles: number | null;  // null for continuous
+
+  // Timing
+  startedAt: number | null;
+  elapsedMs: number;
+
+  // Current values
+  commandedValue: number;
+
+  // Error info (if state is 'error')
+  error?: string;
 }

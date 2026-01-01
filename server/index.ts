@@ -16,6 +16,7 @@ import { scanDevices } from './devices/scanner.js';
 import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
+import { createSequenceManager } from './sequences/SequenceManager.js';
 
 // Configuration (defaults, overridable by ENV)
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -88,9 +89,12 @@ const sessionManager = createSessionManager(registry, {
   historyWindowMs: HISTORY_WINDOW_MS,
 });
 
+// Create sequence manager (for AWG/sequencing functionality)
+const sequenceManager = createSequenceManager(sessionManager);
+
 // Create WebSocket server
 const wss = new WebSocketServer({ server, path: '/ws' });
-const wsHandler = createWebSocketHandler(wss, sessionManager);
+const wsHandler = createWebSocketHandler(wss, sessionManager, sequenceManager);
 
 // Start server
 async function start() {
@@ -208,6 +212,9 @@ async function stop(): Promise<void> {
 
   // Stop WebSocket handler first (prevents new connections)
   wsHandler.close();
+
+  // Stop sequence manager
+  sequenceManager.stop();
 
   // Stop session polling
   sessionManager.stop();
