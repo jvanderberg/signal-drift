@@ -67,6 +67,23 @@ On launch, the app scans for connected devices. Click **Scan** to rescan if you 
 - **Trigger** - Drag the trigger indicator or use the settings popover
 - **Measurements** - Click the + button on the stats bar to select measurements
 
+### Sequencer
+
+The sequencer generates waveforms and plays them on power supplies or electronic loads:
+
+- **Waveform Types** - Sine, triangle, ramp, square, random walk, or arbitrary (CSV)
+- **Modifiers** - Scale, offset, and min/max clamping for safety limits
+- **Pre/Post Values** - Set values before starting and after completing
+- **Repeat Modes** - Once, fixed count, or continuous looping
+- **Real-time Preview** - Chart shows waveform shape before running
+- **Playback Controls** - Start, pause, resume, abort with progress tracking
+
+To use:
+1. Open the Sequencer panel from the sidebar
+2. Create a new sequence or select from the library
+3. Choose a target device and parameter (voltage, current, etc.)
+4. Configure repeat mode and click Run
+
 ### Multiple Devices
 
 Open multiple devices simultaneously - each gets its own panel. Panels share rows (max 2 per row) and a single device takes full width.
@@ -83,6 +100,7 @@ lab-controller/
 │   ├── index.ts      # HTTP + WebSocket server
 │   ├── sessions/     # Device session management
 │   ├── devices/      # Device drivers and transports
+│   ├── sequences/    # Sequence library and execution
 │   └── websocket/    # WebSocket handler
 ├── client/           # React frontend
 │   ├── src/
@@ -100,6 +118,7 @@ All communication uses WebSocket (no REST API for real-time operations):
 - **Subscriptions**: `subscribe`, `unsubscribe`
 - **Device control**: `setMode`, `setOutput`, `setValue`
 - **Oscilloscope**: `scopeRun`, `scopeStop`, `scopeGetWaveform`, etc.
+- **Sequencer**: `sequenceRun`, `sequenceAbort`, `sequenceLibrary*`
 
 ### Resilience
 

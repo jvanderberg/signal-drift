@@ -3,8 +3,15 @@ import { EventEmitter } from 'events';
 import { createWebSocketHandler, WebSocketHandler } from '../WebSocketHandler.js';
 import type { SessionManager } from '../../sessions/SessionManager.js';
 import type { DeviceSession } from '../../sessions/DeviceSession.js';
-import type { ClientMessage, ServerMessage, DeviceSessionState, DeviceSummary } from '../../../shared/types.js';
+import type { SequenceManager } from '../../sequences/SequenceManager.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState, DeviceSummary, SequenceDefinition, SequenceState, Result } from '../../../shared/types.js';
 import { Ok, Err } from '../../../shared/types.js';
+
+// Helper to unwrap Result or throw
+function unwrapResult<T>(result: Result<T, Error>): T {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
 
 // Mock WebSocket class that emits events like the real one
 class MockWebSocket extends EventEmitter {
@@ -670,6 +677,283 @@ describe('WebSocketHandler', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(sessionManager.oscilloscopeStopStreaming).toHaveBeenCalledWith('scope-1');
+    });
+  });
+});
+
+// ============ Sequence WebSocket Tests ============
+
+// Create mock sequence manager
+function createMockSequenceManager(): SequenceManager {
+  const library: SequenceDefinition[] = [];
+  const subscribers = new Set<(msg: ServerMessage) => void>();
+  let idCounter = 0;
+
+  return {
+    listLibrary: vi.fn(() => library),
+    saveToLibrary: vi.fn((partial) => {
+      const id = `seq-${++idCounter}`;
+      const def: SequenceDefinition = {
+        ...partial,
+        id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      library.push(def);
+      return Ok(id);
+    }),
+    updateInLibrary: vi.fn((def) => {
+      const idx = library.findIndex((s) => s.id === def.id);
+      if (idx === -1) return Err(new Error('Not found'));
+      library[idx] = def;
+      return Ok();
+    }),
+    deleteFromLibrary: vi.fn((id) => {
+      const idx = library.findIndex((s) => s.id === id);
+      if (idx === -1) return Err(new Error('Not found'));
+      library.splice(idx, 1);
+      return Ok();
+    }),
+    getFromLibrary: vi.fn((id) => library.find((s) => s.id === id)),
+    run: vi.fn().mockResolvedValue(
+      Ok({
+        sequenceId: 'seq-1',
+        runConfig: { sequenceId: 'seq-1', deviceId: 'device-1', parameter: 'voltage', repeatMode: 'once' },
+        executionState: 'running',
+        currentStepIndex: 0,
+        totalSteps: 5,
+        currentCycle: 0,
+        totalCycles: 1,
+        startedAt: Date.now(),
+        elapsedMs: 0,
+        commandedValue: 0,
+      } as SequenceState)
+    ),
+    abort: vi.fn().mockImplementation(async () => {}),
+    getActiveState: vi.fn(),
+    subscribe: vi.fn((callback) => {
+      subscribers.add(callback);
+      return () => subscribers.delete(callback);
+    }),
+    initialize: vi.fn().mockImplementation(async () => {}),
+    stop: vi.fn().mockImplementation(async () => {}),
+  };
+}
+
+describe('WebSocketHandler Sequence Messages', () => {
+  let wss: MockWebSocketServer;
+  let sessionManager: ReturnType<typeof createMockSessionManager>;
+  let sequenceManager: ReturnType<typeof createMockSequenceManager>;
+  let handler: WebSocketHandler;
+
+  beforeEach(() => {
+    wss = new MockWebSocketServer();
+    sessionManager = createMockSessionManager();
+    sequenceManager = createMockSequenceManager();
+    handler = createWebSocketHandler(wss as any, sessionManager, sequenceManager);
+  });
+
+  afterEach(() => {
+    handler.close();
+  });
+
+  describe('Library Messages', () => {
+    it('should respond to sequenceLibraryList with library contents', () => {
+      // Add a sequence first
+      unwrapResult(sequenceManager.saveToLibrary({
+        name: 'Test Seq',
+        unit: 'V',
+        waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
+      }));
+
+      const client = wss.simulateConnection();
+      client.receiveMessage({ type: 'sequenceLibraryList' });
+
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('sequenceLibrary');
+      if (response.type === 'sequenceLibrary') {
+        expect(response.sequences.length).toBe(1);
+        expect(response.sequences[0].name).toBe('Test Seq');
+      }
+    });
+
+    it('should save sequence and respond with ID', () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'sequenceLibrarySave',
+        definition: {
+          name: 'New Seq',
+          unit: 'A',
+          waveform: { type: 'sine', min: 0, max: 5, pointsPerCycle: 10, intervalMs: 50 },
+        },
+      });
+
+      expect(sequenceManager.saveToLibrary).toHaveBeenCalled();
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('sequenceLibrarySaved');
+      if (response.type === 'sequenceLibrarySaved') {
+        expect(response.sequenceId).toMatch(/^seq-/);
+      }
+    });
+
+    it('should update sequence in library', () => {
+      // First save a sequence
+      const id = unwrapResult(sequenceManager.saveToLibrary({
+        name: 'Original',
+        unit: 'V',
+        waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
+      }));
+
+      const client = wss.simulateConnection();
+      const updated: SequenceDefinition = {
+        id,
+        name: 'Updated',
+        unit: 'V',
+        waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      client.receiveMessage({
+        type: 'sequenceLibraryUpdate',
+        definition: updated,
+      });
+
+      expect(sequenceManager.updateInLibrary).toHaveBeenCalledWith(updated);
+    });
+
+    it('should delete sequence from library', () => {
+      const id = unwrapResult(sequenceManager.saveToLibrary({
+        name: 'To Delete',
+        unit: 'V',
+        waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
+      }));
+
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'sequenceLibraryDelete',
+        sequenceId: id,
+      });
+
+      expect(sequenceManager.deleteFromLibrary).toHaveBeenCalledWith(id);
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('sequenceLibraryDeleted');
+      if (response.type === 'sequenceLibraryDeleted') {
+        expect(response.sequenceId).toBe(id);
+      }
+    });
+  });
+
+  describe('Playback Messages', () => {
+    it('should run sequence with config', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'sequenceRun',
+        config: {
+          sequenceId: 'seq-1',
+          deviceId: 'device-1',
+          parameter: 'voltage',
+          repeatMode: 'once',
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(sequenceManager.run).toHaveBeenCalledWith({
+        sequenceId: 'seq-1',
+        deviceId: 'device-1',
+        parameter: 'voltage',
+        repeatMode: 'once',
+      });
+    });
+
+    it('should abort sequence', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({ type: 'sequenceAbort' });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(sequenceManager.abort).toHaveBeenCalled();
+    });
+
+    it('should handle run errors', async () => {
+      (sequenceManager.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        Err(new Error('Sequence not found'))
+      );
+
+      const client = wss.simulateConnection();
+      client.receiveMessage({
+        type: 'sequenceRun',
+        config: {
+          sequenceId: 'non-existent',
+          deviceId: 'device-1',
+          parameter: 'voltage',
+          repeatMode: 'once',
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('error');
+      if (response.type === 'error') {
+        expect(response.message).toContain('Sequence not found');
+      }
+    });
+  });
+
+  describe('Without SequenceManager', () => {
+    it('should respond with error for library list when no sequence manager', () => {
+      // Create fresh mocks for this test
+      const wssNoSeq = new MockWebSocketServer();
+      const sessionMgrNoSeq = createMockSessionManager();
+      const handlerNoSeq = createWebSocketHandler(wssNoSeq as any, sessionMgrNoSeq);
+      const client = wssNoSeq.simulateConnection();
+
+      client.receiveMessage({ type: 'sequenceLibraryList' });
+
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('error');
+      if (response.type === 'error') {
+        expect(response.code).toBe('SEQUENCE_NOT_AVAILABLE');
+        expect(response.message).toContain('not available');
+      }
+
+      handlerNoSeq.close();
+    });
+
+    it('should respond with error for run when no sequence manager', async () => {
+      // Create fresh mocks for this test
+      const wssNoSeq = new MockWebSocketServer();
+      const sessionMgrNoSeq = createMockSessionManager();
+      const handlerNoSeq = createWebSocketHandler(wssNoSeq as any, sessionMgrNoSeq);
+      const client = wssNoSeq.simulateConnection();
+
+      client.receiveMessage({
+        type: 'sequenceRun',
+        config: {
+          sequenceId: 'seq-1',
+          deviceId: 'device-1',
+          parameter: 'voltage',
+          repeatMode: 'once',
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(client.sentMessages.length).toBe(1);
+      const response = JSON.parse(client.sentMessages[0]) as ServerMessage;
+      expect(response.type).toBe('error');
+      if (response.type === 'error') {
+        expect(response.code).toBe('SEQUENCE_NOT_AVAILABLE');
+        expect(response.message).toContain('not available');
+      }
+
+      handlerNoSeq.close();
     });
   });
 });

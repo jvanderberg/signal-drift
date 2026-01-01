@@ -9,7 +9,8 @@
 
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { SessionManager } from '../sessions/SessionManager.js';
-import type { ClientMessage, ServerMessage } from '../../shared/types.js';
+import type { SequenceManager } from '../sequences/SequenceManager.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState } from '../../shared/types.js';
 
 export interface WebSocketHandler {
   getClientCount(): number;
@@ -31,9 +32,26 @@ function generateClientId(): string {
 
 export function createWebSocketHandler(
   wss: WebSocketServer,
-  sessionManager: SessionManager
+  sessionManager: SessionManager,
+  sequenceManager?: SequenceManager
 ): WebSocketHandler {
   const clients = new Map<WebSocket, ClientState>();
+
+  // Subscribe to sequence manager events and broadcast to all clients
+  if (sequenceManager) {
+    sequenceManager.subscribe((message) => {
+      broadcastToAll(message);
+    });
+  }
+
+  function broadcastToAll(message: ServerMessage): void {
+    const data = JSON.stringify(message);
+    for (const clientState of clients.values()) {
+      if (clientState.ws.readyState === 1) { // OPEN
+        clientState.ws.send(data);
+      }
+    }
+  }
 
   // Send a message to a specific client
   function send(ws: WebSocket, message: ServerMessage): void {
@@ -104,6 +122,32 @@ export function createWebSocketHandler(
           code: 'NOT_IMPLEMENTED',
           message: 'List mode not yet implemented',
         });
+        break;
+
+      // Sequence messages - library
+      case 'sequenceLibraryList':
+        handleSequenceLibraryList(clientState);
+        break;
+
+      case 'sequenceLibrarySave':
+        handleSequenceLibrarySave(clientState, message.definition);
+        break;
+
+      case 'sequenceLibraryUpdate':
+        handleSequenceLibraryUpdate(clientState, message.definition);
+        break;
+
+      case 'sequenceLibraryDelete':
+        handleSequenceLibraryDelete(clientState, message.sequenceId);
+        break;
+
+      // Sequence messages - playback
+      case 'sequenceRun':
+        handleSequenceRun(clientState, message.config);
+        break;
+
+      case 'sequenceAbort':
+        handleSequenceAbort(clientState);
         break;
 
       // Oscilloscope messages
@@ -195,12 +239,15 @@ export function createWebSocketHandler(
         handleScopeStopStreaming(clientState, message.deviceId);
         break;
 
-      default:
+      default: {
+        // Extract type from unknown message for error reporting
+        const unknownMessage = message as { type?: string };
         send(clientState.ws, {
           type: 'error',
           code: 'UNKNOWN_MESSAGE_TYPE',
-          message: `Unknown message type: ${(message as any).type}`,
+          message: `Unknown message type: ${unknownMessage.type ?? 'unknown'}`,
         });
+      }
     }
   }
 
@@ -248,12 +295,12 @@ export function createWebSocketHandler(
           state: session.getState(),
         });
       } else if (scopeSession) {
-        // For oscilloscopes, we send the state via field message
-        // since OscilloscopeSessionState has different shape
+        // OscilloscopeSessionState differs from DeviceSessionState
+        // Client hook (useOscilloscopeSocket) expects the oscilloscope shape
         send(clientState.ws, {
           type: 'subscribed',
           deviceId,
-          state: scopeSession.getState() as any,  // Different state shape
+          state: scopeSession.getState() as unknown as DeviceSessionState,
         });
       }
     } else {
@@ -312,6 +359,137 @@ export function createWebSocketHandler(
         message: result.error.message,
       });
     }
+  }
+
+  // Sequence handlers
+  function handleSequenceLibraryList(clientState: ClientState): void {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    const sequences = sequenceManager.listLibrary();
+    send(clientState.ws, {
+      type: 'sequenceLibrary',
+      sequences,
+    });
+  }
+
+  function handleSequenceLibrarySave(
+    clientState: ClientState,
+    definition: Parameters<NonNullable<typeof sequenceManager>['saveToLibrary']>[0]
+  ): void {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    const result = sequenceManager.saveToLibrary(definition);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_SAVE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'sequenceLibrarySaved',
+      sequenceId: result.value,
+    });
+  }
+
+  function handleSequenceLibraryUpdate(
+    clientState: ClientState,
+    definition: Parameters<NonNullable<typeof sequenceManager>['updateInLibrary']>[0]
+  ): void {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    const result = sequenceManager.updateInLibrary(definition);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_UPDATE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'sequenceLibrarySaved',
+      sequenceId: definition.id,
+    });
+  }
+
+  function handleSequenceLibraryDelete(clientState: ClientState, sequenceId: string): void {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    const result = sequenceManager.deleteFromLibrary(sequenceId);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_DELETE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'sequenceLibraryDeleted',
+      sequenceId,
+    });
+  }
+
+  async function handleSequenceRun(
+    clientState: ClientState,
+    config: Parameters<NonNullable<typeof sequenceManager>['run']>[0]
+  ): Promise<void> {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    const result = await sequenceManager.run(config);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_RUN_FAILED',
+        message: result.error.message,
+      });
+    }
+    // Note: success broadcast is handled by SequenceManager's subscriber
+  }
+
+  async function handleSequenceAbort(clientState: ClientState): Promise<void> {
+    if (!sequenceManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_NOT_AVAILABLE',
+        message: 'Sequence manager not available',
+      });
+      return;
+    }
+    await sequenceManager.abort();
+    // Note: abort broadcast is handled by SequenceManager's subscriber
   }
 
   // Oscilloscope handlers

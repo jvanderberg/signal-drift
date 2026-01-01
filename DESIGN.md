@@ -5,7 +5,7 @@
 ```
 lab-controller/
 ├── shared/              # Shared types (single source of truth)
-│   └── types.ts         # Device, WebSocket message types, oscilloscope types
+│   └── types.ts         # Device, WebSocket message types, sequence types
 ├── server/
 │   ├── index.ts         # HTTP + WebSocket server entry
 │   ├── api/
@@ -14,6 +14,11 @@ lab-controller/
 │   │   ├── DeviceSession.ts        # Per-device polling & state (PSU/Load)
 │   │   ├── OscilloscopeSession.ts  # Oscilloscope-specific session
 │   │   └── SessionManager.ts       # Manages all device sessions
+│   ├── sequences/
+│   │   ├── SequenceController.ts   # Timer-based execution engine
+│   │   ├── SequenceManager.ts      # Library + playback management
+│   │   ├── SequenceStore.ts        # JSON persistence
+│   │   └── WaveformGenerator.ts    # Waveform -> steps conversion
 │   ├── websocket/
 │   │   └── WebSocketHandler.ts # WebSocket connection & message routing
 │   └── devices/
@@ -34,14 +39,16 @@ lab-controller/
 │   │   ├── hooks/
 │   │   │   ├── useDeviceSocket.ts       # Device state via WebSocket (PSU/Load)
 │   │   │   ├── useOscilloscopeSocket.ts # Oscilloscope state via WebSocket
-│   │   │   └── useDeviceList.ts         # Device discovery via WebSocket
+│   │   │   ├── useDeviceList.ts         # Device discovery via WebSocket
+│   │   │   └── useSequencer.ts          # Sequence library and playback
 │   │   └── components/
 │   │       ├── DevicePanel.tsx          # PSU/Load control panel
 │   │       ├── OscilloscopePanel.tsx    # Oscilloscope control panel
 │   │       ├── WaveformDisplay.tsx      # SVG waveform renderer with trigger drag
 │   │       ├── TimebaseControls.tsx     # Compact +/- timebase scale controls
 │   │       ├── ChannelSettings.tsx      # Channel configuration popover
-│   │       └── TriggerSettings.tsx      # Trigger configuration popover
+│   │       ├── TriggerSettings.tsx      # Trigger configuration popover
+│   │       └── sequencer/               # Sequence editor and playback UI
 │   └── vite.config.ts
 └── electron/            # Future
 ```
@@ -448,6 +455,169 @@ const SERIES_COLORS = {
 4. **Wrong text hierarchy** - Use the typography classes consistently
 5. **Dark mode issues** - Test both themes; CSS variables handle this automatically
 6. **Missing rounded corners** - Use `rounded` or `rounded-md` on all panels/buttons
+
+## Sequencer Architecture
+
+The sequencer enables arbitrary waveform generation on power supplies and electronic loads. It's designed around device-agnostic sequence definitions that can be played on any compatible device.
+
+### Key Design Principles
+
+1. **Separation of Definition and Execution** - Sequences are defined once (with unit like 'V' or 'A'), then played on any device with a matching parameter.
+
+2. **Timer-based Execution** - Uses absolute timestamps to prevent drift, not relative delays.
+
+3. **Server-side Execution** - All timing happens on the server for consistent playback regardless of client state.
+
+### Components
+
+```
+server/sequences/
+├── SequenceController.ts    # Timer-based execution engine
+├── SequenceManager.ts       # Library CRUD + active sequence management
+├── SequenceStore.ts         # JSON file persistence
+├── WaveformGenerator.ts     # Generates steps from waveform parameters
+└── __tests__/               # Comprehensive test coverage
+```
+
+**SequenceController** - The execution engine:
+- Precomputes absolute target times to prevent timing drift
+- Supports pause/resume with schedule adjustment
+- Frame-drops (skips steps) if execution falls behind schedule
+- Regenerates random walk values on each cycle for true randomness
+
+**SequenceManager** - Manages library and playback:
+- CRUD operations for sequence library with validation
+- JSON file persistence with debounced writes
+- Routes playback commands to active controller
+- Broadcasts state changes to WebSocket subscribers
+
+**WaveformGenerator** - Converts parameters to step arrays:
+- Standard waveforms: sine, triangle, ramp, square
+- Random walk: bounded random steps with configurable max step size
+- All generators produce `{ value, dwellMs }[]` arrays
+
+### Sequence Definition
+
+```typescript
+interface SequenceDefinition {
+  id: string;
+  name: string;
+  unit: string;  // 'V', 'A', 'Ω', 'W' - determines compatible parameters
+
+  // One of: standard waveform, random walk, or arbitrary steps
+  waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform;
+
+  // Optional modifiers (applied in order: scale → offset → clamp)
+  scale?: number;      // Multiply all values
+  offset?: number;     // Add to all values
+  minClamp?: number;   // Floor
+  maxClamp?: number;   // Ceiling
+
+  // Optional pre/post values
+  preValue?: number;   // Set before starting
+  postValue?: number;  // Set after completing
+}
+```
+
+### Execution Flow
+
+```
+[sequenceRun]
+Client                          SequenceManager                    SequenceController
+   |-- sequenceRun(config) -->      |                                    |
+   |                                 | (1) Validate sequence & device     |
+   |                                 | (2) Create controller ------------> |
+   |                                 | (3) Subscribe to events            |
+   |                                 |<-- controller.start() -------------|
+   |<-- sequenceStarted(state) ---- |                                    |
+   |                                 |                                    |
+   |<-- sequenceProgress(state) --- | <-- (timer fires, setValue) -------|
+   |<-- sequenceProgress(state) --- | <-- (timer fires, setValue) -------|
+   |                                 |                                    |
+   |<-- sequenceCompleted --------- | <-- (all steps done) --------------|
+```
+
+### Timing Strategy
+
+The controller uses absolute timestamps to maintain accurate timing:
+
+```typescript
+// Build schedule with absolute times (not relative delays)
+function buildSchedule(startTime: number): void {
+  schedule = [];
+  let cumulative = startTime;
+  for (const step of steps) {
+    schedule.push(cumulative);
+    cumulative += step.dwellMs;
+  }
+}
+
+// Execute at scheduled time, skip if behind
+function scheduleNextStep(): void {
+  const now = Date.now();
+  const targetTime = schedule[currentStepIndex];
+  const delay = Math.max(0, targetTime - now);
+
+  // Skip past any steps whose time has already passed
+  while (schedule[currentStepIndex + 1] <= now) {
+    currentStepIndex++;
+    skippedSteps++;
+  }
+
+  setTimeout(executeStep, delay);
+}
+```
+
+### WebSocket Messages
+
+Client -> Server:
+- `sequenceLibraryList` - Request all saved sequences
+- `sequenceLibrarySave { definition }` - Save new sequence
+- `sequenceLibraryUpdate { definition }` - Update existing
+- `sequenceLibraryDelete { sequenceId }` - Delete sequence
+- `sequenceRun { config }` - Start playback
+- `sequenceAbort` - Stop current sequence
+
+Server -> Client:
+- `sequenceLibrary { sequences }` - Full library list
+- `sequenceLibrarySaved { sequenceId }` - Confirm save
+- `sequenceLibraryDeleted { sequenceId }` - Confirm delete
+- `sequenceStarted { state }` - Sequence began
+- `sequenceProgress { state }` - Step executed (includes commanded value)
+- `sequenceCompleted { sequenceId }` - Finished successfully
+- `sequenceAborted { sequenceId }` - Stopped by user
+- `sequenceError { sequenceId, error }` - Failed
+
+### Random Walk Regeneration
+
+For random walk waveforms, new random values are generated at the start of each cycle:
+
+```typescript
+// On cycle completion, regenerate from current value
+if (isRandomWalk && currentCycle < totalCycles) {
+  const newSteps = generator.generateRandomWalk(params, commandedValue);
+  processedSteps = applyModifiers(newSteps, definition);
+}
+```
+
+This ensures:
+- Continuity: Next cycle starts from where previous ended
+- True randomness: Different path each cycle
+- Bounded behavior: Values stay within min/max limits
+
+### Client Hook
+
+```typescript
+const {
+  library,           // All saved sequences
+  activeState,       // Current playback state (if running)
+  saveSequence,      // Save new sequence
+  updateSequence,    // Update existing
+  deleteSequence,    // Delete from library
+  run,               // Start playback
+  abort,             // Stop playback
+} = useSequencer();
+```
 
 ## Common Pitfalls
 

@@ -16,6 +16,7 @@ import { scanDevices } from './devices/scanner.js';
 import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
+import { createSequenceManager } from './sequences/SequenceManager.js';
 
 // Configuration (defaults, overridable by ENV)
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -88,9 +89,12 @@ const sessionManager = createSessionManager(registry, {
   historyWindowMs: HISTORY_WINDOW_MS,
 });
 
+// Create sequence manager (for AWG/sequencing functionality)
+const sequenceManager = createSequenceManager(sessionManager);
+
 // Create WebSocket server
 const wss = new WebSocketServer({ server, path: '/ws' });
-const wsHandler = createWebSocketHandler(wss, sessionManager);
+const wsHandler = createWebSocketHandler(wss, sessionManager, sequenceManager);
 
 // Start server
 async function start() {
@@ -100,6 +104,9 @@ async function start() {
   console.log(`  Scan interval: ${SCAN_INTERVAL_MS / 1000} seconds`);
   console.log(`  Simulation mode: ${USE_SIMULATED_DEVICES ? 'ENABLED' : 'disabled'}`);
   console.log('');
+
+  // Initialize sequence manager (loads persisted sequences)
+  await sequenceManager.initialize();
 
   if (USE_SIMULATED_DEVICES) {
     // Create simulated devices instead of scanning for real hardware
@@ -208,6 +215,9 @@ async function stop(): Promise<void> {
 
   // Stop WebSocket handler first (prevents new connections)
   wsHandler.close();
+
+  // Stop sequence manager (saves pending changes)
+  await sequenceManager.stop();
 
   // Stop session polling
   sessionManager.stop();

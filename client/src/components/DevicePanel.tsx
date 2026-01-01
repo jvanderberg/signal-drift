@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Device } from '../types';
+import type { DeviceSummary } from '../types';
 import { useDeviceSocket } from '../hooks/useDeviceSocket';
 import { StatusReadings } from './StatusReadings';
 import { OutputControl } from './OutputControl';
@@ -9,7 +9,7 @@ import { LiveChart } from './LiveChart';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
 
 interface DevicePanelProps {
-  device: Device;
+  device: DeviceSummary;
   onClose: () => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;

@@ -39,6 +39,7 @@ console.log('Voltage:', status.value.voltage);
 - Never use `try/catch` in driver code
 - Only use `try/catch` at boundaries (transport layer) to convert throws to Result
 - Propagate errors with early returns, don't swallow them
+- Exception: Test code may throw (e.g., `unwrapResult` helpers) since test failures are expected to throw
 
 ### 2. No `any` Types
 
