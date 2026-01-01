@@ -4,8 +4,14 @@ import { createWebSocketHandler, WebSocketHandler } from '../WebSocketHandler.js
 import type { SessionManager } from '../../sessions/SessionManager.js';
 import type { DeviceSession } from '../../sessions/DeviceSession.js';
 import type { SequenceManager } from '../../sequences/SequenceManager.js';
-import type { ClientMessage, ServerMessage, DeviceSessionState, DeviceSummary, SequenceDefinition, SequenceState } from '../../../shared/types.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState, DeviceSummary, SequenceDefinition, SequenceState, Result } from '../../../shared/types.js';
 import { Ok, Err } from '../../../shared/types.js';
+
+// Helper to unwrap Result or throw
+function unwrapResult<T>(result: Result<T, Error>): T {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
 
 // Mock WebSocket class that emits events like the real one
 class MockWebSocket extends EventEmitter {
@@ -694,7 +700,7 @@ function createMockSequenceManager(): SequenceManager {
         updatedAt: Date.now(),
       };
       library.push(def);
-      return id;
+      return Ok(id);
     }),
     updateInLibrary: vi.fn((def) => {
       const idx = library.findIndex((s) => s.id === def.id);
@@ -723,13 +729,14 @@ function createMockSequenceManager(): SequenceManager {
         commandedValue: 0,
       } as SequenceState)
     ),
-    abort: vi.fn().mockResolvedValue(undefined),
-    getActiveState: vi.fn(() => undefined),
+    abort: vi.fn().mockImplementation(async () => {}),
+    getActiveState: vi.fn(),
     subscribe: vi.fn((callback) => {
       subscribers.add(callback);
       return () => subscribers.delete(callback);
     }),
-    stop: vi.fn(),
+    initialize: vi.fn().mockImplementation(async () => {}),
+    stop: vi.fn().mockImplementation(async () => {}),
   };
 }
 
@@ -753,11 +760,11 @@ describe('WebSocketHandler Sequence Messages', () => {
   describe('Library Messages', () => {
     it('should respond to sequenceLibraryList with library contents', () => {
       // Add a sequence first
-      sequenceManager.saveToLibrary({
+      unwrapResult(sequenceManager.saveToLibrary({
         name: 'Test Seq',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
 
       const client = wss.simulateConnection();
       client.receiveMessage({ type: 'sequenceLibraryList' });
@@ -793,11 +800,11 @@ describe('WebSocketHandler Sequence Messages', () => {
 
     it('should update sequence in library', () => {
       // First save a sequence
-      const id = sequenceManager.saveToLibrary({
+      const id = unwrapResult(sequenceManager.saveToLibrary({
         name: 'Original',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
 
       const client = wss.simulateConnection();
       const updated: SequenceDefinition = {
@@ -817,11 +824,11 @@ describe('WebSocketHandler Sequence Messages', () => {
     });
 
     it('should delete sequence from library', () => {
-      const id = sequenceManager.saveToLibrary({
+      const id = unwrapResult(sequenceManager.saveToLibrary({
         name: 'To Delete',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
 
       const client = wss.simulateConnection();
       client.receiveMessage({

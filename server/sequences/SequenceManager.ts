@@ -1,7 +1,8 @@
 /**
  * SequenceManager - Manages sequence library and active sequence execution
  *
- * - CRUD operations for sequence library (in-memory for now)
+ * - CRUD operations for sequence library with JSON file persistence
+ * - Validates all sequence definitions before saving
  * - Manages single active sequence at a time
  * - Integrates with SessionManager to get DeviceSessions
  */
@@ -15,14 +16,16 @@ import type {
   Result,
 } from '../../shared/types.js';
 import { Ok, Err } from '../../shared/types.js';
+import { validateSequenceDefinition, WAVEFORM_LIMITS } from '../../shared/waveform.js';
 import { createSequenceController, SequenceController } from './SequenceController.js';
+import { createSequenceStore, SequenceStore } from './SequenceStore.js';
 
 type SubscriberCallback = (message: ServerMessage) => void;
 
 export interface SequenceManager {
   // Library CRUD
   listLibrary(): SequenceDefinition[];
-  saveToLibrary(definition: Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'>): string;
+  saveToLibrary(definition: Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'>): Result<string, Error>;
   updateInLibrary(definition: SequenceDefinition): Result<void, Error>;
   deleteFromLibrary(sequenceId: string): Result<void, Error>;
   getFromLibrary(sequenceId: string): SequenceDefinition | undefined;
@@ -36,6 +39,7 @@ export interface SequenceManager {
   subscribe(callback: SubscriberCallback): () => void;
 
   // Lifecycle
+  initialize(): Promise<void>;
   stop(): void;
 }
 
@@ -46,8 +50,11 @@ function generateSequenceId(): string {
 }
 
 export function createSequenceManager(sessionManager: SessionManager): SequenceManager {
-  // In-memory library (future: SQLite)
+  // In-memory library (synced with persistent storage)
   const library = new Map<string, SequenceDefinition>();
+
+  // Persistent storage
+  const store: SequenceStore = createSequenceStore();
 
   // Active sequence
   let activeController: SequenceController | null = null;
@@ -55,6 +62,10 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
 
   // Subscribers for broadcasts
   const subscribers = new Set<SubscriberCallback>();
+
+  // Track if we need to persist
+  let isDirty = false;
+  let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function broadcast(message: ServerMessage): void {
     for (const callback of subscribers) {
@@ -66,12 +77,62 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
     }
   }
 
+  /**
+   * Debounced save to persistent storage
+   * Saves at most once per second to avoid excessive disk writes
+   */
+  function scheduleSave(): void {
+    if (saveTimeout) return; // Already scheduled
+
+    isDirty = true;
+    saveTimeout = setTimeout(async () => {
+      saveTimeout = null;
+      if (!isDirty) return;
+
+      const sequences = Array.from(library.values());
+      const result = await store.save(sequences);
+      if (!result.ok) {
+        console.error('[SequenceManager] Failed to save library:', result.error);
+      }
+      isDirty = false;
+    }, 1000);
+  }
+
+  /**
+   * Force immediate save (used on shutdown)
+   */
+  async function forceSave(): Promise<void> {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
+    if (isDirty) {
+      const sequences = Array.from(library.values());
+      const result = await store.save(sequences);
+      if (!result.ok) {
+        console.error('[SequenceManager] Failed to save library on shutdown:', result.error);
+      }
+      isDirty = false;
+    }
+  }
+
   // Library operations
   function listLibrary(): SequenceDefinition[] {
     return Array.from(library.values());
   }
 
-  function saveToLibrary(partial: Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'>): string {
+  function saveToLibrary(partial: Omit<SequenceDefinition, 'id' | 'createdAt' | 'updatedAt'>): Result<string, Error> {
+    // Validate before saving
+    const validationResult = validateSequenceDefinition(partial);
+    if (!validationResult.ok) {
+      return Err(new Error(`Validation failed: ${validationResult.error.field} - ${validationResult.error.message}`));
+    }
+
+    // Check library size limit
+    if (library.size >= WAVEFORM_LIMITS.MAX_LIBRARY_SIZE) {
+      return Err(new Error(`Library full: maximum ${WAVEFORM_LIMITS.MAX_LIBRARY_SIZE} sequences allowed`));
+    }
+
     const now = Date.now();
     const definition: SequenceDefinition = {
       ...partial,
@@ -80,17 +141,26 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
       updatedAt: now,
     };
     library.set(definition.id, definition);
-    return definition.id;
+    scheduleSave();
+    return Ok(definition.id);
   }
 
   function updateInLibrary(definition: SequenceDefinition): Result<void, Error> {
     if (!library.has(definition.id)) {
       return Err(new Error(`Sequence not found: ${definition.id}`));
     }
+
+    // Validate before updating
+    const validationResult = validateSequenceDefinition(definition);
+    if (!validationResult.ok) {
+      return Err(new Error(`Validation failed: ${validationResult.error.field} - ${validationResult.error.message}`));
+    }
+
     library.set(definition.id, {
       ...definition,
       updatedAt: Date.now(),
     });
+    scheduleSave();
     return Ok();
   }
 
@@ -98,6 +168,7 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
     if (!library.delete(sequenceId)) {
       return Err(new Error(`Sequence not found: ${sequenceId}`));
     }
+    scheduleSave();
     return Ok();
   }
 
@@ -185,7 +256,33 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
     return () => subscribers.delete(callback);
   }
 
-  function stop(): void {
+  async function initialize(): Promise<void> {
+    console.log(`[SequenceManager] Initializing, storage at: ${store.getStoragePath()}`);
+
+    // Load from persistent storage
+    const result = await store.load();
+    if (result.ok) {
+      for (const seq of result.value) {
+        library.set(seq.id, seq);
+        // Update counter to avoid ID collisions
+        const match = seq.id.match(/^seq-(\d+)-/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num >= sequenceIdCounter) {
+            sequenceIdCounter = num;
+          }
+        }
+      }
+      console.log(`[SequenceManager] Loaded ${library.size} sequences`);
+    } else {
+      console.error('[SequenceManager] Failed to load library:', result.error);
+    }
+  }
+
+  async function stop(): Promise<void> {
+    // Force save any pending changes
+    await forceSave();
+
     if (activeController) {
       activeController.destroy();
       activeController = null;
@@ -207,6 +304,7 @@ export function createSequenceManager(sessionManager: SessionManager): SequenceM
     abort,
     getActiveState,
     subscribe,
+    initialize,
     stop,
   };
 }

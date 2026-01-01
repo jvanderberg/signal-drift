@@ -66,9 +66,11 @@ export function createSequenceController(
   let stepTimer: ReturnType<typeof setTimeout> | null = null;
   let errorMessage: string | undefined;
   let commandedValue = 0;
+  let skippedSteps = 0;  // Count of steps skipped to maintain schedule
 
-  // Precomputed schedule (absolute target times relative to cycle start)
+  // Precomputed schedule (absolute target times)
   let schedule: number[] = [];
+  let cycleEndTime = 0;  // When current cycle should end (for multi-cycle timing)
 
   // Subscribers
   const subscribers = new Set<SubscriberCallback>();
@@ -125,6 +127,7 @@ export function createSequenceController(
       schedule.push(cumulative);
       cumulative += Math.max(step.dwellMs, cfg.minIntervalMs);
     }
+    cycleEndTime = cumulative;  // Track when this cycle should end
   }
 
   async function executeStep(): Promise<void> {
@@ -164,11 +167,9 @@ export function createSequenceController(
         return;
       }
 
-      // Wait for the last step's full dwell time before starting next cycle
-      // All waveforms are now designed to be loopable (N points, ends at start value)
-      const lastStep = processedSteps[processedSteps.length - 1];
-      const lastStepDwell = Math.max(lastStep.dwellMs, cfg.minIntervalMs);
-      buildSchedule(Date.now() + lastStepDwell);
+      // Start next cycle from when this cycle should have ended (not from now)
+      // This prevents drift across cycles
+      buildSchedule(cycleEndTime);
     }
 
     // Schedule next step using absolute timing
@@ -178,8 +179,22 @@ export function createSequenceController(
   function scheduleNextStep(): void {
     if (executionState !== 'running') return;
 
-    const targetTime = schedule[currentStepIndex];
     const now = Date.now();
+
+    // Skip past any steps whose time has already passed (frame dropping)
+    // This maintains overall schedule timing at the cost of skipped values
+    let stepsSkipped = 0;
+    while (currentStepIndex < processedSteps.length - 1 &&
+           schedule[currentStepIndex + 1] <= now) {
+      currentStepIndex++;
+      stepsSkipped++;
+    }
+    if (stepsSkipped > 0) {
+      skippedSteps += stepsSkipped;
+      console.warn(`[Sequence] Skipped ${stepsSkipped} step(s) to maintain schedule (${skippedSteps} total)`);
+    }
+
+    const targetTime = schedule[currentStepIndex];
     const delay = Math.max(0, targetTime - now);
 
     stepTimer = setTimeout(() => {
@@ -235,6 +250,7 @@ export function createSequenceController(
     pausedAt = null;
     pauseElapsedMs = 0;
     errorMessage = undefined;
+    skippedSteps = 0;
     executionState = 'running';
 
     // Set pre value if configured
@@ -285,17 +301,21 @@ export function createSequenceController(
       throw new Error('Sequence not paused');
     }
 
-    // Calculate how long we were paused and accumulate it
-    if (pausedAt) {
-      pauseElapsedMs += Date.now() - pausedAt;
-    }
+    // Calculate how long we were paused
+    const pauseDuration = pausedAt ? Date.now() - pausedAt : 0;
+    pauseElapsedMs += pauseDuration;
     pausedAt = null;
     executionState = 'running';
+
+    // Shift schedule forward by pause duration to maintain relative timing
+    for (let i = currentStepIndex; i < schedule.length; i++) {
+      schedule[i] += pauseDuration;
+    }
+    cycleEndTime += pauseDuration;
 
     broadcastProgress();
 
     // Resume execution - schedule current step with minimal delay
-    // (We don't rebuild schedule, just continue from where we were)
     stepTimer = setTimeout(() => {
       executeStep();
     }, cfg.minIntervalMs);

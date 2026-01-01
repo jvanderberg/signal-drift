@@ -13,8 +13,8 @@ import type {
   WaveformType,
   WaveformParams,
   ArbitraryWaveform,
-  SequenceStep,
 } from '../../types';
+import { isArbitrary, parseArbitraryStepsCSV, stepsToCSV, calculateDuration } from '../../types';
 
 interface SequenceEditorProps {
   /** Sequence to edit, or null for creating new */
@@ -73,31 +73,6 @@ const UNITS: { value: string; label: string }[] = [
   { value: 'Ω', label: 'Ohms (Ω)' },
 ];
 
-function parseArbitrarySteps(csv: string): SequenceStep[] | null {
-  const lines = csv.trim().split('\n');
-  const steps: SequenceStep[] = [];
-
-  for (const line of lines) {
-    const parts = line.split(',').map((s) => s.trim());
-    if (parts.length < 2) continue;
-
-    const value = parseFloat(parts[0]);
-    const dwellMs = parseFloat(parts[1]);
-
-    if (isNaN(value) || isNaN(dwellMs) || dwellMs <= 0) {
-      return null;
-    }
-
-    steps.push({ value, dwellMs });
-  }
-
-  return steps.length > 0 ? steps : null;
-}
-
-function isArbitrary(waveform: WaveformParams | ArbitraryWaveform): waveform is ArbitraryWaveform {
-  return 'steps' in waveform;
-}
-
 function definitionToForm(def: SequenceDefinition): FormState {
   const form: FormState = { ...defaultFormState };
 
@@ -106,9 +81,7 @@ function definitionToForm(def: SequenceDefinition): FormState {
 
   if (isArbitrary(def.waveform)) {
     form.waveformType = 'arbitrary';
-    form.arbitrarySteps = def.waveform.steps
-      .map((s) => `${s.value},${s.dwellMs}`)
-      .join('\n');
+    form.arbitrarySteps = stepsToCSV(def.waveform.steps);
   } else {
     form.waveformType = def.waveform.type;
     form.min = def.waveform.min;
@@ -132,7 +105,7 @@ function formToDefinition(
   let waveform: WaveformParams | ArbitraryWaveform;
 
   if (form.waveformType === 'arbitrary') {
-    const steps = parseArbitrarySteps(form.arbitrarySteps);
+    const steps = parseArbitraryStepsCSV(form.arbitrarySteps);
     if (!steps) return null;
     waveform = { steps };
   } else {
@@ -203,9 +176,9 @@ export function SequenceEditor({ sequence, onSave, onCancel }: SequenceEditorPro
   // Preview duration
   const previewDuration = useMemo(() => {
     if (form.waveformType === 'arbitrary') {
-      const steps = parseArbitrarySteps(form.arbitrarySteps);
+      const steps = parseArbitraryStepsCSV(form.arbitrarySteps);
       if (!steps) return null;
-      return steps.reduce((sum, s) => sum + s.dwellMs, 0);
+      return calculateDuration(steps);
     }
     return form.pointsPerCycle * form.intervalMs;
   }, [form]);

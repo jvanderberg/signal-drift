@@ -7,8 +7,24 @@ import type {
   SequenceRunConfig,
   DeviceSessionState,
   ServerMessage,
+  Result,
 } from '../../../shared/types.js';
 import { Ok } from '../../../shared/types.js';
+
+// Mock the SequenceStore module
+vi.mock('../SequenceStore.js', () => ({
+  createSequenceStore: () => ({
+    load: vi.fn().mockResolvedValue(Ok([])),
+    save: vi.fn().mockResolvedValue(Ok()),
+    getStoragePath: vi.fn().mockReturnValue('/mock/path/sequences.json'),
+  }),
+}));
+
+// Helper to unwrap Result in tests (throws on error, which fails the test)
+function unwrapResult<T>(result: Result<T, Error>): T {
+  if (!result.ok) throw result.error;
+  return result.value;
+}
 
 // Create mock device session state
 function createMockSessionState(): DeviceSessionState {
@@ -91,12 +107,14 @@ describe('SequenceManager', () => {
     });
 
     it('should save a sequence to library', () => {
-      const id = manager.saveToLibrary({
+      const result = manager.saveToLibrary({
         name: 'Test Sequence',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
       });
 
+      expect(result.ok).toBe(true);
+      const id = unwrapResult(result);
       expect(id).toMatch(/^seq-/);
       const library = manager.listLibrary();
       expect(library).toHaveLength(1);
@@ -105,11 +123,11 @@ describe('SequenceManager', () => {
     });
 
     it('should get sequence from library by id', () => {
-      const id = manager.saveToLibrary({
+      const id = unwrapResult(manager.saveToLibrary({
         name: 'Lookup Test',
         unit: 'A',
         waveform: { type: 'sine', min: 0, max: 5, pointsPerCycle: 10, intervalMs: 50 },
-      });
+      }));
 
       const seq = manager.getFromLibrary(id);
       expect(seq).toBeDefined();
@@ -121,11 +139,11 @@ describe('SequenceManager', () => {
     });
 
     it('should update sequence in library', () => {
-      const id = manager.saveToLibrary({
+      const id = unwrapResult(manager.saveToLibrary({
         name: 'Original',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 5, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
 
       const original = manager.getFromLibrary(id)!;
       const result = manager.updateInLibrary({
@@ -154,11 +172,11 @@ describe('SequenceManager', () => {
     });
 
     it('should delete sequence from library', () => {
-      const id = manager.saveToLibrary({
+      const id = unwrapResult(manager.saveToLibrary({
         name: 'To Delete',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 5, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
 
       expect(manager.listLibrary()).toHaveLength(1);
       const result = manager.deleteFromLibrary(id);
@@ -172,21 +190,21 @@ describe('SequenceManager', () => {
     });
 
     it('should maintain multiple sequences in library', () => {
-      manager.saveToLibrary({
+      unwrapResult(manager.saveToLibrary({
         name: 'Seq 1',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 5, pointsPerCycle: 5, intervalMs: 100 },
-      });
-      manager.saveToLibrary({
+      }));
+      unwrapResult(manager.saveToLibrary({
         name: 'Seq 2',
         unit: 'A',
         waveform: { type: 'sine', min: 0, max: 3, pointsPerCycle: 10, intervalMs: 50 },
-      });
-      manager.saveToLibrary({
+      }));
+      unwrapResult(manager.saveToLibrary({
         name: 'Seq 3',
         unit: 'V',
         waveform: { steps: [{ value: 1, dwellMs: 100 }, { value: 2, dwellMs: 100 }] },
-      });
+      }));
 
       expect(manager.listLibrary()).toHaveLength(3);
     });
@@ -196,11 +214,11 @@ describe('SequenceManager', () => {
     let sequenceId: string;
 
     beforeEach(() => {
-      sequenceId = manager.saveToLibrary({
+      sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Test Ramp',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 5, intervalMs: 100 },
-      });
+      }));
     });
 
     it('should run a sequence', async () => {
@@ -354,11 +372,11 @@ describe('SequenceManager', () => {
       const receivedMessages: ServerMessage[] = [];
       const unsubscribe = manager.subscribe((msg) => receivedMessages.push(msg));
 
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Broadcast Test',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 5, pointsPerCycle: 3, intervalMs: 50 },
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -381,11 +399,11 @@ describe('SequenceManager', () => {
       const unsub1 = manager.subscribe((msg) => messages1.push(msg));
       const unsub2 = manager.subscribe((msg) => messages2.push(msg));
 
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Multi-Sub Test',
         unit: 'V',
         waveform: { steps: [{ value: 1, dwellMs: 100 }] },
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -406,11 +424,11 @@ describe('SequenceManager', () => {
       const messages: ServerMessage[] = [];
       const unsubscribe = manager.subscribe((msg) => messages.push(msg));
 
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Unsub Test',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 5, pointsPerCycle: 3, intervalMs: 50 },
-      });
+      }));
 
       unsubscribe(); // Unsubscribe before running
 
@@ -436,11 +454,11 @@ describe('SequenceManager', () => {
       // Good subscriber
       manager.subscribe((msg) => goodMessages.push(msg));
 
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Error Test',
         unit: 'V',
         waveform: { steps: [{ value: 1, dwellMs: 100 }] },
-      });
+      }));
 
       // Should not throw despite bad subscriber
       await expect(
@@ -461,11 +479,11 @@ describe('SequenceManager', () => {
     let sequenceId: string;
 
     beforeEach(() => {
-      sequenceId = manager.saveToLibrary({
+      sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Repeat Test',
         unit: 'V',
         waveform: { steps: [{ value: 1, dwellMs: 50 }, { value: 2, dwellMs: 50 }] },
-      });
+      }));
     });
 
     it('should run once and complete', async () => {
@@ -545,13 +563,13 @@ describe('SequenceManager', () => {
 
   describe('Modifiers', () => {
     it('should apply scale and offset to values', async () => {
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Modified',
         unit: 'V',
         waveform: { steps: [{ value: 1, dwellMs: 100 }] },
         scale: 2,
         offset: 5,
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -565,12 +583,12 @@ describe('SequenceManager', () => {
     });
 
     it('should apply maxClamp to values', async () => {
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Clamped',
         unit: 'V',
         waveform: { steps: [{ value: 100, dwellMs: 100 }] },
         maxClamp: 25,
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -584,12 +602,12 @@ describe('SequenceManager', () => {
     });
 
     it('should set preValue before sequence starts', async () => {
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'PreValue',
         unit: 'V',
         waveform: { steps: [{ value: 5, dwellMs: 100 }] },
         preValue: 0,
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -605,12 +623,12 @@ describe('SequenceManager', () => {
     });
 
     it('should set postValue after sequence completes', async () => {
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'PostValue',
         unit: 'V',
         waveform: { steps: [{ value: 5, dwellMs: 50 }] },
         postValue: 0,
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -631,11 +649,11 @@ describe('SequenceManager', () => {
 
   describe('Lifecycle', () => {
     it('should clean up on stop()', async () => {
-      const sequenceId = manager.saveToLibrary({
+      const sequenceId = unwrapResult(manager.saveToLibrary({
         name: 'Stop Test',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 100, intervalMs: 10 },
-      });
+      }));
 
       await manager.run({
         sequenceId,
@@ -646,7 +664,7 @@ describe('SequenceManager', () => {
 
       expect(manager.getActiveState()).toBeDefined();
 
-      manager.stop();
+      await manager.stop();
 
       // State should be cleared
       expect(manager.getActiveState()).toBeUndefined();
@@ -656,17 +674,17 @@ describe('SequenceManager', () => {
       const messages: ServerMessage[] = [];
       manager.subscribe((msg) => messages.push(msg));
 
-      const seq1 = manager.saveToLibrary({
+      const seq1 = unwrapResult(manager.saveToLibrary({
         name: 'Seq 1',
         unit: 'V',
         waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 100, intervalMs: 10 },
-      });
+      }));
 
-      const seq2 = manager.saveToLibrary({
+      const seq2 = unwrapResult(manager.saveToLibrary({
         name: 'Seq 2',
         unit: 'V',
         waveform: { type: 'sine', min: 0, max: 5, pointsPerCycle: 50, intervalMs: 20 },
-      });
+      }));
 
       await manager.run({
         sequenceId: seq1,

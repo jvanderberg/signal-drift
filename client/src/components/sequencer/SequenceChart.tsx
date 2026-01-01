@@ -8,7 +8,8 @@
  */
 
 import { useMemo, useRef, useEffect, useState } from 'react';
-import type { SequenceDefinition, SequenceState, WaveformParams, ArbitraryWaveform, SequenceStep } from '../../types';
+import type { SequenceDefinition, SequenceState } from '../../types';
+import { isArbitrary, resolveWaveformSteps, applyModifiers } from '../../types';
 
 // Hook to detect dark mode (same as LiveChart)
 function useIsDarkMode(): boolean {
@@ -52,95 +53,6 @@ interface SequenceChartProps {
   activeState: SequenceState | null;
 }
 
-// Check if waveform is arbitrary (has steps array)
-function isArbitrary(waveform: WaveformParams | ArbitraryWaveform): waveform is ArbitraryWaveform {
-  return 'steps' in waveform;
-}
-
-// Generate steps from waveform params (simplified version - matches server)
-function generateSteps(params: WaveformParams): SequenceStep[] {
-  const { type, min, max, pointsPerCycle, intervalMs } = params;
-  const steps: SequenceStep[] = [];
-  const amplitude = (max - min) / 2;
-  const center = min + amplitude;
-
-  switch (type) {
-    case 'sine':
-      // N loopable points, ending at center
-      // First point is one step after center, last point is center
-      for (let i = 1; i <= pointsPerCycle; i++) {
-        const angle = (2 * Math.PI * i) / pointsPerCycle;
-        const value = center + amplitude * Math.sin(angle);
-        steps.push({ value, dwellMs: intervalMs });
-      }
-      break;
-
-    case 'triangle':
-      // N loopable points, ending at min
-      for (let i = 1; i <= pointsPerCycle; i++) {
-        const t = i / pointsPerCycle;
-        let value: number;
-        if (t <= 0.5) {
-          value = min + (max - min) * (t * 2);
-        } else {
-          value = max - (max - min) * ((t - 0.5) * 2);
-        }
-        steps.push({ value, dwellMs: intervalMs });
-      }
-      break;
-
-    case 'ramp':
-      for (let i = 0; i < pointsPerCycle; i++) {
-        const t = pointsPerCycle > 1 ? i / (pointsPerCycle - 1) : 0;
-        const value = min + (max - min) * t;
-        steps.push({ value, dwellMs: intervalMs });
-      }
-      break;
-
-    case 'square': {
-      const halfPoints = Math.floor(pointsPerCycle / 2);
-      for (let i = 0; i < halfPoints; i++) {
-        steps.push({ value: max, dwellMs: intervalMs });
-      }
-      for (let i = 0; i < pointsPerCycle - halfPoints; i++) {
-        steps.push({ value: min, dwellMs: intervalMs });
-      }
-      break;
-    }
-
-    case 'steps':
-    default:
-      for (let i = 0; i < pointsPerCycle; i++) {
-        const t = pointsPerCycle > 1 ? i / (pointsPerCycle - 1) : 0;
-        const value = min + (max - min) * t;
-        steps.push({ value, dwellMs: intervalMs });
-      }
-      break;
-  }
-
-  return steps;
-}
-
-// Apply modifiers to steps
-function applyModifiers(
-  steps: SequenceStep[],
-  scale?: number,
-  offset?: number,
-  maxClamp?: number
-): SequenceStep[] {
-  if (scale === undefined && offset === undefined && maxClamp === undefined) {
-    return steps;
-  }
-
-  return steps.map((step) => {
-    let value = step.value;
-    if (scale !== undefined) value *= scale;
-    if (offset !== undefined) value += offset;
-    if (maxClamp !== undefined) value = Math.min(value, maxClamp);
-    return { ...step, value };
-  });
-}
-
 export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDarkMode = useIsDarkMode();
@@ -153,11 +65,9 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
     playhead: '#ef4444',
   }), [isDarkMode]);
 
-  // Compute steps from sequence definition
+  // Compute steps from sequence definition (using shared utilities)
   const steps = useMemo(() => {
-    const rawSteps = isArbitrary(sequence.waveform)
-      ? sequence.waveform.steps
-      : generateSteps(sequence.waveform);
+    const rawSteps = resolveWaveformSteps(sequence.waveform);
     return applyModifiers(rawSteps, sequence.scale, sequence.offset, sequence.maxClamp);
   }, [sequence]);
 

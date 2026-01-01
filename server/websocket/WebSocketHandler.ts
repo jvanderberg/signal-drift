@@ -387,10 +387,18 @@ export function createWebSocketHandler(
       });
       return;
     }
-    const sequenceId = sequenceManager.saveToLibrary(definition);
+    const result = sequenceManager.saveToLibrary(definition);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SEQUENCE_SAVE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
     send(clientState.ws, {
       type: 'sequenceLibrarySaved',
-      sequenceId,
+      sequenceId: result.value,
     });
   }
 

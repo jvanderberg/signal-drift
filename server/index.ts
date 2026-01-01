@@ -105,6 +105,9 @@ async function start() {
   console.log(`  Simulation mode: ${USE_SIMULATED_DEVICES ? 'ENABLED' : 'disabled'}`);
   console.log('');
 
+  // Initialize sequence manager (loads persisted sequences)
+  await sequenceManager.initialize();
+
   if (USE_SIMULATED_DEVICES) {
     // Create simulated devices instead of scanning for real hardware
     console.log('Creating simulated devices...');
@@ -213,8 +216,8 @@ async function stop(): Promise<void> {
   // Stop WebSocket handler first (prevents new connections)
   wsHandler.close();
 
-  // Stop sequence manager
-  sequenceManager.stop();
+  // Stop sequence manager (saves pending changes)
+  await sequenceManager.stop();
 
   // Stop session polling
   sessionManager.stop();

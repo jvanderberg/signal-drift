@@ -639,6 +639,163 @@ describe('SequenceController', () => {
     });
   });
 
+  describe('Schedule Timing', () => {
+    it('should skip steps when execution falls behind schedule (frame dropping)', async () => {
+      // This tests the "frame dropping" behavior where steps are skipped
+      // to maintain overall schedule timing when scheduling the next step
+      session = createMockSession();
+      const callValues: number[] = [];
+
+      vi.spyOn(session, 'setValue').mockImplementation(async (name, value) => {
+        callValues.push(value as number);
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            steps: [
+              { value: 0, dwellMs: 100 },
+              { value: 1, dwellMs: 100 },
+              { value: 2, dwellMs: 100 },
+              { value: 3, dwellMs: 100 },
+              { value: 4, dwellMs: 100 },
+            ],
+          },
+        }),
+        createTestRunConfig(),
+        session
+      );
+
+      await controller.start();
+      expect(callValues).toEqual([0]); // First step executes immediately
+
+      // Advance past multiple scheduled times at once
+      // This simulates the scenario where the system was busy
+      // Steps 1, 2 should be skipped because we're past their scheduled times
+      await vi.advanceTimersByTimeAsync(350);
+
+      // We should see step 0, then jump to step 3 or 4 (skipping 1, 2)
+      // The exact behavior depends on how far behind we are
+      const lastValue = callValues[callValues.length - 1];
+      expect(lastValue).toBeGreaterThanOrEqual(3); // Should have skipped to at least step 3
+
+      // Some steps should have been skipped
+      expect(callValues.length).toBeLessThan(5); // Not all steps executed
+
+      // Complete the sequence
+      await vi.advanceTimersByTimeAsync(200);
+      expect(controller.getState().executionState).toBe('completed');
+    });
+
+    it('should not accumulate drift across multiple cycles', async () => {
+      // Each cycle should start at the intended time based on previous cycle end,
+      // not based on when the previous cycle actually finished
+      session = createMockSession();
+      const callTimes: number[] = [];
+
+      vi.spyOn(session, 'setValue').mockImplementation(async () => {
+        callTimes.push(Date.now());
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            steps: [
+              { value: 0, dwellMs: 100 },
+              { value: 1, dwellMs: 100 },
+            ],
+          },
+        }),
+        createTestRunConfig({ repeatMode: 'count', repeatCount: 3 }),
+        session
+      );
+
+      await controller.start();
+      // T=0: Cycle 1, step 0
+
+      await vi.advanceTimersByTimeAsync(100);
+      // T=100: Cycle 1, step 1
+
+      await vi.advanceTimersByTimeAsync(100);
+      // T=200: Cycle 2, step 0
+
+      await vi.advanceTimersByTimeAsync(100);
+      // T=300: Cycle 2, step 1
+
+      await vi.advanceTimersByTimeAsync(100);
+      // T=400: Cycle 3, step 0
+
+      await vi.advanceTimersByTimeAsync(100);
+      // T=500: Cycle 3, step 1
+
+      expect(controller.getState().executionState).toBe('completed');
+
+      // Each cycle should be exactly 200ms apart (2 steps * 100ms)
+      // Cycle 1: T=0, T=100
+      // Cycle 2: T=200, T=300
+      // Cycle 3: T=400, T=500
+      expect(callTimes.length).toBe(6);
+
+      // Verify cycle boundaries are at expected times
+      // Allow small tolerance for timer precision
+      const cycleStartTimes = [callTimes[0], callTimes[2], callTimes[4]];
+      expect(cycleStartTimes[1] - cycleStartTimes[0]).toBe(200);
+      expect(cycleStartTimes[2] - cycleStartTimes[1]).toBe(200);
+    });
+
+    it('should maintain schedule after pause/resume without skipping steps', async () => {
+      // After resume, the schedule should be shifted forward by pause duration
+      // so no steps are incorrectly skipped
+      session = createMockSession();
+      const callValues: number[] = [];
+
+      vi.spyOn(session, 'setValue').mockImplementation(async (name, value) => {
+        callValues.push(value as number);
+        return Ok();
+      });
+
+      controller = createSequenceController(
+        createTestDefinition({
+          waveform: {
+            steps: [
+              { value: 0, dwellMs: 100 },
+              { value: 1, dwellMs: 100 },
+              { value: 2, dwellMs: 100 },
+              { value: 3, dwellMs: 100 },
+            ],
+          },
+        }),
+        createTestRunConfig(),
+        session,
+        { minIntervalMs: 50 }
+      );
+
+      await controller.start();
+      expect(callValues).toEqual([0]);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(callValues).toEqual([0, 1]);
+
+      // Pause for a long time
+      controller.pause();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Resume - schedule should shift forward
+      controller.resume();
+
+      // After minIntervalMs, should execute step 2 (not skip to end)
+      await vi.advanceTimersByTimeAsync(50);
+      expect(callValues).toEqual([0, 1, 2]);
+
+      // Continue to completion - step 3 is scheduled based on shifted schedule
+      // (pause shifted it forward, so need enough time to reach it)
+      await vi.advanceTimersByTimeAsync(200);
+      expect(callValues).toEqual([0, 1, 2, 3]);
+    });
+  });
+
   describe('Timing', () => {
     it('should respect minimum interval', async () => {
       session = createMockSession();
