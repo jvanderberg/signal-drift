@@ -204,7 +204,7 @@ export function SequencePanel() {
           </button>
           {selectedSequence && (
             <button
-              className="text-xs px-2 py-1 rounded bg-red-500/30 hover:bg-red-500/50 text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-xs px-2 py-1 rounded bg-[var(--color-danger)] text-white hover:opacity-80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={handleDeleteSequence}
               disabled={isRunning}
               title="Delete selected sequence"
@@ -244,24 +244,38 @@ export function SequencePanel() {
 
           {/* Status display - below chart */}
           {activeState && (
-            <div className="mt-2 px-3 py-2 bg-[var(--color-bg-secondary)] rounded text-xs flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <span className="capitalize">{executionState}</span>
-                <span>
-                  Step {activeState.currentStepIndex + 1}/{activeState.totalSteps}
-                  {activeState.totalCycles !== null && (
-                    <span className="ml-2">
-                      Cycle {activeState.currentCycle + 1}/{activeState.totalCycles}
-                    </span>
-                  )}
-                  {activeState.totalCycles === null && (
-                    <span className="ml-2">Cycle {activeState.currentCycle + 1}</span>
-                  )}
-                </span>
+            <div className="mt-2 flex gap-3 flex-shrink-0">
+              {/* Current value - prominent display matching device panels */}
+              <div className="bg-[var(--color-bg-readings)] rounded p-2 text-center w-[140px] flex-shrink-0">
+                <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-secondary)] mb-0.5">
+                  {selectedParameter ?? 'Value'}
+                </div>
+                <div>
+                  <span className="font-mono text-xl font-bold">
+                    {activeState.commandedValue.toFixed(3)}
+                  </span>
+                  <span className="text-xs text-[var(--color-text-secondary)] ml-1">
+                    {selectedSequence?.unit ?? ''}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center mt-1">
-                <span>Value: {activeState.commandedValue.toFixed(3)}</span>
-                <span>Elapsed: {(activeState.elapsedMs / 1000).toFixed(1)}s</span>
+
+              {/* Progress info */}
+              <div className="flex-1 bg-[var(--color-bg-secondary)] rounded px-3 py-2 text-xs flex flex-col justify-center">
+                <div className="flex justify-between items-center">
+                  <span className="capitalize font-medium">{executionState}</span>
+                  <span>
+                    Step {activeState.currentStepIndex + 1}/{activeState.totalSteps}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mt-1 text-[var(--color-text-secondary)]">
+                  <span>
+                    {activeState.totalCycles !== null
+                      ? `Cycle ${activeState.currentCycle + 1}/${activeState.totalCycles}`
+                      : `Cycle ${activeState.currentCycle + 1}`}
+                  </span>
+                  <span>{(activeState.elapsedMs / 1000).toFixed(1)}s</span>
+                </div>
               </div>
             </div>
           )}
