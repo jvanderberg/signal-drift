@@ -389,11 +389,14 @@ export function generateWaveformSteps(params: WaveformParams): SequenceStep[] {
 }
 
 /**
- * Resolve waveform definition to steps (handles both standard and arbitrary)
+ * Resolve waveform definition to steps (handles standard, random walk, and arbitrary)
  */
-export function resolveWaveformSteps(waveform: WaveformParams | ArbitraryWaveform): SequenceStep[] {
+export function resolveWaveformSteps(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): SequenceStep[] {
   if (isArbitrary(waveform)) {
     return waveform.steps;
+  }
+  if (isRandomWalk(waveform)) {
+    return generateRandomWalk(waveform);
   }
   return generateWaveformSteps(waveform);
 }

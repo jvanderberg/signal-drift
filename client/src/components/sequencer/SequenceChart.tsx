@@ -7,9 +7,9 @@
  * - Pre/post values if configured
  */
 
-import { useMemo, useRef, useEffect, useState } from 'react';
+import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import type { SequenceDefinition, SequenceState } from '../../types';
-import { isArbitrary, resolveWaveformSteps, applyModifiers } from '../../types';
+import { isArbitrary, isRandomWalk, resolveWaveformSteps, applyModifiers } from '../../types';
 
 // Hook to detect dark mode (same as LiveChart)
 function useIsDarkMode(): boolean {
@@ -65,6 +65,46 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
     playhead: '#ef4444',
   }), [isDarkMode]);
 
+  // Check if this is a random walk (needs live tracking)
+  const isRandomWalkWaveform = isRandomWalk(sequence.waveform);
+
+  // Track actual commanded values during playback (for random walk)
+  const [actualValues, setActualValues] = useState<number[]>([]);
+  const lastCycleRef = useRef<number>(-1);
+
+  // Reset actual values when sequence changes or new run starts
+  useEffect(() => {
+    if (!activeState || activeState.executionState === 'idle') {
+      setActualValues([]);
+      lastCycleRef.current = -1;
+    } else if (activeState.currentCycle !== lastCycleRef.current) {
+      // New cycle started - reset values for this cycle
+      setActualValues([]);
+      lastCycleRef.current = activeState.currentCycle;
+    }
+  }, [activeState?.executionState, activeState?.currentCycle]);
+
+  // Record commanded values as they come in
+  useEffect(() => {
+    if (!activeState || !isRandomWalkWaveform) return;
+    if (activeState.executionState !== 'running' && activeState.executionState !== 'paused') return;
+
+    const stepIndex = activeState.currentStepIndex;
+    setActualValues(prev => {
+      // Only add if we haven't recorded this step yet
+      if (prev.length <= stepIndex) {
+        const newValues = [...prev];
+        // Fill any gaps (shouldn't happen but be safe)
+        while (newValues.length < stepIndex) {
+          newValues.push(activeState.commandedValue);
+        }
+        newValues.push(activeState.commandedValue);
+        return newValues;
+      }
+      return prev;
+    });
+  }, [activeState?.currentStepIndex, activeState?.commandedValue, isRandomWalkWaveform]);
+
   // Compute steps from sequence definition (using shared utilities)
   const steps = useMemo(() => {
     const rawSteps = resolveWaveformSteps(sequence.waveform);
@@ -82,7 +122,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
     return { times, totalDuration: cumulative };
   }, [steps]);
 
-  // Compute value range
+  // Compute value range (includes actual values for random walk)
   const range = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
@@ -90,6 +130,12 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
     for (const step of steps) {
       if (step.value < min) min = step.value;
       if (step.value > max) max = step.value;
+    }
+
+    // Include actual commanded values (for random walk during playback)
+    for (const val of actualValues) {
+      if (val < min) min = val;
+      if (val > max) max = val;
     }
 
     // Include pre/post values
@@ -115,7 +161,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
     // Add padding
     const padding = (max - min) * 0.1 || 1;
     return { min: min - padding, max: max + padding };
-  }, [steps, sequence]);
+  }, [steps, sequence, actualValues]);
 
   // Track container size for redraw
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -188,15 +234,24 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
       ctx.fillText(v.toFixed(1), padding.left - 4, y + 3);
     }
 
-    // Draw step waveform
+    // For random walk during playback: only show actual values, not preview
+    const isPlayingRandomWalk = isRandomWalkWaveform && activeState &&
+      (activeState.executionState === 'running' || activeState.executionState === 'paused');
+
+    // Draw waveform - either preview steps or actual commanded values
     ctx.strokeStyle = colors.waveform;
     ctx.lineWidth = 2;
     ctx.beginPath();
 
-    for (let i = 0; i < steps.length; i++) {
+    // Use actual values for random walk during playback, otherwise use preview steps
+    const valuesToDraw = isPlayingRandomWalk && actualValues.length > 0 ? actualValues : steps.map(s => s.value);
+
+    for (let i = 0; i < valuesToDraw.length; i++) {
       const x = xToPixel(timing.times[i]);
-      const y = yToPixel(steps[i].value);
-      const nextX = i < steps.length - 1 ? xToPixel(timing.times[i + 1]) : xToPixel(timing.totalDuration);
+      const y = yToPixel(valuesToDraw[i]);
+      const nextX = i < valuesToDraw.length - 1
+        ? xToPixel(timing.times[i + 1])
+        : xToPixel(timing.totalDuration);
 
       if (i === 0) {
         ctx.moveTo(x, y);
@@ -238,7 +293,7 @@ export function SequenceChart({ sequence, activeState }: SequenceChartProps) {
       const x = xToPixel(t);
       ctx.fillText(`${(t / 1000).toFixed(1)}s`, x, height - 4);
     }
-  }, [steps, timing, range, activeState, colors, containerSize]);
+  }, [steps, timing, range, activeState, colors, containerSize, actualValues, isRandomWalkWaveform]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative">

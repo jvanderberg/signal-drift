@@ -44,6 +44,18 @@ export function SequencePanel() {
     }
   }, [library.length, isLibraryLoading, mode]);
 
+  // Sync selection state from active sequence on load/reconnect
+  useEffect(() => {
+    if (activeState && activeState.runConfig) {
+      const { sequenceId, deviceId, parameter, repeatMode: rm, repeatCount: rc } = activeState.runConfig;
+      setSelectedSequenceId(sequenceId);
+      setSelectedDeviceId(deviceId);
+      setSelectedParameter(parameter);
+      setRepeatMode(rm);
+      if (rc !== undefined) setRepeatCount(rc);
+    }
+  }, [activeState?.runConfig?.sequenceId]);
+
   // Selection state
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
