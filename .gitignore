@@ -11,3 +11,4 @@ release/
 # Compiled JS (TypeScript outputs to dist/)
 server/**/*.js
 shared/**/*.js
+.worktrees/

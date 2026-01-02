@@ -1,0 +1,40 @@
+{
+  "name": "Lab Controller Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "containerEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
+  "postCreateCommand": ".devcontainer/init-firewall.sh",
+  "postStartCommand": "npm install && cd client && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "typescript.preferences.importModuleSpecifier": "relative"
+      }
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/claude/.claude,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/home/claude/.claude.json,type=bind",
+    "source=${localEnv:HOME}/.ssh,target=/home/claude/.ssh,type=bind,readonly",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/claude/.gitconfig,type=bind,readonly"
+  ],
+  "remoteUser": "claude",
+  "containerUser": "claude",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "runArgs": [
+    "--cap-add=NET_ADMIN"
+  ]
+}
