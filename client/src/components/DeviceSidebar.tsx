@@ -16,8 +16,10 @@ interface DeviceSidebarProps {
   devices: DeviceSummary[];
   openDeviceIds: Set<string>;
   showSequencer: boolean;
+  showTriggerScripts: boolean;
   onDeviceClick: (device: DeviceSummary) => void;
   onSequencerClick: () => void;
+  onTriggerScriptsClick: () => void;
   onScan: () => void;
   isScanning: boolean;
   isOpen: boolean;
@@ -177,8 +179,10 @@ export function DeviceSidebar({
   devices,
   openDeviceIds,
   showSequencer,
+  showTriggerScripts,
   onDeviceClick,
   onSequencerClick,
+  onTriggerScriptsClick,
   onScan,
   isScanning,
   isOpen,
@@ -316,6 +320,20 @@ export function DeviceSidebar({
                 <div className="font-medium text-sm leading-5">Sequencer</div>
                 <div className="text-xs leading-4 text-[var(--color-text-muted)]">
                   Software AWG
+                </div>
+              </div>
+            </div>
+            <div
+              className={`px-3 py-2 cursor-pointer transition-colors flex items-center gap-2 ${
+                showTriggerScripts ? 'bg-[var(--color-bg-secondary)]' : 'hover:bg-[var(--color-bg-secondary)]'
+              }`}
+              onClick={onTriggerScriptsClick}
+            >
+              <span className="text-base">⚡</span>
+              <div>
+                <div className="font-medium text-sm leading-5">Trigger Scripts</div>
+                <div className="text-xs leading-4 text-[var(--color-text-muted)]">
+                  Reactive automation
                 </div>
               </div>
             </div>

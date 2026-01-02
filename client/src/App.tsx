@@ -8,11 +8,13 @@ import { OscilloscopePanel } from './components/OscilloscopePanel';
 import { ToastContainer } from './components/ToastContainer';
 import { DeviceSidebar } from './components/DeviceSidebar';
 import { SequencePanel } from './components/sequencer';
+import { TriggerScriptPanel } from './components/triggers';
 
 function App() {
   const { devices, isLoading, scan } = useDeviceList();
   const [openDeviceIds, setOpenDeviceIds] = useState<Set<string>>(new Set());
   const [showSequencer, setShowSequencer] = useState(false);
+  const [showTriggerScripts, setShowTriggerScripts] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const { toasts, success, error } = useToast();
@@ -50,6 +52,11 @@ function App() {
     setSidebarOpen(false);
   };
 
+  const handleTriggerScriptsClick = () => {
+    setShowTriggerScripts(prev => !prev);
+    setSidebarOpen(false);
+  };
+
   return (
     <div className="h-screen flex flex-col">
       {/* Sidebar (hamburger menu) */}
@@ -57,8 +64,10 @@ function App() {
         devices={devices}
         openDeviceIds={openDeviceIds}
         showSequencer={showSequencer}
+        showTriggerScripts={showTriggerScripts}
         onDeviceClick={handleDeviceClick}
         onSequencerClick={handleSequencerClick}
+        onTriggerScriptsClick={handleTriggerScriptsClick}
         onScan={scan}
         isScanning={isLoading}
         isOpen={sidebarOpen}
@@ -110,8 +119,15 @@ function App() {
             </div>
           )}
 
+          {/* Trigger Script Panel */}
+          {showTriggerScripts && (
+            <div className="flex-1 basis-[calc(50%-0.5rem)] min-w-[420px]">
+              <TriggerScriptPanel />
+            </div>
+          )}
+
           {/* Empty state when nothing is open */}
-          {openDevices.length === 0 && !showSequencer && (
+          {openDevices.length === 0 && !showSequencer && !showTriggerScripts && (
             <div className="flex-1 flex items-center justify-center text-[var(--color-text-secondary)] text-sm py-20">
               Click the menu to open devices or widgets
             </div>
