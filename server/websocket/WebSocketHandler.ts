@@ -10,6 +10,7 @@
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { SessionManager } from '../sessions/SessionManager.js';
 import type { SequenceManager } from '../sequences/SequenceManager.js';
+import type { TriggerScriptManager } from '../triggers/TriggerScriptManager.js';
 import type { ClientMessage, ServerMessage, DeviceSessionState } from '../../shared/types.js';
 
 export interface WebSocketHandler {
@@ -33,13 +34,21 @@ function generateClientId(): string {
 export function createWebSocketHandler(
   wss: WebSocketServer,
   sessionManager: SessionManager,
-  sequenceManager?: SequenceManager
+  sequenceManager?: SequenceManager,
+  triggerScriptManager?: TriggerScriptManager
 ): WebSocketHandler {
   const clients = new Map<WebSocket, ClientState>();
 
   // Subscribe to sequence manager events and broadcast to all clients
   if (sequenceManager) {
     sequenceManager.subscribe((message) => {
+      broadcastToAll(message);
+    });
+  }
+
+  // Subscribe to trigger script manager events and broadcast to all clients
+  if (triggerScriptManager) {
+    triggerScriptManager.subscribe((message) => {
       broadcastToAll(message);
     });
   }
@@ -148,6 +157,40 @@ export function createWebSocketHandler(
 
       case 'sequenceAbort':
         handleSequenceAbort(clientState);
+        break;
+
+      // Trigger script messages - library
+      case 'triggerScriptLibraryList':
+        handleTriggerScriptLibraryList(clientState);
+        break;
+
+      case 'triggerScriptLibrarySave':
+        handleTriggerScriptLibrarySave(clientState, message.script);
+        break;
+
+      case 'triggerScriptLibraryUpdate':
+        handleTriggerScriptLibraryUpdate(clientState, message.script);
+        break;
+
+      case 'triggerScriptLibraryDelete':
+        handleTriggerScriptLibraryDelete(clientState, message.scriptId);
+        break;
+
+      // Trigger script messages - execution
+      case 'triggerScriptRun':
+        handleTriggerScriptRun(clientState, message.scriptId);
+        break;
+
+      case 'triggerScriptStop':
+        handleTriggerScriptStop(clientState);
+        break;
+
+      case 'triggerScriptPause':
+        handleTriggerScriptPause(clientState);
+        break;
+
+      case 'triggerScriptResume':
+        handleTriggerScriptResume(clientState);
         break;
 
       // Oscilloscope messages
@@ -490,6 +533,174 @@ export function createWebSocketHandler(
     }
     await sequenceManager.abort();
     // Note: abort broadcast is handled by SequenceManager's subscriber
+  }
+
+  // Trigger script handlers
+  function handleTriggerScriptLibraryList(clientState: ClientState): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const scripts = triggerScriptManager.listLibrary();
+    send(clientState.ws, {
+      type: 'triggerScriptLibrary',
+      scripts,
+    });
+  }
+
+  function handleTriggerScriptLibrarySave(
+    clientState: ClientState,
+    script: Parameters<NonNullable<typeof triggerScriptManager>['saveToLibrary']>[0]
+  ): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = triggerScriptManager.saveToLibrary(script);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_SAVE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'triggerScriptLibrarySaved',
+      scriptId: result.value,
+    });
+  }
+
+  function handleTriggerScriptLibraryUpdate(
+    clientState: ClientState,
+    script: Parameters<NonNullable<typeof triggerScriptManager>['updateInLibrary']>[0]
+  ): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = triggerScriptManager.updateInLibrary(script);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_UPDATE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'triggerScriptLibrarySaved',
+      scriptId: script.id,
+    });
+  }
+
+  function handleTriggerScriptLibraryDelete(clientState: ClientState, scriptId: string): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = triggerScriptManager.deleteFromLibrary(scriptId);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_DELETE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'triggerScriptLibraryDeleted',
+      scriptId,
+    });
+  }
+
+  async function handleTriggerScriptRun(clientState: ClientState, scriptId: string): Promise<void> {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = await triggerScriptManager.run(scriptId);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_RUN_FAILED',
+        message: result.error.message,
+      });
+    }
+    // Note: success broadcast is handled by TriggerScriptManager's subscriber
+  }
+
+  async function handleTriggerScriptStop(clientState: ClientState): Promise<void> {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    await triggerScriptManager.stop();
+    // Note: stop broadcast is handled by TriggerScriptManager's subscriber
+  }
+
+  function handleTriggerScriptPause(clientState: ClientState): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = triggerScriptManager.pause();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_PAUSE_FAILED',
+        message: result.error.message,
+      });
+    }
+    // Note: pause broadcast is handled by TriggerScriptManager's subscriber
+  }
+
+  function handleTriggerScriptResume(clientState: ClientState): void {
+    if (!triggerScriptManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_AVAILABLE',
+        message: 'Trigger script manager not available',
+      });
+      return;
+    }
+    const result = triggerScriptManager.resume();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'TRIGGER_SCRIPT_RESUME_FAILED',
+        message: result.error.message,
+      });
+    }
+    // Note: resume broadcast is handled by TriggerScriptManager's subscriber
   }
 
   // Oscilloscope handlers

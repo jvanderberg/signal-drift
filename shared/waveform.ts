@@ -13,6 +13,8 @@ import type {
   ArbitraryWaveform,
   SequenceStep,
   SequenceDefinition,
+  TriggerScript,
+  Trigger,
   Result,
 } from './types.js';
 import { Ok, Err } from './types.js';
@@ -33,6 +35,18 @@ export const WAVEFORM_LIMITS = {
   MAX_LIBRARY_SIZE: 1000,
   /** Maximum steps in arbitrary waveform */
   MAX_ARBITRARY_STEPS: 10000,
+} as const;
+
+/** Validation constraints for trigger scripts */
+export const TRIGGER_SCRIPT_LIMITS = {
+  /** Maximum library size */
+  MAX_LIBRARY_SIZE: 100,
+  /** Maximum triggers per script */
+  MAX_TRIGGERS: 50,
+  /** Maximum debounce time (ms) - 1 hour */
+  MAX_DEBOUNCE_MS: 3600000,
+  /** Maximum time trigger seconds - 24 hours */
+  MAX_TIME_SECONDS: 86400,
 } as const;
 
 export interface ValidationError {
@@ -182,6 +196,108 @@ export function validateSequenceDefinition(
     if (!Number.isFinite(def.maxSlewRate) || def.maxSlewRate <= 0) {
       return Err({ field: 'maxSlewRate', message: 'Max slew rate must be a positive number' });
     }
+  }
+
+  return Ok();
+}
+
+/**
+ * Validate a single trigger
+ */
+function validateTrigger(trigger: Trigger, index: number): Result<void, ValidationError> {
+  const prefix = `triggers[${index}]`;
+
+  // Validate condition
+  if (trigger.condition.type === 'time') {
+    if (!Number.isFinite(trigger.condition.seconds)) {
+      return Err({ field: `${prefix}.condition.seconds`, message: 'Time must be a finite number' });
+    }
+    if (trigger.condition.seconds < 0) {
+      return Err({ field: `${prefix}.condition.seconds`, message: 'Time must not be negative' });
+    }
+    if (trigger.condition.seconds > TRIGGER_SCRIPT_LIMITS.MAX_TIME_SECONDS) {
+      return Err({ field: `${prefix}.condition.seconds`, message: `Time must be at most ${TRIGGER_SCRIPT_LIMITS.MAX_TIME_SECONDS} seconds` });
+    }
+  } else if (trigger.condition.type === 'value') {
+    if (!trigger.condition.deviceId || trigger.condition.deviceId.trim() === '') {
+      return Err({ field: `${prefix}.condition.deviceId`, message: 'Device ID is required' });
+    }
+    if (!trigger.condition.parameter || trigger.condition.parameter.trim() === '') {
+      return Err({ field: `${prefix}.condition.parameter`, message: 'Parameter is required' });
+    }
+    if (!Number.isFinite(trigger.condition.value)) {
+      return Err({ field: `${prefix}.condition.value`, message: 'Value must be a finite number' });
+    }
+  }
+
+  // Validate action
+  if (trigger.action.type === 'setValue') {
+    if (!trigger.action.deviceId || trigger.action.deviceId.trim() === '') {
+      return Err({ field: `${prefix}.action.deviceId`, message: 'Device ID is required' });
+    }
+    if (!trigger.action.parameter || trigger.action.parameter.trim() === '') {
+      return Err({ field: `${prefix}.action.parameter`, message: 'Parameter is required' });
+    }
+    if (!Number.isFinite(trigger.action.value)) {
+      return Err({ field: `${prefix}.action.value`, message: 'Value must be a finite number' });
+    }
+  } else if (trigger.action.type === 'setOutput') {
+    if (!trigger.action.deviceId || trigger.action.deviceId.trim() === '') {
+      return Err({ field: `${prefix}.action.deviceId`, message: 'Device ID is required' });
+    }
+  } else if (trigger.action.type === 'startSequence') {
+    if (!trigger.action.sequenceId || trigger.action.sequenceId.trim() === '') {
+      return Err({ field: `${prefix}.action.sequenceId`, message: 'Sequence ID is required' });
+    }
+    if (!trigger.action.deviceId || trigger.action.deviceId.trim() === '') {
+      return Err({ field: `${prefix}.action.deviceId`, message: 'Device ID is required' });
+    }
+    if (!trigger.action.parameter || trigger.action.parameter.trim() === '') {
+      return Err({ field: `${prefix}.action.parameter`, message: 'Parameter is required' });
+    }
+  }
+  // stopSequence and pauseSequence have no fields to validate
+
+  // Validate debounceMs
+  if (!Number.isFinite(trigger.debounceMs)) {
+    return Err({ field: `${prefix}.debounceMs`, message: 'Debounce must be a finite number' });
+  }
+  if (trigger.debounceMs < 0) {
+    return Err({ field: `${prefix}.debounceMs`, message: 'Debounce must not be negative' });
+  }
+  if (trigger.debounceMs > TRIGGER_SCRIPT_LIMITS.MAX_DEBOUNCE_MS) {
+    return Err({ field: `${prefix}.debounceMs`, message: `Debounce must be at most ${TRIGGER_SCRIPT_LIMITS.MAX_DEBOUNCE_MS}ms` });
+  }
+
+  return Ok();
+}
+
+/**
+ * Validate a complete trigger script definition (excluding id/timestamps)
+ */
+export function validateTriggerScript(
+  def: Omit<TriggerScript, 'id' | 'createdAt' | 'updatedAt'>
+): Result<void, ValidationError> {
+  // Validate name
+  if (typeof def.name !== 'string' || def.name.trim().length === 0) {
+    return Err({ field: 'name', message: 'Name is required' });
+  }
+  if (def.name.length > 100) {
+    return Err({ field: 'name', message: 'Name must be 100 characters or less' });
+  }
+
+  // Validate triggers array
+  if (!Array.isArray(def.triggers)) {
+    return Err({ field: 'triggers', message: 'Triggers must be an array' });
+  }
+  if (def.triggers.length > TRIGGER_SCRIPT_LIMITS.MAX_TRIGGERS) {
+    return Err({ field: 'triggers', message: `Maximum ${TRIGGER_SCRIPT_LIMITS.MAX_TRIGGERS} triggers allowed` });
+  }
+
+  // Validate each trigger
+  for (let i = 0; i < def.triggers.length; i++) {
+    const result = validateTrigger(def.triggers[i], i);
+    if (!result.ok) return result;
   }
 
   return Ok();

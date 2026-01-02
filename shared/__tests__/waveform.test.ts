@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   validateWaveformParams,
   validateArbitraryWaveform,
@@ -911,6 +911,331 @@ describe('CSV Parsing', () => {
       const csv = stepsToCSV(original);
       const parsed = parseArbitraryStepsCSV(csv);
       expect(parsed).toEqual(original);
+    });
+  });
+});
+
+describe('Trigger Script Validation', () => {
+  describe('validateTriggerScript', () => {
+    // Import in this scope to avoid breaking other tests if function doesn't exist
+    let validateTriggerScript: typeof import('../waveform.js').validateTriggerScript;
+    let TRIGGER_SCRIPT_LIMITS: typeof import('../waveform.js').TRIGGER_SCRIPT_LIMITS;
+
+    beforeAll(async () => {
+      const module = await import('../waveform.js');
+      validateTriggerScript = module.validateTriggerScript;
+      TRIGGER_SCRIPT_LIMITS = module.TRIGGER_SCRIPT_LIMITS;
+    });
+
+    const validTrigger = {
+      id: 'trigger-1',
+      condition: {
+        type: 'time' as const,
+        seconds: 5,
+      },
+      action: {
+        type: 'setOutput' as const,
+        deviceId: 'device-1',
+        enabled: true,
+      },
+      repeatMode: 'once' as const,
+      debounceMs: 0,
+    };
+
+    const validScript = {
+      name: 'Test Script',
+      triggers: [validTrigger],
+    };
+
+    it('should accept valid script with time-based trigger', () => {
+      const result = validateTriggerScript(validScript);
+      expect(result.ok).toBe(true);
+    });
+
+    it('should accept valid script with value-based trigger', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: {
+            type: 'value' as const,
+            deviceId: 'device-1',
+            parameter: 'voltage',
+            operator: '>' as const,
+            value: 5,
+          },
+        }],
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('should accept script with empty triggers array', () => {
+      const result = validateTriggerScript({ ...validScript, triggers: [] });
+      expect(result.ok).toBe(true);
+    });
+
+    // Name validation
+    it('should reject empty name', () => {
+      const result = validateTriggerScript({ ...validScript, name: '' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('name');
+      }
+    });
+
+    it('should reject whitespace-only name', () => {
+      const result = validateTriggerScript({ ...validScript, name: '   ' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('name');
+      }
+    });
+
+    it('should reject name over 100 characters', () => {
+      const result = validateTriggerScript({ ...validScript, name: 'a'.repeat(101) });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('name');
+      }
+    });
+
+    // Triggers array limit
+    it('should reject too many triggers', () => {
+      const manyTriggers = Array(TRIGGER_SCRIPT_LIMITS.MAX_TRIGGERS + 1).fill(null).map((_, i) => ({
+        ...validTrigger,
+        id: `trigger-${i}`,
+      }));
+      const result = validateTriggerScript({ ...validScript, triggers: manyTriggers });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toBe('triggers');
+      }
+    });
+
+    // Time condition validation
+    it('should reject negative time seconds', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: { type: 'time' as const, seconds: -5 },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('seconds');
+      }
+    });
+
+    it('should reject NaN time seconds', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: { type: 'time' as const, seconds: NaN },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('seconds');
+      }
+    });
+
+    // Value condition validation
+    it('should reject empty deviceId in value condition', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: {
+            type: 'value' as const,
+            deviceId: '',
+            parameter: 'voltage',
+            operator: '>' as const,
+            value: 5,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('deviceId');
+      }
+    });
+
+    it('should reject empty parameter in value condition', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: {
+            type: 'value' as const,
+            deviceId: 'device-1',
+            parameter: '',
+            operator: '>' as const,
+            value: 5,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('parameter');
+      }
+    });
+
+    it('should reject NaN value in value condition', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          condition: {
+            type: 'value' as const,
+            deviceId: 'device-1',
+            parameter: 'voltage',
+            operator: '>' as const,
+            value: NaN,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('value');
+      }
+    });
+
+    // Action validation - setValue
+    it('should reject empty deviceId in setValue action', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          action: {
+            type: 'setValue' as const,
+            deviceId: '',
+            parameter: 'voltage',
+            value: 5,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('deviceId');
+      }
+    });
+
+    it('should reject NaN value in setValue action', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          action: {
+            type: 'setValue' as const,
+            deviceId: 'device-1',
+            parameter: 'voltage',
+            value: NaN,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('value');
+      }
+    });
+
+    // Action validation - setOutput
+    it('should reject empty deviceId in setOutput action', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          action: {
+            type: 'setOutput' as const,
+            deviceId: '',
+            enabled: true,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('deviceId');
+      }
+    });
+
+    // Action validation - startSequence
+    it('should reject empty sequenceId in startSequence action', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          action: {
+            type: 'startSequence' as const,
+            sequenceId: '',
+            deviceId: 'device-1',
+            parameter: 'voltage',
+            repeatMode: 'once' as const,
+          },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('sequenceId');
+      }
+    });
+
+    // Debounce validation
+    it('should reject negative debounceMs', () => {
+      const result = validateTriggerScript({
+        ...validScript,
+        triggers: [{
+          ...validTrigger,
+          debounceMs: -100,
+        }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.field).toContain('debounceMs');
+      }
+    });
+
+    // Valid complex script
+    it('should accept valid script with multiple trigger types', () => {
+      const result = validateTriggerScript({
+        name: 'Complex Script',
+        triggers: [
+          {
+            id: 'trigger-1',
+            condition: { type: 'time' as const, seconds: 5 },
+            action: { type: 'setOutput' as const, deviceId: 'device-1', enabled: true },
+            repeatMode: 'once' as const,
+            debounceMs: 0,
+          },
+          {
+            id: 'trigger-2',
+            condition: {
+              type: 'value' as const,
+              deviceId: 'device-1',
+              parameter: 'voltage',
+              operator: '>' as const,
+              value: 10,
+            },
+            action: {
+              type: 'setValue' as const,
+              deviceId: 'device-2',
+              parameter: 'current',
+              value: 2,
+            },
+            repeatMode: 'repeat' as const,
+            debounceMs: 500,
+          },
+          {
+            id: 'trigger-3',
+            condition: { type: 'time' as const, seconds: 10 },
+            action: { type: 'stopSequence' as const },
+            repeatMode: 'once' as const,
+            debounceMs: 0,
+          },
+        ],
+      });
+      expect(result.ok).toBe(true);
     });
   });
 });

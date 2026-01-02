@@ -17,6 +17,7 @@ import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
 import { createSequenceManager } from './sequences/SequenceManager.js';
+import { createTriggerScriptManager } from './triggers/TriggerScriptManager.js';
 
 // Configuration (defaults, overridable by ENV)
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -92,9 +93,12 @@ const sessionManager = createSessionManager(registry, {
 // Create sequence manager (for AWG/sequencing functionality)
 const sequenceManager = createSequenceManager(sessionManager);
 
+// Create trigger script manager (for reactive automation)
+const triggerScriptManager = createTriggerScriptManager(sessionManager, sequenceManager);
+
 // Create WebSocket server
 const wss = new WebSocketServer({ server, path: '/ws' });
-const wsHandler = createWebSocketHandler(wss, sessionManager, sequenceManager);
+const wsHandler = createWebSocketHandler(wss, sessionManager, sequenceManager, triggerScriptManager);
 
 // Start server
 async function start() {
@@ -107,6 +111,9 @@ async function start() {
 
   // Initialize sequence manager (loads persisted sequences)
   await sequenceManager.initialize();
+
+  // Initialize trigger script manager (loads persisted trigger scripts)
+  await triggerScriptManager.initialize();
 
   if (USE_SIMULATED_DEVICES) {
     // Create simulated devices instead of scanning for real hardware
@@ -218,6 +225,9 @@ async function stop(): Promise<void> {
 
   // Stop sequence manager (saves pending changes)
   await sequenceManager.stop();
+
+  // Stop trigger script manager (saves pending changes)
+  await triggerScriptManager.shutdown();
 
   // Stop session polling
   sessionManager.stop();

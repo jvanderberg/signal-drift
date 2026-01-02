@@ -84,6 +84,32 @@ To use:
 3. Choose a target device and parameter (voltage, current, etc.)
 4. Configure repeat mode and click Run
 
+### Trigger Scripts
+
+Trigger scripts enable reactive automation: "when X happens, do Y". They complement sequences by adding event-driven control.
+
+**Conditions** (when to fire):
+- **Time-based** - At a specific time after script starts (e.g., "at t=10s")
+- **Value-based** - When a device measurement crosses a threshold (e.g., "when current > 2A")
+
+**Actions** (what to do):
+- **Set Value** - Change a device setpoint (voltage, current, etc.)
+- **Set Output** - Turn device output on/off
+- **Set Mode** - Change operating mode (CC, CV, CR, CP)
+- **Start/Stop Sequence** - Control sequence playback
+
+**Repeat modes**:
+- **Once** - Fire only the first time condition is met
+- **Repeat** - Fire every time condition becomes true (with optional debounce)
+
+To use:
+1. Open the Triggers panel from the sidebar
+2. Create a new script or select from the library
+3. Add triggers with conditions and actions
+4. Click Run to start monitoring
+
+**Note**: Only one sequence can run at a time. If a trigger starts a new sequence, any running sequence is aborted first.
+
 ### Multiple Devices
 
 Open multiple devices simultaneously - each gets its own panel. Panels share rows (max 2 per row) and a single device takes full width.
@@ -101,6 +127,7 @@ lab-controller/
 │   ├── sessions/     # Device session management
 │   ├── devices/      # Device drivers and transports
 │   ├── sequences/    # Sequence library and execution
+│   ├── triggers/     # Trigger script engine
 │   └── websocket/    # WebSocket handler
 ├── client/           # React frontend
 │   ├── src/
@@ -119,6 +146,7 @@ All communication uses WebSocket (no REST API for real-time operations):
 - **Device control**: `setMode`, `setOutput`, `setValue`
 - **Oscilloscope**: `scopeRun`, `scopeStop`, `scopeGetWaveform`, etc.
 - **Sequencer**: `sequenceRun`, `sequenceAbort`, `sequenceLibrary*`
+- **Triggers**: `triggerScriptRun`, `triggerScriptStop`, `triggerScriptLibrary*`
 
 ### Resilience
 

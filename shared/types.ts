@@ -324,7 +324,17 @@ export type ClientMessage =
   | { type: 'sequenceLibraryDelete'; sequenceId: string }
   // Sequence messages - playback
   | { type: 'sequenceRun'; config: SequenceRunConfig }
-  | { type: 'sequenceAbort' };
+  | { type: 'sequenceAbort' }
+  // Trigger script messages - library
+  | { type: 'triggerScriptLibraryList' }
+  | { type: 'triggerScriptLibrarySave'; script: Omit<TriggerScript, 'id' | 'createdAt' | 'updatedAt'> }
+  | { type: 'triggerScriptLibraryUpdate'; script: TriggerScript }
+  | { type: 'triggerScriptLibraryDelete'; scriptId: string }
+  // Trigger script messages - execution
+  | { type: 'triggerScriptRun'; scriptId: string }
+  | { type: 'triggerScriptStop' }
+  | { type: 'triggerScriptPause' }
+  | { type: 'triggerScriptResume' };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner
@@ -351,7 +361,20 @@ export type ServerMessage =
   | { type: 'sequenceProgress'; state: SequenceState }
   | { type: 'sequenceCompleted'; sequenceId: string }
   | { type: 'sequenceAborted'; sequenceId: string }
-  | { type: 'sequenceError'; sequenceId: string; error: string };
+  | { type: 'sequenceError'; sequenceId: string; error: string }
+  // Trigger script responses - library
+  | { type: 'triggerScriptLibrary'; scripts: TriggerScript[] }
+  | { type: 'triggerScriptLibrarySaved'; scriptId: string }
+  | { type: 'triggerScriptLibraryDeleted'; scriptId: string }
+  // Trigger script responses - execution
+  | { type: 'triggerScriptStarted'; state: TriggerScriptState }
+  | { type: 'triggerScriptProgress'; state: TriggerScriptState }
+  | { type: 'triggerScriptStopped'; scriptId: string }
+  | { type: 'triggerScriptPaused'; scriptId: string }
+  | { type: 'triggerScriptResumed'; scriptId: string }
+  | { type: 'triggerScriptError'; scriptId: string; error: string }
+  | { type: 'triggerFired'; scriptId: string; triggerId: string; triggerState: TriggerState }
+  | { type: 'triggerActionFailed'; scriptId: string; triggerId: string; actionType: string; error: string };
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {
@@ -449,5 +472,131 @@ export interface SequenceState {
   commandedValue: number;
 
   // Error info (if state is 'error')
+  error?: string;
+}
+
+// ============ Trigger Script Types ============
+
+/** Comparison operators for value-based triggers */
+export type TriggerOperator = '>' | '<' | '>=' | '<=' | '==' | '!=';
+
+/** Trigger repetition mode */
+export type TriggerRepeatMode = 'once' | 'repeat';
+
+/** Condition types */
+export type TriggerConditionType = 'value' | 'time';
+
+/** Value-based trigger condition: when device.parameter <op> value */
+export interface ValueTriggerCondition {
+  type: 'value';
+  deviceId: string;
+  parameter: string;   // 'voltage', 'current', etc.
+  operator: TriggerOperator;
+  value: number;
+}
+
+/** Time-based trigger condition: at t=X seconds from script start */
+export interface TimeTriggerCondition {
+  type: 'time';
+  seconds: number;     // Seconds from script start
+}
+
+export type TriggerCondition = ValueTriggerCondition | TimeTriggerCondition;
+
+/** Action types */
+export type TriggerActionType =
+  | 'setValue'
+  | 'setOutput'
+  | 'setMode'
+  | 'startSequence'
+  | 'stopSequence'
+  | 'pauseSequence';
+
+/** Set a device value */
+export interface SetValueAction {
+  type: 'setValue';
+  deviceId: string;
+  parameter: string;
+  value: number;
+}
+
+/** Set device output on/off */
+export interface SetOutputAction {
+  type: 'setOutput';
+  deviceId: string;
+  enabled: boolean;
+}
+
+/** Set device operating mode (CC, CV, CR, CP, etc.) */
+export interface SetModeAction {
+  type: 'setMode';
+  deviceId: string;
+  mode: string;
+}
+
+/** Start a sequence */
+export interface StartSequenceAction {
+  type: 'startSequence';
+  sequenceId: string;
+  deviceId: string;
+  parameter: string;
+  repeatMode: RepeatMode;
+  repeatCount?: number;
+}
+
+/** Stop a sequence */
+export interface StopSequenceAction {
+  type: 'stopSequence';
+}
+
+/** Pause a sequence */
+export interface PauseSequenceAction {
+  type: 'pauseSequence';
+}
+
+export type TriggerAction =
+  | SetValueAction
+  | SetOutputAction
+  | SetModeAction
+  | StartSequenceAction
+  | StopSequenceAction
+  | PauseSequenceAction;
+
+/** A single trigger: condition + action + modifiers */
+export interface Trigger {
+  id: string;
+  condition: TriggerCondition;
+  action: TriggerAction;
+  repeatMode: TriggerRepeatMode;
+  debounceMs: number;          // Debounce window in ms (0 = no debounce)
+}
+
+/** A trigger script: named collection of triggers */
+export interface TriggerScript {
+  id: string;
+  name: string;
+  triggers: Trigger[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Runtime state of a trigger script */
+export type TriggerScriptExecutionState = 'idle' | 'running' | 'paused' | 'error';
+
+/** Runtime state of an individual trigger */
+export interface TriggerState {
+  triggerId: string;
+  firedCount: number;          // Number of times this trigger has fired
+  lastFiredAt: number | null;  // Timestamp of last fire (for debounce)
+  conditionMet: boolean;       // Current condition state
+}
+
+/** Runtime state of a running trigger script */
+export interface TriggerScriptState {
+  scriptId: string;
+  executionState: TriggerScriptExecutionState;
+  startedAt: number | null;
+  elapsedMs: number;
+  triggerStates: TriggerState[];
   error?: string;
 }
