@@ -11,3 +11,9 @@ release/
 # Compiled JS (TypeScript outputs to dist/)
 server/**/*.js
 shared/**/*.js
+
+# Git worktrees
+.worktrees/
+
+# Claude Code local settings
+.claude/
