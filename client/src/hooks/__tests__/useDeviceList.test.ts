@@ -6,16 +6,14 @@ import type { ServerMessage, DeviceSummary } from '../../../../shared/types';
 const mockDevices: DeviceSummary[] = [
   {
     id: 'device-1',
-    type: 'electronic-load',
-    manufacturer: 'Test',
-    model: 'Load 1',
+    info: { id: 'device-1', type: 'electronic-load', manufacturer: 'Test', model: 'Load 1' },
+    capabilities: { deviceClass: 'load', features: {}, modes: ['CC'], modesSettable: true, outputs: [], measurements: [] },
     connectionStatus: 'connected',
   },
   {
     id: 'device-2',
-    type: 'power-supply',
-    manufacturer: 'Test',
-    model: 'PSU 1',
+    info: { id: 'device-2', type: 'power-supply', manufacturer: 'Test', model: 'PSU 1' },
+    capabilities: { deviceClass: 'psu', features: {}, modes: ['CV'], modesSettable: true, outputs: [], measurements: [] },
     connectionStatus: 'connected',
   },
 ];

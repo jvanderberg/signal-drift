@@ -84,8 +84,11 @@ export const selectDeviceError = (deviceId: string) => (state: DeviceStoreState)
 const MAX_HISTORY_POINTS = 10_000;
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
-let unsubscribeStateChange: (() => void) | null = null;
-let unsubscribeMessage: (() => void) | null = null;
+let _unsubscribeStateChange: (() => void) | null = null;
+let _unsubscribeMessage: (() => void) | null = null;
+// Suppress unused variable warnings - these are intentionally stored for future cleanup
+void _unsubscribeStateChange;
+void _unsubscribeMessage;
 
 // Create store with subscribeWithSelector for fine-grained subscriptions
 export const useDeviceStore = create<DeviceStoreState>()(
@@ -100,7 +103,7 @@ export const useDeviceStore = create<DeviceStoreState>()(
         isInitialized = true;
 
         // Track connection state
-        unsubscribeStateChange = wsManager.onStateChange((newState) => {
+        _unsubscribeStateChange = wsManager.onStateChange((newState) => {
           set({ connectionState: newState });
 
           // Re-request device list on reconnect
@@ -118,7 +121,7 @@ export const useDeviceStore = create<DeviceStoreState>()(
         });
 
         // Handle all incoming messages
-        unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
+        _unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
           get()._handleMessage(message);
         });
 
@@ -214,7 +217,11 @@ export const useDeviceStore = create<DeviceStoreState>()(
             case 'subscribed':
               if (message.deviceId) {
                 // Skip oscilloscopes - they're handled by oscilloscopeStore
-                if (message.state && 'capabilities' in message.state) {
+                // Oscilloscopes have OscilloscopeCapabilities with 'channels' as a number
+                const caps = message.state?.capabilities;
+                const isOscilloscope = caps && typeof caps === 'object' &&
+                  'channels' in caps && typeof (caps as Record<string, unknown>).channels === 'number';
+                if (isOscilloscope) {
                   return;
                 }
                 set((state) => ({

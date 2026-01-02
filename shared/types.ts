@@ -334,7 +334,14 @@ export type ClientMessage =
   | { type: 'triggerScriptRun'; scriptId: string }
   | { type: 'triggerScriptStop' }
   | { type: 'triggerScriptPause' }
-  | { type: 'triggerScriptResume' };
+  | { type: 'triggerScriptResume' }
+  // Device alias messages
+  | { type: 'deviceAliasList' }
+  | { type: 'deviceAliasSet'; idn: string; alias: string }
+  | { type: 'deviceAliasClear'; idn: string }
+  // Settings export/import messages
+  | { type: 'settingsExport' }
+  | { type: 'settingsImport'; data: SettingsExportData };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner
@@ -374,7 +381,13 @@ export type ServerMessage =
   | { type: 'triggerScriptResumed'; scriptId: string }
   | { type: 'triggerScriptError'; scriptId: string; error: string }
   | { type: 'triggerFired'; scriptId: string; triggerId: string; triggerState: TriggerState }
-  | { type: 'triggerActionFailed'; scriptId: string; triggerId: string; actionType: string; error: string };
+  | { type: 'triggerActionFailed'; scriptId: string; triggerId: string; actionType: string; error: string }
+  // Device alias responses
+  | { type: 'deviceAliases'; aliases: DeviceAlias[] }
+  | { type: 'deviceAliasChanged'; idn: string; alias: string | null }
+  // Settings export/import responses
+  | { type: 'settingsExported'; data: SettingsExportData }
+  | { type: 'settingsImported'; result: SettingsImportResult };
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {
@@ -382,6 +395,7 @@ export interface DeviceSummary {
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
   connectionStatus: ConnectionStatus;
+  alias?: string;  // User-friendly name if set
 }
 
 // ============ Sequence / AWG Types ============
@@ -599,4 +613,32 @@ export interface TriggerScriptState {
   elapsedMs: number;
   triggerStates: TriggerState[];
   error?: string;
+}
+
+// ============ Device Alias Types ============
+
+/** A device alias maps an IDN string to a user-friendly name */
+export interface DeviceAlias {
+  idn: string;       // Device *IDN? response
+  alias: string;     // User-friendly name
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============ Settings Export/Import Types ============
+
+/** Exported settings data format */
+export interface SettingsExportData {
+  version: number;              // Export format version
+  exportedAt: string;           // ISO timestamp
+  sequences: SequenceDefinition[];
+  triggerScripts: TriggerScript[];
+  deviceAliases: DeviceAlias[];
+}
+
+/** Import result with counts */
+export interface SettingsImportResult {
+  sequences: number;
+  triggerScripts: number;
+  deviceAliases: number;
 }

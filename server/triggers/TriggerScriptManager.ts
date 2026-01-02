@@ -53,13 +53,14 @@ function generateScriptId(): string {
 
 export function createTriggerScriptManager(
   sessionManager: SessionManager,
-  sequenceManager: SequenceManager
+  sequenceManager: SequenceManager,
+  externalStore?: TriggerScriptStore
 ): TriggerScriptManager {
   // In-memory library (synced with persistent storage)
   const library = new Map<string, TriggerScript>();
 
-  // Persistent storage
-  const store: TriggerScriptStore = createTriggerScriptStore();
+  // Persistent storage - use external store if provided, otherwise create default
+  const store: TriggerScriptStore = externalStore ?? createTriggerScriptStore();
 
   // Active engine
   let activeEngine: TriggerEngine | null = null;

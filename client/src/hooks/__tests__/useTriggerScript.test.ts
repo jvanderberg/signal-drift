@@ -137,7 +137,7 @@ describe('useTriggerScript', () => {
     });
 
     it('should refresh library when triggerScriptLibrarySaved is received', () => {
-      const { result } = renderHook(() => useTriggerScript());
+      renderHook(() => useTriggerScript());
 
       // Clear the initial call
       mockSend.mockClear();
@@ -271,6 +271,7 @@ describe('useTriggerScript', () => {
       const state = {
         scriptId: 'script-1',
         executionState: 'running' as const,
+        startedAt: Date.now(),
         elapsedMs: 0,
         triggerStates: [],
       };
@@ -292,6 +293,7 @@ describe('useTriggerScript', () => {
       const state = {
         scriptId: 'script-1',
         executionState: 'running' as const,
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -315,6 +317,7 @@ describe('useTriggerScript', () => {
         state: {
           scriptId: 'script-1',
           executionState: 'running',
+          startedAt: Date.now(),
           elapsedMs: 0,
           triggerStates: [],
         },
@@ -341,6 +344,7 @@ describe('useTriggerScript', () => {
         state: {
           scriptId: 'script-1',
           executionState: 'running',
+          startedAt: Date.now(),
           elapsedMs: 0,
           triggerStates: [],
         },
@@ -367,6 +371,7 @@ describe('useTriggerScript', () => {
         state: {
           scriptId: 'script-1',
           executionState: 'paused',
+          startedAt: Date.now(),
           elapsedMs: 1000,
           triggerStates: [],
         },
@@ -394,9 +399,10 @@ describe('useTriggerScript', () => {
         state: {
           scriptId: 'script-1',
           executionState: 'running',
+          startedAt: Date.now(),
           elapsedMs: 0,
           triggerStates: [
-            { triggerId: 'trigger-1', firedCount: 0, lastFiredAt: null },
+            { triggerId: 'trigger-1', firedCount: 0, lastFiredAt: null, conditionMet: false },
           ],
         },
       });
@@ -406,7 +412,7 @@ describe('useTriggerScript', () => {
         type: 'triggerFired',
         scriptId: 'script-1',
         triggerId: 'trigger-1',
-        triggerState: { triggerId: 'trigger-1', firedCount: 1, lastFiredAt: Date.now() },
+        triggerState: { triggerId: 'trigger-1', firedCount: 1, lastFiredAt: Date.now(), conditionMet: true },
       });
 
       await waitFor(() => {
@@ -425,6 +431,7 @@ describe('useTriggerScript', () => {
         state: {
           scriptId: 'script-1',
           executionState: 'running',
+          startedAt: Date.now(),
           elapsedMs: 0,
           triggerStates: [],
         },
@@ -450,6 +457,7 @@ describe('useTriggerScript', () => {
         type: 'triggerActionFailed',
         scriptId: 'script-1',
         triggerId: 'trigger-1',
+        actionType: 'setOutput',
         error: 'Device not responding',
       });
 
@@ -466,6 +474,7 @@ describe('useTriggerScript', () => {
         type: 'triggerActionFailed',
         scriptId: 'script-1',
         triggerId: 'trigger-1',
+        actionType: 'setOutput',
         error: 'Some error',
       });
 
@@ -485,6 +494,7 @@ describe('useTriggerScript', () => {
 
       simulateMessage({
         type: 'error',
+        code: 'TRIGGER_SCRIPT_NOT_FOUND',
         message: 'Trigger script not found',
       });
 

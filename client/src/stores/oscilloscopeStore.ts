@@ -158,8 +158,11 @@ const defaultOscilloscopeState: OscilloscopeState = {
 };
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
-let unsubscribeStateChange: (() => void) | null = null;
-let unsubscribeMessage: (() => void) | null = null;
+let _unsubscribeStateChange: (() => void) | null = null;
+let _unsubscribeMessage: (() => void) | null = null;
+// Suppress unused variable warnings - these are intentionally stored for future cleanup
+void _unsubscribeStateChange;
+void _unsubscribeMessage;
 
 // Create store
 export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
@@ -178,7 +181,7 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
           if (isInitialized) return;
           isInitialized = true;
 
-          unsubscribeStateChange = wsManager.onStateChange((newState) => {
+          _unsubscribeStateChange = wsManager.onStateChange((newState) => {
             set({ connectionState: newState });
 
             // Re-subscribe on reconnect
@@ -192,7 +195,7 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
             }
           });
 
-          unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
+          _unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
             get()._handleMessage(message);
           });
 

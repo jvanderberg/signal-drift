@@ -30,21 +30,25 @@ const sampleScript2: TriggerScript = {
 
 const mockDevice: DeviceSummary = {
   id: 'device-1',
-  info: { manufacturer: 'Test', model: 'PSU-1' },
-  status: { mode: 'CC', output: false, setpoints: {}, readings: {}, connectionStatus: 'connected' },
+  info: { id: 'device-1', type: 'power-supply', manufacturer: 'Test', model: 'PSU-1' },
   capabilities: {
+    deviceClass: 'psu',
+    features: {},
     modes: ['CC', 'CV'],
     modesSettable: true,
-    outputs: [{ name: 'current', min: 0, max: 10, resolution: 0.001 }],
-    measurements: [{ name: 'voltage', min: 0, max: 30, resolution: 0.001 }],
+    outputs: [{ name: 'current', min: 0, max: 10, unit: 'A', decimals: 3 }],
+    measurements: [{ name: 'voltage', min: 0, max: 30, unit: 'V', decimals: 3 }],
   },
+  connectionStatus: 'connected',
 };
 
 const mockSequence: SequenceDefinition = {
   id: 'seq-1',
   name: 'Ramp Up',
-  type: 'ramp',
-  steps: [],
+  unit: 'V',
+  waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 100, intervalMs: 100 },
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
 };
 
 // Mock data for hooks
@@ -333,6 +337,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -350,6 +355,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'paused',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -366,6 +372,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -386,6 +393,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'paused',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -406,6 +414,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -426,6 +435,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 5000,
         triggerStates: [],
       };
@@ -449,6 +459,7 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 1000,
         triggerStates: [],
       };
@@ -540,9 +551,10 @@ describe('TriggerScriptPanel', () => {
       mockUseTriggerScript.activeState = {
         scriptId: 'script-1',
         executionState: 'running',
+        startedAt: Date.now(),
         elapsedMs: 5000,
         triggerStates: [
-          { triggerId: 'trigger-1', firedCount: 3, lastFiredAt: Date.now() },
+          { triggerId: 'trigger-1', firedCount: 3, lastFiredAt: Date.now(), conditionMet: true },
         ],
       };
 
