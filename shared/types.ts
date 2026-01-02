@@ -507,6 +507,7 @@ export type TriggerCondition = ValueTriggerCondition | TimeTriggerCondition;
 export type TriggerActionType =
   | 'setValue'
   | 'setOutput'
+  | 'setMode'
   | 'startSequence'
   | 'stopSequence'
   | 'pauseSequence';
@@ -524,6 +525,13 @@ export interface SetOutputAction {
   type: 'setOutput';
   deviceId: string;
   enabled: boolean;
+}
+
+/** Set device operating mode (CC, CV, CR, CP, etc.) */
+export interface SetModeAction {
+  type: 'setMode';
+  deviceId: string;
+  mode: string;
 }
 
 /** Start a sequence */
@@ -549,6 +557,7 @@ export interface PauseSequenceAction {
 export type TriggerAction =
   | SetValueAction
   | SetOutputAction
+  | SetModeAction
   | StartSequenceAction
   | StopSequenceAction
   | PauseSequenceAction;

@@ -40,8 +40,8 @@
     --color-text-primary: #e8e8ea;
     --color-text-secondary: #9090a0;
     --color-text-muted: #606068;
-    --color-border-light: #3a3a42;
-    --color-border-dark: #2a2a32;
+    --color-border-light: #505058;
+    --color-border-dark: #3a3a42;
     /* Waveform display */
     --color-waveform-bg: #1a1a1e;
     --color-waveform-grid: #333338;
@@ -95,8 +95,8 @@
   --color-text-primary: #e8e8ea;
   --color-text-secondary: #9090a0;
   --color-text-muted: #606068;
-  --color-border-light: #3a3a42;
-  --color-border-dark: #2a2a32;
+  --color-border-light: #505058;
+  --color-border-dark: #3a3a42;
   /* Waveform display */
   --color-waveform-bg: #1a1a1e;
   --color-waveform-grid: #333338;
@@ -177,7 +177,7 @@ body {
 /* Form elements */
 input, select {
   background-color: var(--color-bg-panel);
-  border: 1px solid var(--color-border-dark);
+  border: 1px solid var(--color-border-light);
   color: var(--color-text-primary);
 }
 

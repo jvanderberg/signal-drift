@@ -71,7 +71,9 @@ export function createTriggerEngine(
 
   // Timers
   let evalTimer: ReturnType<typeof setInterval> | null = null;
+  let progressTimer: ReturnType<typeof setInterval> | null = null;
   const timeoutTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  const PROGRESS_INTERVAL_MS = 500;  // Broadcast progress every 500ms
 
   // Subscribers
   const subscribers = new Set<SubscriberCallback>();
@@ -195,6 +197,19 @@ export function createTriggerEngine(
         );
         if (!result.ok) {
           const errorMsg = `Failed to set output: ${result.error.message}`;
+          console.error(`[TriggerEngine] ${errorMsg}`);
+          broadcastActionFailure(triggerId, action.type, errorMsg);
+        }
+        break;
+      }
+
+      case 'setMode': {
+        const result = await sessionManager.setMode(
+          action.deviceId,
+          action.mode
+        );
+        if (!result.ok) {
+          const errorMsg = `Failed to set mode: ${result.error.message}`;
           console.error(`[TriggerEngine] ${errorMsg}`);
           broadcastActionFailure(triggerId, action.type, errorMsg);
         }
@@ -351,6 +366,11 @@ export function createTriggerEngine(
       evaluate();
     }, EVAL_INTERVAL_MS);
 
+    // Start progress broadcast loop
+    progressTimer = setInterval(() => {
+      broadcastProgress();
+    }, PROGRESS_INTERVAL_MS);
+
     broadcast({
       type: 'triggerScriptStarted',
       state: getState(),
@@ -368,6 +388,10 @@ export function createTriggerEngine(
     if (evalTimer) {
       clearInterval(evalTimer);
       evalTimer = null;
+    }
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
     clearTimeTriggers();
 
@@ -389,6 +413,10 @@ export function createTriggerEngine(
     if (evalTimer) {
       clearInterval(evalTimer);
       evalTimer = null;
+    }
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
 
     // Clear time triggers (will need to be rescheduled on resume)
@@ -436,6 +464,11 @@ export function createTriggerEngine(
       evaluate();
     }, EVAL_INTERVAL_MS);
 
+    // Restart progress broadcast loop
+    progressTimer = setInterval(() => {
+      broadcastProgress();
+    }, PROGRESS_INTERVAL_MS);
+
     broadcast({
       type: 'triggerScriptResumed',
       scriptId: script.id,
@@ -453,6 +486,10 @@ export function createTriggerEngine(
     if (evalTimer) {
       clearInterval(evalTimer);
       evalTimer = null;
+    }
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
     clearTimeTriggers();
     subscribers.clear();

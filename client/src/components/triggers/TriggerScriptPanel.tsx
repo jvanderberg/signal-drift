@@ -6,10 +6,11 @@
  * - Run/stop/pause controls
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTriggerScript } from '../../hooks/useTriggerScript';
 import { useSequencer } from '../../hooks/useSequencer';
 import { useDeviceList } from '../../hooks/useDeviceList';
+import { useDeviceNames } from '../../hooks/useDeviceNames';
 import { TriggerEditor } from './TriggerEditor';
 import type { Trigger, TriggerScript } from '../../types';
 
@@ -48,6 +49,12 @@ export function TriggerScriptPanel() {
   const [editingScript, setEditingScript] = useState<TriggerScript | null>(null);
   const [scriptName, setScriptName] = useState('');
   const [triggers, setTriggers] = useState<Trigger[]>([]);
+  const [newTriggerId, setNewTriggerId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Drag and drop state
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Set initial mode once library is loaded
   useEffect(() => {
@@ -117,8 +124,9 @@ export function TriggerScriptPanel() {
 
   // Trigger editing
   const addTrigger = () => {
+    const id = generateTriggerId();
     const newTrigger: Trigger = {
-      id: generateTriggerId(),
+      id,
       condition: {
         type: 'time',
         seconds: 0,
@@ -132,6 +140,11 @@ export function TriggerScriptPanel() {
       debounceMs: 0,
     };
     setTriggers([...triggers, newTrigger]);
+    setNewTriggerId(id);
+    // Scroll to bottom after render
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    }, 0);
   };
 
   const updateTrigger = (index: number, trigger: Trigger) => {
@@ -142,6 +155,31 @@ export function TriggerScriptPanel() {
 
   const deleteTrigger = (index: number) => {
     setTriggers(triggers.filter((_, i) => i !== index));
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (index: number) => {
+    setDragIndex(index);
+    setNewTriggerId(null); // Clear any "new trigger" state
+  };
+
+  const handleDragOver = (index: number) => {
+    if (dragIndex === null || dragIndex === index) return;
+    setDragOverIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      // Reorder the triggers array
+      const newTriggers = [...triggers];
+      const [removed] = newTriggers.splice(dragIndex, 1);
+      // Adjust target index since removal shifts indices when dragging downward
+      const targetIndex = dragIndex < dragOverIndex ? dragOverIndex - 1 : dragOverIndex;
+      newTriggers.splice(targetIndex, 0, removed);
+      setTriggers(newTriggers);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
   };
 
   // Execution controls
@@ -165,6 +203,36 @@ export function TriggerScriptPanel() {
 
   const executionState = activeState?.executionState ?? 'idle';
   const isPaused = executionState === 'paused';
+
+  const { getCustomName } = useDeviceNames();
+
+  // Helper to get device display name (custom name or model)
+  const getDeviceName = (deviceId: string): string => {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) return deviceId;
+    const custom = getCustomName(device.info.manufacturer, device.info.model);
+    return custom?.title || device.info.model;
+  };
+
+  // Helper to format action for display
+  const formatAction = (action: Trigger['action']): string => {
+    switch (action.type) {
+      case 'setValue':
+        return `${getDeviceName(action.deviceId)} ${action.parameter} = ${action.value}`;
+      case 'setOutput':
+        return `${getDeviceName(action.deviceId)} output ${action.enabled ? 'ON' : 'OFF'}`;
+      case 'setMode':
+        return `${getDeviceName(action.deviceId)} mode → ${action.mode}`;
+      case 'startSequence': {
+        const seq = sequences.find((s) => s.id === action.sequenceId);
+        return `Start ${seq?.name ?? 'sequence'} on ${getDeviceName(action.deviceId)}`;
+      }
+      case 'stopSequence':
+        return 'Stop sequence';
+      case 'pauseSequence':
+        return 'Pause sequence';
+    }
+  };
 
   // Loading state
   if (mode === null) {
@@ -214,20 +282,8 @@ export function TriggerScriptPanel() {
           />
         </div>
 
-        {/* Triggers list */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs text-[var(--color-text-secondary)] font-medium">
-              Triggers ({triggers.length})
-            </label>
-            <button
-              className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white hover:opacity-80"
-              onClick={addTrigger}
-            >
-              + Add Trigger
-            </button>
-          </div>
-
+        {/* Triggers list - scrollable */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 mb-3">
           {triggers.length === 0 ? (
             <div className="text-center py-8 text-xs text-[var(--color-text-secondary)]">
               No triggers yet. Click "+ Add Trigger" to create one.
@@ -237,14 +293,29 @@ export function TriggerScriptPanel() {
               <TriggerEditor
                 key={trigger.id}
                 trigger={trigger}
+                index={index}
                 devices={devices}
                 sequences={sequences}
                 onChange={(t) => updateTrigger(index, t)}
                 onDelete={() => deleteTrigger(index)}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                isDragTarget={dragOverIndex === index}
+                isDragging={dragIndex === index}
+                defaultExpanded={trigger.id === newTriggerId}
               />
             ))
           )}
         </div>
+
+        {/* Add button - always visible at bottom */}
+        <button
+          className="w-full text-xs px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 flex-shrink-0"
+          onClick={addTrigger}
+        >
+          + Add Trigger
+        </button>
       </div>
     );
   }
@@ -313,7 +384,7 @@ export function TriggerScriptPanel() {
                   key={script.id}
                   className={`px-2 py-2 cursor-pointer border-b border-[var(--color-border-dark)] last:border-b-0 ${
                     selectedScriptId === script.id
-                      ? 'bg-[var(--color-accent)]/20'
+                      ? 'bg-blue-600/20'
                       : 'hover:bg-[var(--color-bg-panel)]'
                   }`}
                   onClick={() => setSelectedScriptId(script.id)}
@@ -343,32 +414,23 @@ export function TriggerScriptPanel() {
 
               {/* Triggers preview */}
               <div className="flex-1 overflow-y-auto min-h-0 bg-[var(--color-bg-secondary)] rounded p-2">
-                <div className="text-xs text-[var(--color-text-secondary)] mb-2 font-medium">
-                  Triggers:
-                </div>
                 {selectedScript.triggers.map((trigger) => (
                   <div
                     key={trigger.id}
-                    className="text-xs mb-2 p-2 bg-[var(--color-bg-panel)] rounded"
+                    className="text-xs mb-2 p-2 bg-[var(--color-bg-panel)] rounded border border-[var(--color-border-light)]"
                   >
                     <div className="font-medium">
                       {trigger.condition.type === 'time'
                         ? `At t=${trigger.condition.seconds}s`
-                        : `When ${trigger.condition.parameter} ${trigger.condition.operator} ${trigger.condition.value}`}
+                        : `When ${getDeviceName(trigger.condition.deviceId)} ${trigger.condition.parameter} ${trigger.condition.operator} ${trigger.condition.value}`}
                     </div>
                     <div className="text-[var(--color-text-secondary)]">
-                      {trigger.action.type === 'setValue'
-                        ? `Set ${trigger.action.parameter} = ${trigger.action.value}`
-                        : trigger.action.type === 'setOutput'
-                        ? `Output ${trigger.action.enabled ? 'ON' : 'OFF'}`
-                        : trigger.action.type === 'startSequence'
-                        ? 'Start sequence'
-                        : 'Stop sequence'}
+                      → {formatAction(trigger.action)}
                     </div>
 
                     {/* Trigger state when running */}
                     {activeState && activeState.scriptId === selectedScript.id && (
-                      <div className="mt-1 text-[var(--color-accent)]">
+                      <div className="mt-1 text-blue-400">
                         {activeState.triggerStates.find((ts) => ts.triggerId === trigger.id)
                           ?.firedCount ?? 0}{' '}
                         fires
@@ -408,7 +470,7 @@ export function TriggerScriptPanel() {
               <>
                 {isPaused ? (
                   <button
-                    className="flex-1 px-3 py-2 text-sm rounded font-medium bg-[var(--color-accent)] hover:opacity-80 transition-colors"
+                    className="flex-1 px-3 py-2 text-sm rounded font-medium bg-blue-600 hover:bg-blue-700 transition-colors"
                     onClick={handleResume}
                   >
                     Resume

@@ -19,6 +19,10 @@ lab-controller/
 │   │   ├── SequenceManager.ts      # Library + playback management
 │   │   ├── SequenceStore.ts        # JSON persistence
 │   │   └── WaveformGenerator.ts    # Waveform -> steps conversion
+│   ├── triggers/
+│   │   ├── TriggerEngine.ts        # Condition evaluation & action execution
+│   │   ├── TriggerScriptManager.ts # Script lifecycle management
+│   │   └── TriggerScriptStore.ts   # JSON persistence
 │   ├── websocket/
 │   │   └── WebSocketHandler.ts # WebSocket connection & message routing
 │   └── devices/
@@ -48,7 +52,8 @@ lab-controller/
 │   │       ├── TimebaseControls.tsx     # Compact +/- timebase scale controls
 │   │       ├── ChannelSettings.tsx      # Channel configuration popover
 │   │       ├── TriggerSettings.tsx      # Trigger configuration popover
-│   │       └── sequencer/               # Sequence editor and playback UI
+│   │       ├── sequencer/               # Sequence editor and playback UI
+│   │       └── triggers/                # Trigger script editor and runner
 │   └── vite.config.ts
 └── electron/            # Future
 ```
@@ -456,6 +461,100 @@ const SERIES_COLORS = {
 5. **Dark mode issues** - Test both themes; CSS variables handle this automatically
 6. **Missing rounded corners** - Use `rounded` or `rounded-md` on all panels/buttons
 
+## UI Animation Guidelines
+
+All user interactions should feel fluid and responsive. Avoid jarring snap transitions - use smooth animations to give visual feedback and maintain context.
+
+### Core Principles
+
+1. **Every state change should animate** - Expanding/collapsing, showing/hiding, enabling/disabling
+2. **Keep durations short** - 150-200ms for most interactions, 300ms max for larger transitions
+3. **Use appropriate easing** - `ease-out` for entering, `ease-in` for exiting, `ease-in-out` for state changes
+4. **Respect reduced motion** - Use `prefers-reduced-motion` media query for accessibility
+
+### Standard Durations
+
+| Interaction | Duration | Easing |
+|-------------|----------|--------|
+| Button hover/press | 100-150ms | ease-out |
+| Expand/collapse | 200ms | ease-out |
+| Modal/popover appear | 150ms | ease-out |
+| Modal/popover dismiss | 100ms | ease-in |
+| Page transitions | 200-300ms | ease-in-out |
+| Loading states | 200ms | ease-out |
+
+### Expand/Collapse Pattern
+
+Use CSS grid for smooth height animations (works with auto height):
+
+```jsx
+<div
+  className="grid transition-[grid-template-rows] duration-200 ease-out"
+  style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+>
+  <div className="overflow-hidden">
+    {/* Content */}
+  </div>
+</div>
+```
+
+**Why grid?** Unlike `max-height` hacks, `grid-template-rows: 0fr → 1fr` animates smoothly to the content's natural height without needing to know the height in advance.
+
+### Fade In/Out Pattern
+
+```jsx
+<div className={`transition-opacity duration-150 ${
+  visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+}`}>
+  {/* Content */}
+</div>
+```
+
+### Button States
+
+```jsx
+className="transition-colors duration-100 hover:bg-opacity-80 active:scale-95"
+```
+
+### Toggle Switches
+
+```jsx
+<span className={`transition-all duration-200 ${
+  enabled ? 'translate-x-5' : 'translate-x-0'
+}`} />
+```
+
+### Loading Indicators
+
+Use pulse or spin animations for loading states:
+
+```jsx
+className="animate-pulse" // For skeleton loaders
+className="animate-spin"  // For spinners
+```
+
+### Reduced Motion Support
+
+Wrap motion-sensitive animations:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  .transition-all,
+  .transition-transform,
+  .transition-opacity {
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+
+### Common Animation Mistakes
+
+1. **No animation** - State changes that snap instantly feel broken
+2. **Too slow** - Animations over 300ms feel sluggish
+3. **Wrong easing** - Linear easing feels robotic
+4. **Animating layout properties** - Avoid animating `width`, `height`, `top`, `left` (use `transform` instead)
+5. **Missing overflow:hidden** - Expanding content bleeds outside container during animation
+
 ## Sequencer Architecture
 
 The sequencer enables arbitrary waveform generation on power supplies and electronic loads. It's designed around device-agnostic sequence definitions that can be played on any compatible device.
@@ -617,6 +716,117 @@ const {
   run,               // Start playback
   abort,             // Stop playback
 } = useSequencer();
+```
+
+## Trigger Scripts Architecture
+
+Trigger scripts enable reactive automation: "when X happens, do Y". They complement the sequencer by adding event-driven control without requiring a general-purpose scripting language.
+
+### Key Design Principles
+
+1. **Declarative Rules** - Triggers are simple condition/action pairs, not imperative code.
+
+2. **Value and Time Conditions** - React to device measurements crossing thresholds or elapsed time.
+
+3. **Composable Actions** - Actions include setValue, setOutput, setMode, and sequence control.
+
+4. **Server-side Evaluation** - All condition checking runs on the server for consistent behavior.
+
+### Components
+
+```
+server/triggers/
+├── TriggerEngine.ts          # Condition evaluation & action execution
+├── TriggerScriptManager.ts   # Script lifecycle management
+├── TriggerScriptStore.ts     # JSON file persistence
+└── __tests__/                # Comprehensive test coverage
+```
+
+**TriggerEngine** - The execution engine:
+- Evaluates conditions every 100ms for value-based triggers
+- Uses setTimeout for time-based triggers (precise scheduling)
+- Tracks trigger state: fired count, last fired time, condition met
+- Supports repeat modes: once, repeat (continuous)
+- Broadcasts progress every 500ms for UI updates
+
+**TriggerScriptManager** - Manages script lifecycle:
+- Only one script can run at a time
+- Routes run/stop/pause/resume commands to active engine
+- Broadcasts state changes to WebSocket subscribers
+
+### Trigger Definition
+
+```typescript
+interface Trigger {
+  id: string;
+  condition: TriggerCondition;
+  action: TriggerAction;
+  repeatMode: 'once' | 'repeat';  // Fire once or continuously
+  debounceMs: number;              // Minimum time between fires
+}
+
+// Conditions
+type TriggerCondition =
+  | { type: 'value'; deviceId: string; parameter: string; operator: TriggerOperator; value: number }
+  | { type: 'time'; seconds: number };  // Elapsed time from script start
+
+// Actions
+type TriggerAction =
+  | { type: 'setValue'; deviceId: string; parameter: string; value: number }
+  | { type: 'setOutput'; deviceId: string; enabled: boolean }
+  | { type: 'setMode'; deviceId: string; mode: string }
+  | { type: 'startSequence'; sequenceId: string; deviceId: string; parameter: string; repeatMode: RepeatMode }
+  | { type: 'stopSequence' }
+  | { type: 'pauseSequence' };
+```
+
+### Important Behaviors
+
+**Sequence Interaction**: Only one sequence can run at a time. If a trigger starts a sequence while another is running, the existing sequence is aborted first.
+
+**Edge Detection**: Value-based triggers fire on the rising edge (when condition transitions from false to true), not continuously while true.
+
+**Time Triggers**: Scheduled using setTimeout from script start, not polling. More precise for specific timing requirements.
+
+### WebSocket Messages
+
+Client -> Server:
+- `triggerScriptLibraryList` - Request all saved scripts
+- `triggerScriptLibrarySave { script }` - Save new script
+- `triggerScriptLibraryUpdate { script }` - Update existing
+- `triggerScriptLibraryDelete { scriptId }` - Delete script
+- `triggerScriptRun { scriptId }` - Start execution
+- `triggerScriptStop` - Stop current script
+- `triggerScriptPause` - Pause current script
+- `triggerScriptResume` - Resume paused script
+
+Server -> Client:
+- `triggerScriptLibrary { scripts }` - Full library list
+- `triggerScriptLibrarySaved { scriptId }` - Confirm save
+- `triggerScriptLibraryDeleted { scriptId }` - Confirm delete
+- `triggerScriptStarted { state }` - Script began
+- `triggerScriptProgress { state }` - Periodic state update (every 500ms)
+- `triggerScriptStopped { scriptId }` - Stopped by user
+- `triggerScriptPaused { scriptId }` - Paused
+- `triggerScriptResumed { scriptId }` - Resumed
+- `triggerFired { scriptId, triggerId, triggerState }` - Individual trigger fired
+- `triggerActionFailed { scriptId, triggerId, actionType, error }` - Action failed
+
+### Client Hook
+
+```typescript
+const {
+  library,           // All saved trigger scripts
+  activeState,       // Current execution state (if running)
+  isRunning,         // Boolean for quick checks
+  saveScript,        // Save new script
+  updateScript,      // Update existing
+  deleteScript,      // Delete from library
+  run,               // Start execution
+  stop,              // Stop execution
+  pause,             // Pause execution
+  resume,            // Resume execution
+} = useTriggerScript();
 ```
 
 ## Common Pitfalls
