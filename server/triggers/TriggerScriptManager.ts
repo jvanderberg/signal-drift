@@ -16,6 +16,7 @@ import type {
   Result,
 } from '../../shared/types.js';
 import { Ok, Err } from '../../shared/types.js';
+import { validateTriggerScript, TRIGGER_SCRIPT_LIMITS } from '../../shared/waveform.js';
 import { createTriggerScriptStore, TriggerScriptStore } from './TriggerScriptStore.js';
 import { createTriggerEngine, TriggerEngine } from './TriggerEngine.js';
 
@@ -41,10 +42,9 @@ export interface TriggerScriptManager {
 
   // Lifecycle
   initialize(): Promise<void>;
-  shutdown(): void;
+  shutdown(): Promise<void>;
 }
 
-const MAX_LIBRARY_SIZE = 100;
 let scriptIdCounter = 0;
 
 function generateScriptId(): string {
@@ -127,9 +127,15 @@ export function createTriggerScriptManager(
   }
 
   function saveToLibrary(partial: Omit<TriggerScript, 'id' | 'createdAt' | 'updatedAt'>): Result<string, Error> {
+    // Validate script
+    const validationResult = validateTriggerScript(partial);
+    if (!validationResult.ok) {
+      return Err(new Error(`Invalid trigger script: ${validationResult.error.field} - ${validationResult.error.message}`));
+    }
+
     // Check library size limit
-    if (library.size >= MAX_LIBRARY_SIZE) {
-      return Err(new Error(`Library full: maximum ${MAX_LIBRARY_SIZE} trigger scripts allowed`));
+    if (library.size >= TRIGGER_SCRIPT_LIMITS.MAX_LIBRARY_SIZE) {
+      return Err(new Error(`Library full: maximum ${TRIGGER_SCRIPT_LIMITS.MAX_LIBRARY_SIZE} trigger scripts allowed`));
     }
 
     const now = Date.now();
@@ -145,6 +151,12 @@ export function createTriggerScriptManager(
   }
 
   function updateInLibrary(script: TriggerScript): Result<void, Error> {
+    // Validate script
+    const validationResult = validateTriggerScript(script);
+    if (!validationResult.ok) {
+      return Err(new Error(`Invalid trigger script: ${validationResult.error.field} - ${validationResult.error.message}`));
+    }
+
     if (!library.has(script.id)) {
       return Err(new Error(`Trigger script not found: ${script.id}`));
     }
@@ -268,9 +280,9 @@ export function createTriggerScriptManager(
     }
   }
 
-  function shutdown(): void {
+  async function shutdown(): Promise<void> {
     // Force save any pending changes
-    forceSave();
+    await forceSave();
 
     if (activeEngine) {
       activeEngine.destroy();

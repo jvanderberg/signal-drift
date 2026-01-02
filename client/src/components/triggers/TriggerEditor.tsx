@@ -14,6 +14,7 @@ import type {
   TriggerAction,
   TriggerOperator,
   TriggerRepeatMode,
+  RepeatMode,
   DeviceSummary,
   SequenceDefinition,
 } from '../../types';
@@ -53,10 +54,17 @@ export function TriggerEditor({
     : null;
   const conditionParams = conditionDevice?.capabilities.measurements ?? [];
 
+  // Get deviceId from actions that have it (setValue, setOutput, startSequence)
+  const getActionDeviceId = (): string | undefined => {
+    if (action.type === 'setValue') return action.deviceId;
+    if (action.type === 'setOutput') return action.deviceId;
+    if (action.type === 'startSequence') return action.deviceId;
+    return undefined;
+  };
+
   // Get available parameters for the action device
-  const actionDevice = action.type === 'setValue' || action.type === 'setOutput'
-    ? devices.find((d) => d.id === (action as { deviceId: string }).deviceId)
-    : null;
+  const actionDeviceId = getActionDeviceId();
+  const actionDevice = actionDeviceId ? devices.find((d) => d.id === actionDeviceId) : null;
   const actionParams = actionDevice?.capabilities.outputs ?? [];
 
   // Update condition
@@ -232,11 +240,15 @@ export function TriggerEditor({
                   value={condition.parameter}
                   onChange={(e) => updateCondition({ parameter: e.target.value })}
                 >
-                  {conditionParams.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
+                  {conditionParams.length === 0 ? (
+                    <option value="">Select device first</option>
+                  ) : (
+                    conditionParams.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
                 </select>
 
                 <select
@@ -332,11 +344,15 @@ export function TriggerEditor({
                   value={action.parameter}
                   onChange={(e) => updateAction({ parameter: e.target.value })}
                 >
-                  {actionParams.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
+                  {actionParams.length === 0 ? (
+                    <option value="">Select device first</option>
+                  ) : (
+                    actionParams.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
                 </select>
 
                 <span className="text-xs">=</span>
@@ -409,6 +425,43 @@ export function TriggerEditor({
                     </option>
                   ))}
                 </select>
+
+                <select
+                  className="text-xs px-2 py-1 rounded bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)]"
+                  value={action.parameter}
+                  onChange={(e) => updateAction({ parameter: e.target.value })}
+                >
+                  {actionParams.length === 0 ? (
+                    <option value="">Select device first</option>
+                  ) : (
+                    actionParams.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+
+                <select
+                  className="text-xs px-2 py-1 rounded bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)]"
+                  value={action.repeatMode}
+                  onChange={(e) => updateAction({ repeatMode: e.target.value as RepeatMode })}
+                >
+                  <option value="once">Once</option>
+                  <option value="count">Count</option>
+                  <option value="continuous">Continuous</option>
+                </select>
+
+                {action.repeatMode === 'count' && (
+                  <input
+                    type="number"
+                    className="text-xs px-2 py-1 rounded bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] w-16"
+                    value={action.repeatCount ?? 1}
+                    min={1}
+                    onChange={(e) => updateAction({ repeatCount: parseInt(e.target.value) || 1 })}
+                    placeholder="×"
+                  />
+                )}
               </div>
             )}
 

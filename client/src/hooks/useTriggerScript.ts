@@ -146,6 +146,11 @@ export function useTriggerScript(): UseTriggerScriptResult {
           });
           break;
 
+        case 'triggerActionFailed':
+          // Show action failure as an error (but don't stop the script)
+          setError(`Action failed: ${message.error}`);
+          break;
+
         // General error (might be trigger script related)
         case 'error':
           if (message.message.toLowerCase().includes('trigger')) {

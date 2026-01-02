@@ -156,9 +156,22 @@ export function createTriggerEngine(
   }
 
   /**
+   * Broadcast an action failure
+   */
+  function broadcastActionFailure(triggerId: string, actionType: string, error: string): void {
+    broadcast({
+      type: 'triggerActionFailed',
+      scriptId: script.id,
+      triggerId,
+      actionType,
+      error,
+    });
+  }
+
+  /**
    * Execute a trigger action
    */
-  async function executeAction(action: TriggerAction): Promise<void> {
+  async function executeAction(triggerId: string, action: TriggerAction): Promise<void> {
     switch (action.type) {
       case 'setValue': {
         const result = await sessionManager.setValue(
@@ -168,7 +181,9 @@ export function createTriggerEngine(
           true  // immediate
         );
         if (!result.ok) {
-          console.error(`[TriggerEngine] Failed to set value: ${result.error.message}`);
+          const errorMsg = `Failed to set value: ${result.error.message}`;
+          console.error(`[TriggerEngine] ${errorMsg}`);
+          broadcastActionFailure(triggerId, action.type, errorMsg);
         }
         break;
       }
@@ -179,7 +194,9 @@ export function createTriggerEngine(
           action.enabled
         );
         if (!result.ok) {
-          console.error(`[TriggerEngine] Failed to set output: ${result.error.message}`);
+          const errorMsg = `Failed to set output: ${result.error.message}`;
+          console.error(`[TriggerEngine] ${errorMsg}`);
+          broadcastActionFailure(triggerId, action.type, errorMsg);
         }
         break;
       }
@@ -193,7 +210,9 @@ export function createTriggerEngine(
           repeatCount: action.repeatCount,
         });
         if (!result.ok) {
-          console.error(`[TriggerEngine] Failed to start sequence: ${result.error.message}`);
+          const errorMsg = `Failed to start sequence: ${result.error.message}`;
+          console.error(`[TriggerEngine] ${errorMsg}`);
+          broadcastActionFailure(triggerId, action.type, errorMsg);
         }
         break;
       }
@@ -207,6 +226,7 @@ export function createTriggerEngine(
         // Note: SequenceManager doesn't have a public pause method currently
         // This would need to be added for full support
         console.warn('[TriggerEngine] pauseSequence action not fully implemented');
+        broadcastActionFailure(triggerId, action.type, 'pauseSequence not implemented');
         break;
       }
     }
@@ -255,7 +275,7 @@ export function createTriggerEngine(
     });
 
     // Execute the action
-    await executeAction(ts.trigger.action);
+    await executeAction(ts.trigger.id, ts.trigger.action);
   }
 
   /**

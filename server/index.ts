@@ -227,7 +227,7 @@ async function stop(): Promise<void> {
   await sequenceManager.stop();
 
   // Stop trigger script manager (saves pending changes)
-  triggerScriptManager.shutdown();
+  await triggerScriptManager.shutdown();
 
   // Stop session polling
   sessionManager.stop();

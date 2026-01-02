@@ -373,7 +373,8 @@ export type ServerMessage =
   | { type: 'triggerScriptPaused'; scriptId: string }
   | { type: 'triggerScriptResumed'; scriptId: string }
   | { type: 'triggerScriptError'; scriptId: string; error: string }
-  | { type: 'triggerFired'; scriptId: string; triggerId: string; triggerState: TriggerState };
+  | { type: 'triggerFired'; scriptId: string; triggerId: string; triggerState: TriggerState }
+  | { type: 'triggerActionFailed'; scriptId: string; triggerId: string; actionType: string; error: string };
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {
