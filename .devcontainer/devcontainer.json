@@ -5,7 +5,8 @@
     "context": ".."
   },
   "containerEnv": {
-    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "HOME": "/home/node"
   },
   "postCreateCommand": ".devcontainer/init-firewall.sh",
   "postStartCommand": "npm install && cd client && npm install",
