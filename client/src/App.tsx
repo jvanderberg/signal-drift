@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { DeviceSummary } from './types';
-import { useTheme } from './hooks/useTheme';
-import { useToast } from './hooks/useToast';
+import { useUIStore, selectTheme, selectToasts } from './stores';
 import { useDeviceList } from './hooks/useDeviceList';
 import { DevicePanel } from './components/DevicePanel';
 import { OscilloscopePanel } from './components/OscilloscopePanel';
@@ -16,8 +15,12 @@ function App() {
   const [showSequencer, setShowSequencer] = useState(false);
   const [showTriggerScripts, setShowTriggerScripts] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { theme, setTheme } = useTheme();
-  const { toasts, success, error } = useToast();
+
+  // Use individual selectors for state values (only re-render when they change)
+  const theme = useUIStore(selectTheme);
+  const toasts = useUIStore(selectToasts);
+  // Actions are stable references
+  const { setTheme, success, error } = useUIStore.getState();
 
   // Get open devices from the device list
   const openDevices = useMemo(() =>

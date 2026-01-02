@@ -1,5 +1,5 @@
 import { useDeviceList } from '../hooks/useDeviceList';
-import { useDeviceNames } from '../hooks/useDeviceNames';
+import { useUIStore, selectDeviceNames, getDeviceKey } from '../stores';
 import type { Device } from '../types';
 
 interface DeviceScannerProps {
@@ -8,7 +8,8 @@ interface DeviceScannerProps {
 
 export function DeviceScanner({ onDeviceSelect }: DeviceScannerProps) {
   const { devices, isLoading, error, scan } = useDeviceList();
-  const { getCustomName } = useDeviceNames();
+  // Subscribe only to deviceNames changes
+  const deviceNames = useUIStore(selectDeviceNames);
 
   const getDeviceIcon = (type: string) => {
     switch (type) {
@@ -22,7 +23,8 @@ export function DeviceScanner({ onDeviceSelect }: DeviceScannerProps) {
   };
 
   const getDisplayName = (info: typeof devices[0]['info']) => {
-    const custom = getCustomName(info.manufacturer, info.model);
+    const key = getDeviceKey(info.manufacturer, info.model);
+    const custom = deviceNames[key];
     if (custom) {
       return { title: custom.title, subtitle: custom.subtitle };
     }

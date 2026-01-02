@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { DeviceInfo, ConnectionStatus } from '../types';
-import { useDeviceNames } from '../hooks/useDeviceNames';
+import { useUIStore, selectDeviceNames, getDeviceKey } from '../stores';
 
 interface EditableDeviceHeaderProps {
   info: DeviceInfo;
@@ -13,7 +13,15 @@ export function EditableDeviceHeader({
   connectionStatus,
   onClose,
 }: EditableDeviceHeaderProps) {
-  const { getCustomName, setCustomName, resetCustomName, hasCustomName } = useDeviceNames();
+  // Subscribe only to deviceNames changes (not toasts or theme)
+  const deviceNames = useUIStore(selectDeviceNames);
+  const { setCustomName, resetCustomName } = useUIStore.getState();
+
+  // Derive custom name state from deviceNames
+  const deviceKey = getDeviceKey(info.manufacturer, info.model);
+  const customName = deviceNames[deviceKey] ?? null;
+  const hasCustom = deviceKey in deviceNames;
+
   const [isEditing, setIsEditing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -21,7 +29,6 @@ export function EditableDeviceHeader({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editContainerRef = useRef<HTMLDivElement>(null);
 
-  const customName = getCustomName(info.manufacturer, info.model);
   const defaultTitle = `${info.manufacturer} ${info.model}`;
   const typeLabel = info.type === 'power-supply' ? 'PSU'
     : info.type === 'oscilloscope' ? 'Scope'
@@ -30,7 +37,6 @@ export function EditableDeviceHeader({
 
   const displayTitle = customName?.title || defaultTitle;
   const displaySubtitle = customName?.subtitle || defaultSubtitle;
-  const hasCustom = hasCustomName(info.manufacturer, info.model);
 
   const icon = info.type === 'power-supply' ? '⚡'
     : info.type === 'oscilloscope' ? '📈'

@@ -10,7 +10,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTriggerScript } from '../../hooks/useTriggerScript';
 import { useSequencer } from '../../hooks/useSequencer';
 import { useDeviceList } from '../../hooks/useDeviceList';
-import { useDeviceNames } from '../../hooks/useDeviceNames';
+import { useUIStore, selectDeviceNames, getDeviceKey } from '../../stores';
 import { TriggerEditor } from './TriggerEditor';
 import type { Trigger, TriggerScript } from '../../types';
 
@@ -204,13 +204,15 @@ export function TriggerScriptPanel() {
   const executionState = activeState?.executionState ?? 'idle';
   const isPaused = executionState === 'paused';
 
-  const { getCustomName } = useDeviceNames();
+  // Subscribe only to deviceNames changes
+  const deviceNames = useUIStore(selectDeviceNames);
 
   // Helper to get device display name (custom name or model)
   const getDeviceName = (deviceId: string): string => {
     const device = devices.find((d) => d.id === deviceId);
     if (!device) return deviceId;
-    const custom = getCustomName(device.info.manufacturer, device.info.model);
+    const key = getDeviceKey(device.info.manufacturer, device.info.model);
+    const custom = deviceNames[key];
     return custom?.title || device.info.model;
   };
 

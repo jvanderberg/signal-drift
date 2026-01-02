@@ -1,4 +1,4 @@
-import type { Toast } from '../hooks/useToast';
+import type { Toast } from '../stores';
 
 interface ToastContainerProps {
   toasts: Toast[];

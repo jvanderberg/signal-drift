@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useDeviceNames } from '../../hooks/useDeviceNames';
+import { useUIStore, selectDeviceNames, getDeviceKey } from '../../stores';
 import type {
   Trigger,
   TriggerCondition,
@@ -60,7 +60,8 @@ export function TriggerEditor({
 }: TriggerEditorProps & { defaultExpanded?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const { getCustomName } = useDeviceNames();
+  // Subscribe only to deviceNames changes
+  const deviceNames = useUIStore(selectDeviceNames);
 
   // Drag handlers
   const handleDragStart = (e: React.DragEvent) => {
@@ -100,7 +101,8 @@ export function TriggerEditor({
   const getDeviceName = (deviceId: string): string => {
     const device = devices.find((d) => d.id === deviceId);
     if (!device) return deviceId;
-    const custom = getCustomName(device.info.manufacturer, device.info.model);
+    const key = getDeviceKey(device.info.manufacturer, device.info.model);
+    const custom = deviceNames[key];
     return custom?.title || device.info.model;
   };
 
