@@ -29,6 +29,26 @@ async function openSidebar(page: Page): Promise<void> {
 }
 
 // =============================================================================
+// UI Structure Constants
+// =============================================================================
+
+/**
+ * Digit spinner structure for the simulated devices:
+ * - PSU Voltage: 2 integer + 2 decimal = 4 digit positions (0-30.00 V)
+ * - PSU Current: 2 integer + 3 decimal = 5 digit positions (0-10.000 A)
+ * - Load Current: 2 integer + 3 decimal = 5 digit positions (0-40.000 A)
+ *
+ * When both panels are open, + buttons are ordered left-to-right:
+ * [PSU Voltage: 4 buttons] [PSU Current: 5 buttons] [Load Current: 5 buttons]
+ */
+const PSU_VOLTAGE_DIGITS = 4;
+const PSU_CURRENT_DIGITS = 5;
+const LOAD_CURRENT_DIGITS = 5;
+
+// Index of first PSU current button (after voltage spinner)
+const PSU_CURRENT_START_INDEX = PSU_VOLTAGE_DIGITS;
+
+// =============================================================================
 // Test Suite
 // =============================================================================
 
@@ -91,12 +111,9 @@ test.describe('PSU + Load Smoke Test', () => {
 
     // The current spinner's first + button sets the 10s place
     // We want 1A, so we click the ones place (second + in current group)
-    // Voltage has about 4 digit positions, so current starts at position 4
-    if (plusButtonCount >= 5) {
-      // Click to get 1A in the units position
-      // Voltage is 2 integer + 2 decimal = 4 buttons
-      // Current units is button index 4 (0-indexed)
-      await allPlusButtons.nth(4).click();
+    if (plusButtonCount >= PSU_CURRENT_START_INDEX + 1) {
+      // Click to get 1A in the units position (second digit of current spinner)
+      await allPlusButtons.nth(PSU_CURRENT_START_INDEX).click();
       await page.waitForTimeout(150);
     }
     console.log('Current limit set to 1A');
@@ -156,10 +173,10 @@ test.describe('PSU + Load Smoke Test', () => {
     // The tenths position would be the 2nd digit from left (after the 0)
     // Let's click the appropriate + button to get 0.1A
 
-    // Load spinner likely has: 1 integer + 3 decimal = 4 digit positions
-    // So Load's + buttons start at index (updatedPlusCount - 4) or similar
+    // Load spinner has 5 digit positions (2 integer + 3 decimal)
+    // So Load's + buttons start at index (totalButtons - LOAD_CURRENT_DIGITS)
     // Let's target the first decimal digit (0.X00)
-    const loadSpinnerStart = updatedPlusCount - 4; // Approximate
+    const loadSpinnerStart = updatedPlusCount - LOAD_CURRENT_DIGITS;
     if (loadSpinnerStart >= 0) {
       // First decimal position - click to get 0.1
       await allPlusButtons.nth(loadSpinnerStart + 1).click();
@@ -207,9 +224,9 @@ test.describe('PSU + Load Smoke Test', () => {
       }
 
       // Increase load current by clicking the integer position (first + in Load spinner)
-      // This should add 1A per click
+      // This adds 0.1A per click (first decimal position)
       const currentPlusCount = await allPlusButtons.count();
-      const loadIntegerPos = currentPlusCount - 4; // First digit of Load's spinner
+      const loadIntegerPos = currentPlusCount - LOAD_CURRENT_DIGITS; // First digit of Load's spinner
 
       if (loadIntegerPos >= 0) {
         await allPlusButtons.nth(loadIntegerPos).click();

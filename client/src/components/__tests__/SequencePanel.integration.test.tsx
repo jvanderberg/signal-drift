@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { ServerMessage, SequenceDefinition, SequenceState, DeviceSummary } from '../../../../shared/types';
 import {
   createMockSequenceDefinition,

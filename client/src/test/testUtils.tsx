@@ -8,7 +8,7 @@
  * - Test helpers for common assertions
  */
 
-import { vi } from 'vitest';
+import { vi, expect } from 'vitest';
 import React, { ReactElement } from 'react';
 import { render, RenderOptions, act } from '@testing-library/react';
 import type {

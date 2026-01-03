@@ -8,12 +8,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import type { ServerMessage } from '../../../../shared/types';
 import {
   createMockDeviceSummary,
   createMockSessionState,
-  createMockLoadCapabilities,
 } from '../../test/testUtils';
 
 // Use vi.hoisted to define mocks before vi.mock hoisting
