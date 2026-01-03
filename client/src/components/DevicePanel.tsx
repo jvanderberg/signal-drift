@@ -1,3 +1,33 @@
+/**
+ * DevicePanel - Main control panel for power supplies and electronic loads
+ *
+ * This component provides the primary interface for interacting with PSU/Load devices:
+ * - Real-time measurement display (voltage, current, power, resistance)
+ * - Mode selection (CC, CV, CR, CP for loads; CV, CC for PSUs)
+ * - Setpoint control via digit spinners
+ * - Output enable/disable toggle
+ * - Live measurement chart with configurable history window
+ *
+ * @example
+ * ```tsx
+ * <DevicePanel
+ *   device={selectedDevice}
+ *   onClose={() => setSelectedDevice(null)}
+ *   onError={(msg) => toast.error(msg)}
+ *   onSuccess={(msg) => toast.success(msg)}
+ * />
+ * ```
+ *
+ * State Management:
+ * - Uses useDeviceSocket hook for WebSocket communication
+ * - Auto-subscribes to device updates on mount
+ * - Handles connection/disconnection gracefully
+ *
+ * Safety Features:
+ * - Turns off output before mode changes
+ * - Setpoint changes are debounced (250ms)
+ */
+
 import { useState, useEffect } from 'react';
 import type { DeviceSummary } from '../types';
 import { useDeviceSocket } from '../hooks/useDeviceSocket';
@@ -8,10 +38,17 @@ import { ModeSelector } from './ModeSelector';
 import { LiveChart } from './LiveChart';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
 
+/**
+ * Props for DevicePanel component
+ */
 interface DevicePanelProps {
+  /** Device summary from the scanner (includes id, info, capabilities) */
   device: DeviceSummary;
+  /** Called when user clicks the close button */
   onClose: () => void;
+  /** Called when an error occurs (WebSocket error, device error) */
   onError: (message: string) => void;
+  /** Called on successful actions (connected, value set, etc.) */
   onSuccess: (message: string) => void;
 }
 

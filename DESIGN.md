@@ -555,6 +555,127 @@ Wrap motion-sensitive animations:
 4. **Animating layout properties** - Avoid animating `width`, `height`, `top`, `left` (use `transform` instead)
 5. **Missing overflow:hidden** - Expanding content bleeds outside container during animation
 
+## Client State Management (Zustand)
+
+The client uses [Zustand](https://github.com/pmndrs/zustand) for global state management. Zustand was chosen over alternatives for its simplicity, minimal boilerplate, and excellent TypeScript support.
+
+### Why Zustand?
+
+1. **Minimal Boilerplate** - No providers, reducers, or action types
+2. **Selective Subscriptions** - Components only re-render when their specific slice changes
+3. **DevTools Support** - Built-in Redux DevTools integration
+4. **TypeScript Native** - Excellent type inference without extra work
+
+### Store Architecture
+
+```
+client/src/stores/
+├── index.ts              # Re-exports all stores and selectors
+├── deviceStore.ts        # PSU/Load device state and WebSocket handling
+├── oscilloscopeStore.ts  # Oscilloscope state and waveform data
+└── uiStore.ts            # UI state (device names, panel layout, preferences)
+```
+
+**deviceStore** - Manages power supply and electronic load state:
+- Connection state (WebSocket status)
+- Device list from scanner
+- Per-device session state (measurements, history, setpoints)
+- Device control actions (setMode, setValue, setOutput)
+
+**oscilloscopeStore** - Manages oscilloscope state:
+- Per-oscilloscope session state (status, channels, trigger)
+- Waveform data and streaming state
+- Measurements and screenshots
+- Oscilloscope control actions
+
+**uiStore** - Manages UI-only state:
+- Custom device names (user-assigned labels)
+- Panel visibility and layout preferences
+- Persisted to localStorage
+
+### Key Patterns
+
+**Selective Subscriptions with Selectors:**
+
+```typescript
+// Bad - re-renders on ANY store change
+const { devices, deviceStates } = useDeviceStore();
+
+// Good - only re-renders when this specific device changes
+const deviceState = useDeviceStore(selectDevice(deviceId));
+```
+
+**WebSocket Integration:**
+
+Stores handle WebSocket messages internally. The WebSocket manager is initialized once, and stores subscribe to relevant message types:
+
+```typescript
+// In deviceStore.ts
+const unsubscribe = wsManager.onMessage((message) => {
+  switch (message.type) {
+    case 'subscribed':
+      set((state) => ({
+        deviceStates: {
+          ...state.deviceStates,
+          [message.deviceId]: { sessionState: message.state, isSubscribed: true },
+        },
+      }));
+      break;
+    case 'measurement':
+      // Update measurements and history...
+      break;
+  }
+});
+```
+
+**Avoiding Re-subscription Loops:**
+
+When connection state changes, stores automatically re-subscribe to devices. The `isSubscribedRef` pattern prevents duplicate subscriptions:
+
+```typescript
+// Track subscription intent separately from connection state
+const isSubscribedRef = useRef(false);
+
+// Re-subscribe on reconnect
+if (newState === 'connected' && isSubscribedRef.current) {
+  manager.send({ type: 'subscribe', deviceId });
+}
+```
+
+### Migration from Hooks
+
+The codebase previously used custom hooks (`useDeviceSocket`, `useOscilloscopeSocket`) for state management. These hooks still exist as thin wrappers for backward compatibility, but internally they now delegate to Zustand stores.
+
+**Before (hook-based):**
+```typescript
+// Each component had its own state copy
+const { state, setMode } = useDeviceSocket(deviceId);
+```
+
+**After (store-based):**
+```typescript
+// All components share the same state
+const deviceState = useDeviceStore(selectDevice(deviceId));
+const setMode = useDeviceStore((s) => s.setMode);
+```
+
+### DevTools Integration
+
+In development mode, stores are wrapped with `devtools` middleware:
+
+```typescript
+export const useDeviceStore = create<DeviceStoreState>()(
+  devtools(
+    subscribeWithSelector((set, get) => ({
+      // ... store implementation
+    })),
+    { name: 'DeviceStore', enabled: process.env.NODE_ENV === 'development' }
+  )
+);
+```
+
+Open Redux DevTools in your browser to inspect state changes and time-travel debug.
+
 ## Sequencer Architecture
 
 The sequencer enables arbitrary waveform generation on power supplies and electronic loads. It's designed around device-agnostic sequence definitions that can be played on any compatible device.
