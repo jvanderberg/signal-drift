@@ -29,8 +29,8 @@ jobs:
         env:
           npm_config_build_from_source: true
 
-      - name: Build native modules
-        run: npm rebuild
+      - name: Build native modules from source
+        run: npm rebuild better-sqlite3 serialport usb --build-from-source
 
       - name: Install client dependencies
         run: cd client && npm ci
@@ -61,8 +61,8 @@ jobs:
         env:
           npm_config_build_from_source: true
 
-      - name: Build native modules
-        run: npm rebuild
+      - name: Build native modules from source
+        run: npm rebuild better-sqlite3 serialport usb --build-from-source
 
       - name: Install client dependencies
         run: cd client && npm ci
@@ -96,8 +96,8 @@ jobs:
         env:
           npm_config_build_from_source: true
 
-      - name: Build native modules
-        run: npm rebuild
+      - name: Build native modules from source
+        run: npm rebuild better-sqlite3 serialport usb --build-from-source
 
       - name: Install client dependencies
         run: cd client && npm ci
