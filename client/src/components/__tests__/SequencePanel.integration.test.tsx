@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import type { ServerMessage, SequenceDefinition, SequenceState, DeviceSummary } from '../../../../shared/types';
 import {
   createMockSequenceDefinition,
@@ -90,6 +90,20 @@ function simulateMessage(msg: ServerMessage): void {
 // Import after mocking
 import { SequencePanel } from '../sequencer';
 
+// Helper to get selects by their position in run mode
+// Order: [0] Sequence, [1] Device, [2] Parameter, [3] Repeat
+function getSequenceSelect() {
+  return screen.getAllByRole('combobox')[0];
+}
+
+function getDeviceSelect() {
+  return screen.getAllByRole('combobox')[1];
+}
+
+function getRepeatSelect() {
+  return screen.getAllByRole('combobox')[3];
+}
+
 describe('SequencePanel Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,20 +116,27 @@ describe('SequencePanel Integration', () => {
     vi.clearAllMocks();
   });
 
+  // Helper to set up with library loaded and in run mode
   const setupWithLibrary = async (sequences: SequenceDefinition[], devices: DeviceSummary[] = []) => {
     render(<SequencePanel />);
 
-    // Wait for library request
+    // Wait for both library and device list requests
     await waitFor(() => {
       expect(mockSend).toHaveBeenCalledWith({ type: 'sequenceLibraryList' });
+      expect(mockSend).toHaveBeenCalledWith({ type: 'getDevices' });
     });
 
-    // Provide library data
+    // Provide device list first (so it's available when library loads)
+    simulateMessage({ type: 'deviceList', devices });
+
+    // Then provide library data
     simulateMessage({ type: 'sequenceLibrary', sequences });
 
-    // Provide device list
-    if (devices.length > 0) {
-      simulateMessage({ type: 'deviceList', devices });
+    // Wait for component to switch to run mode (only if sequences exist)
+    if (sequences.length > 0) {
+      await waitFor(() => {
+        expect(screen.getByText('Sequencer')).toBeInTheDocument();
+      });
     }
   };
 
@@ -134,7 +155,7 @@ describe('SequencePanel Integration', () => {
       expect(screen.getByText('Loading...')).toBeInTheDocument();
     });
 
-    it('should display sequences after library loads', async () => {
+    it('should display run mode after library loads with sequences', async () => {
       const sequences = [
         createMockSequenceDefinition({ id: 'seq-1', name: 'Voltage Ramp', unit: 'V' }),
         createMockSequenceDefinition({ id: 'seq-2', name: 'Current Sweep', unit: 'A' }),
@@ -147,25 +168,31 @@ describe('SequencePanel Integration', () => {
       });
     });
 
-    it('should show empty state when no sequences exist', async () => {
-      await setupWithLibrary([]);
+    it('should show edit mode when no sequences exist', async () => {
+      render(<SequencePanel />);
 
       await waitFor(() => {
-        expect(screen.getByText(/No sequences in library/i)).toBeInTheDocument();
-        expect(screen.getByText('Create one')).toBeInTheDocument();
+        expect(mockSend).toHaveBeenCalledWith({ type: 'sequenceLibraryList' });
+      });
+
+      // Provide empty library
+      simulateMessage({ type: 'sequenceLibrary', sequences: [] });
+
+      // Component defaults to edit mode when library is empty
+      await waitFor(() => {
+        expect(screen.getByText('New Sequence')).toBeInTheDocument();
       });
     });
 
-    it('should switch to edit mode when Create one is clicked', async () => {
-      await setupWithLibrary([]);
+    it('should show Cancel button in edit mode', async () => {
+      render(<SequencePanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('Create one')).toBeInTheDocument();
+        expect(mockSend).toHaveBeenCalledWith({ type: 'sequenceLibraryList' });
       });
 
-      fireEvent.click(screen.getByText('Create one'));
+      simulateMessage({ type: 'sequenceLibrary', sequences: [] });
 
-      // Should now show the sequence editor
       await waitFor(() => {
         expect(screen.getByText(/Cancel/)).toBeInTheDocument();
       });
@@ -180,12 +207,7 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
-
-      // Find and interact with sequence selector
-      const sequenceSelect = screen.getByLabelText(/Sequence/i) as HTMLSelectElement;
+      const sequenceSelect = getSequenceSelect() as HTMLSelectElement;
       fireEvent.change(sequenceSelect, { target: { value: 'seq-1' } });
 
       expect(sequenceSelect.value).toBe('seq-1');
@@ -198,14 +220,13 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
+      // Initially shows placeholder
+      expect(screen.getByText(/Select a sequence to preview/)).toBeInTheDocument();
 
-      const sequenceSelect = screen.getByLabelText(/Sequence/i);
-      fireEvent.change(sequenceSelect, { target: { value: 'seq-1' } });
+      // Select the sequence
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
 
-      // Chart should be rendered
+      // Chart placeholder should be gone
       await waitFor(() => {
         expect(screen.queryByText(/Select a sequence to preview/)).not.toBeInTheDocument();
       });
@@ -213,7 +234,7 @@ describe('SequencePanel Integration', () => {
   });
 
   describe('Device and Parameter Selection', () => {
-    it('should filter devices compatible with selected sequence unit', async () => {
+    it('should enable device selector after sequence is selected', async () => {
       const sequences = [
         createMockSequenceDefinition({ id: 'seq-1', name: 'Voltage Ramp', unit: 'V' }),
       ];
@@ -227,19 +248,39 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
+      // Device selector should be disabled before sequence selection
+      expect(getDeviceSelect()).toBeDisabled();
+
+      // Select sequence first
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
+
+      // Device select should now be enabled
       await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
+        expect(getDeviceSelect()).not.toBeDisabled();
       });
+    });
+
+    it('should allow selecting a device after sequence', async () => {
+      const sequences = [
+        createMockSequenceDefinition({ id: 'seq-1', name: 'Voltage Ramp', unit: 'V' }),
+      ];
+
+      const devices: DeviceSummary[] = [
+        createMockDeviceSummary({ id: 'psu-1' }),
+      ];
+
+      await setupWithLibrary(sequences, devices);
 
       // Select sequence
-      const sequenceSelect = screen.getByLabelText(/Sequence/i);
-      fireEvent.change(sequenceSelect, { target: { value: 'seq-1' } });
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
 
-      // Device should be available
-      const deviceSelect = screen.getByLabelText(/Device/i) as HTMLSelectElement;
-      expect(deviceSelect).not.toBeDisabled();
+      // Wait for device selector to be enabled
+      await waitFor(() => {
+        expect(getDeviceSelect()).not.toBeDisabled();
+      });
 
       // Select device
+      const deviceSelect = getDeviceSelect() as HTMLSelectElement;
       fireEvent.change(deviceSelect, { target: { value: 'psu-1' } });
       expect(deviceSelect.value).toBe('psu-1');
     });
@@ -256,12 +297,8 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
-
-      const sequenceSelect = screen.getByLabelText(/Sequence/i);
-      fireEvent.change(sequenceSelect, { target: { value: 'seq-1' } });
+      // Select the sequence
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
 
       await waitFor(() => {
         expect(screen.getByText(/No devices with Ω outputs/)).toBeInTheDocument();
@@ -281,17 +318,16 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
+      // Select sequence
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
+
+      // Wait for device selector to be enabled
       await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
+        expect(getDeviceSelect()).not.toBeDisabled();
       });
 
-      // Select sequence
-      const sequenceSelect = screen.getByLabelText(/Sequence/i);
-      fireEvent.change(sequenceSelect, { target: { value: 'seq-1' } });
-
       // Select device
-      const deviceSelect = screen.getByLabelText(/Device/i);
-      fireEvent.change(deviceSelect, { target: { value: 'psu-1' } });
+      fireEvent.change(getDeviceSelect(), { target: { value: 'psu-1' } });
     };
 
     it('should enable Start button when all selections are made', async () => {
@@ -331,6 +367,10 @@ describe('SequencePanel Integration', () => {
     it('should show Abort button during playback', async () => {
       await setupForPlayback();
 
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
+      });
+
       fireEvent.click(screen.getByText('Start'));
 
       // Simulate sequence started
@@ -361,6 +401,10 @@ describe('SequencePanel Integration', () => {
 
     it('should send sequenceAbort when Abort is clicked', async () => {
       await setupForPlayback();
+
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
+      });
 
       fireEvent.click(screen.getByText('Start'));
 
@@ -397,6 +441,10 @@ describe('SequencePanel Integration', () => {
     it('should display progress during playback', async () => {
       await setupForPlayback();
 
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
+      });
+
       fireEvent.click(screen.getByText('Start'));
 
       const sequenceState: SequenceState = {
@@ -421,12 +469,16 @@ describe('SequencePanel Integration', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Step 51\/100/)).toBeInTheDocument();
-        expect(screen.getByText(/7\.5/)).toBeInTheDocument();
+        expect(screen.getByText(/7\.500/)).toBeInTheDocument();
       });
     });
 
     it('should update progress as sequence runs', async () => {
       await setupForPlayback();
+
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
+      });
 
       fireEvent.click(screen.getByText('Start'));
 
@@ -463,7 +515,7 @@ describe('SequencePanel Integration', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Step 76\/100/)).toBeInTheDocument();
-        expect(screen.getByText(/8\.75/)).toBeInTheDocument();
+        expect(screen.getByText(/8\.750/)).toBeInTheDocument();
       });
     });
   });
@@ -476,11 +528,7 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
-
-      const repeatSelect = screen.getByLabelText(/Repeat/i);
+      const repeatSelect = getRepeatSelect();
       expect(repeatSelect).toBeInTheDocument();
 
       // Change to N times
@@ -504,21 +552,27 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
+      // Select sequence
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
 
-      // Select sequence and device
-      fireEvent.change(screen.getByLabelText(/Sequence/i), { target: { value: 'seq-1' } });
-      fireEvent.change(screen.getByLabelText(/Device/i), { target: { value: 'psu-1' } });
+      // Wait for device selector and select device
+      await waitFor(() => {
+        expect(getDeviceSelect()).not.toBeDisabled();
+      });
+      fireEvent.change(getDeviceSelect(), { target: { value: 'psu-1' } });
 
       // Set repeat mode to count
-      fireEvent.change(screen.getByLabelText(/Repeat/i), { target: { value: 'count' } });
+      fireEvent.change(getRepeatSelect(), { target: { value: 'count' } });
 
       // Set count to 5
       await waitFor(() => {
         const countInput = screen.getByRole('spinbutton');
         fireEvent.change(countInput, { target: { value: '5' } });
+      });
+
+      // Wait for Start to be enabled
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
       });
 
       mockSend.mockClear();
@@ -554,6 +608,7 @@ describe('SequencePanel Integration', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Cancel/)).toBeInTheDocument();
+        expect(screen.getByText('New Sequence')).toBeInTheDocument();
       });
     });
 
@@ -564,14 +619,15 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences);
 
+      // Select a sequence first
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
+
+      // Click edit - wait for it to be enabled (not disabled when sequence selected)
       await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
+        const editButton = screen.getByText('✎ Edit');
+        expect(editButton).not.toBeDisabled();
       });
 
-      // Select a sequence first
-      fireEvent.change(screen.getByLabelText(/Sequence/i), { target: { value: 'seq-1' } });
-
-      // Click edit
       fireEvent.click(screen.getByText('✎ Edit'));
 
       await waitFor(() => {
@@ -586,12 +642,8 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
-
       // Select a sequence
-      fireEvent.change(screen.getByLabelText(/Sequence/i), { target: { value: 'seq-1' } });
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
 
       await waitFor(() => {
         expect(screen.getByText('✗ Delete')).toBeInTheDocument();
@@ -616,15 +668,6 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
-
-      // Select and start
-      fireEvent.change(screen.getByLabelText(/Sequence/i), { target: { value: 'seq-1' } });
-      fireEvent.change(screen.getByLabelText(/Device/i), { target: { value: 'psu-1' } });
-      fireEvent.click(screen.getByText('Start'));
-
       // Simulate error
       simulateMessage({
         type: 'sequenceError',
@@ -647,10 +690,6 @@ describe('SequencePanel Integration', () => {
       ];
 
       await setupWithLibrary(sequences, devices);
-
-      await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
-      });
 
       // Trigger error
       simulateMessage({
@@ -685,13 +724,20 @@ describe('SequencePanel Integration', () => {
 
       await setupWithLibrary(sequences, devices);
 
+      // Select sequence
+      fireEvent.change(getSequenceSelect(), { target: { value: 'seq-1' } });
+
+      // Wait for device selector and select device
       await waitFor(() => {
-        expect(screen.getByText('Sequencer')).toBeInTheDocument();
+        expect(getDeviceSelect()).not.toBeDisabled();
       });
+      fireEvent.change(getDeviceSelect(), { target: { value: 'psu-1' } });
 
       // Start sequence
-      fireEvent.change(screen.getByLabelText(/Sequence/i), { target: { value: 'seq-1' } });
-      fireEvent.change(screen.getByLabelText(/Device/i), { target: { value: 'psu-1' } });
+      await waitFor(() => {
+        expect(screen.getByText('Start')).not.toBeDisabled();
+      });
+
       fireEvent.click(screen.getByText('Start'));
 
       // Running state

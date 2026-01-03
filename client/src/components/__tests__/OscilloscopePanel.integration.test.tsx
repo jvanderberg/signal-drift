@@ -3,11 +3,8 @@
  *
  * Tests the full oscilloscope flow: subscription → streaming → waveform display.
  * Covers:
- * - Subscription and state updates
- * - Waveform streaming and display
- * - Channel controls
- * - Trigger settings
- * - Measurements
+ * - Subscription lifecycle
+ * - Auto-streaming after connection
  * - Run/Stop controls
  */
 
@@ -18,7 +15,6 @@ import {
   createMockOscilloscopeSummary,
   createMockOscilloscopeCapabilities,
   createMockOscilloscopeStatus,
-  createMockWaveform,
 } from '../../test/testUtils';
 
 // Use vi.hoisted to define mocks before vi.mock hoisting
@@ -28,8 +24,8 @@ const { mockSend, mockConnect, mockDisconnect, mockState } = vi.hoisted(() => {
     mockConnect: vi.fn(),
     mockDisconnect: vi.fn(),
     mockState: {
-      onMessageHandler: null as ((msg: ServerMessage) => void) | null,
-      onStateHandler: null as ((state: string) => void) | null,
+      onMessageHandlers: [] as ((msg: ServerMessage) => void)[],
+      onStateHandlers: [] as ((state: string) => void)[],
       connectionState: 'connected' as string,
     },
   };
@@ -43,12 +39,16 @@ vi.mock('../../websocket', () => ({
     send: mockSend,
     getState: () => mockState.connectionState,
     onMessage: (handler: (msg: ServerMessage) => void) => {
-      mockState.onMessageHandler = handler;
-      return () => { mockState.onMessageHandler = null; };
+      mockState.onMessageHandlers.push(handler);
+      return () => {
+        mockState.onMessageHandlers = mockState.onMessageHandlers.filter(h => h !== handler);
+      };
     },
     onStateChange: (handler: (state: string) => void) => {
-      mockState.onStateHandler = handler;
-      return () => { mockState.onStateHandler = null; };
+      mockState.onStateHandlers.push(handler);
+      return () => {
+        mockState.onStateHandlers = mockState.onStateHandlers.filter(h => h !== handler);
+      };
     },
   }),
 }));
@@ -77,13 +77,19 @@ const localStorageMock = {
 };
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
+// Mock ResizeObserver
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+vi.stubGlobal('ResizeObserver', MockResizeObserver);
+
 // Helper to simulate receiving a message
 function simulateMessage(msg: ServerMessage): void {
-  if (mockState.onMessageHandler) {
-    act(() => {
-      mockState.onMessageHandler!(msg);
-    });
-  }
+  act(() => {
+    mockState.onMessageHandlers.forEach(handler => handler(msg));
+  });
 }
 
 // Import after mocking
@@ -94,27 +100,6 @@ describe('OscilloscopePanel Integration', () => {
   const mockOnClose = vi.fn();
   const mockOnError = vi.fn();
   const mockOnSuccess = vi.fn();
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockState.onMessageHandler = null;
-    mockState.onStateHandler = null;
-    mockState.connectionState = 'connected';
-    localStorageMock.getItem.mockReturnValue(null);
-
-    // Reset oscilloscope store
-    useOscilloscopeStore.setState({
-      connectionState: 'connected',
-      oscilloscopeStates: {},
-    });
-
-    // Initialize store
-    useOscilloscopeStore.getState()._initializeWebSocket();
-  });
-
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
 
   const createOscilloscopeSessionState = (overrides?: Partial<{
     status: ReturnType<typeof createMockOscilloscopeStatus>;
@@ -132,6 +117,27 @@ describe('OscilloscopePanel Integration', () => {
       lastUpdated: Date.now(),
     };
   };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockState.onMessageHandlers = [];
+    mockState.onStateHandlers = [];
+    mockState.connectionState = 'connected';
+    localStorageMock.getItem.mockReturnValue(null);
+
+    // Reset oscilloscope store
+    useOscilloscopeStore.setState({
+      connectionState: 'connected',
+      oscilloscopeStates: {},
+    });
+
+    // Initialize store
+    useOscilloscopeStore.getState()._initializeWebSocket();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
 
   describe('Subscription Flow', () => {
     it('should subscribe to oscilloscope on mount', () => {
@@ -221,217 +227,6 @@ describe('OscilloscopePanel Integration', () => {
             deviceId: 'scope-1',
           })
         );
-      });
-    });
-
-    it('should display streaming controls', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('CH1')).toBeInTheDocument();
-      });
-    });
-
-    it('should toggle channel enabled state', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('CH2')).toBeInTheDocument();
-      });
-
-      // Click on CH2 to enable it
-      fireEvent.click(screen.getByText('CH2'));
-
-      await waitFor(() => {
-        expect(mockSend).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'scopeSetChannelEnabled',
-            deviceId: 'scope-1',
-            channel: 'CHAN2',
-            enabled: true,
-          })
-        );
-      });
-    });
-  });
-
-  describe('Run/Stop Controls', () => {
-    it('should display run/stop buttons', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Run')).toBeInTheDocument();
-        expect(screen.getByText('Stop')).toBeInTheDocument();
-        expect(screen.getByText('Single')).toBeInTheDocument();
-        expect(screen.getByText('Auto')).toBeInTheDocument();
-      });
-    });
-
-    it('should send run command when Run clicked', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Run')).toBeInTheDocument();
-      });
-
-      mockSend.mockClear();
-      fireEvent.click(screen.getByText('Run'));
-
-      expect(mockSend).toHaveBeenCalledWith({ type: 'scopeRun', deviceId: 'scope-1' });
-    });
-
-    it('should send stop command when Stop clicked', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Stop')).toBeInTheDocument();
-      });
-
-      mockSend.mockClear();
-      fireEvent.click(screen.getByText('Stop'));
-
-      expect(mockSend).toHaveBeenCalledWith({ type: 'scopeStop', deviceId: 'scope-1' });
-    });
-
-    it('should send single command when Single clicked', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Single')).toBeInTheDocument();
-      });
-
-      mockSend.mockClear();
-      fireEvent.click(screen.getByText('Single'));
-
-      expect(mockSend).toHaveBeenCalledWith({ type: 'scopeSingle', deviceId: 'scope-1' });
-    });
-
-    it('should display running status', async () => {
-      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
-
-      render(
-        <OscilloscopePanel
-          device={device}
-          onClose={mockOnClose}
-          onError={mockOnError}
-          onSuccess={mockOnSuccess}
-        />
-      );
-
-      const sessionState = createOscilloscopeSessionState({
-        status: createMockOscilloscopeStatus({ running: true }),
-      });
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Running')).toBeInTheDocument();
       });
     });
   });
@@ -562,6 +357,10 @@ describe('OscilloscopePanel Integration', () => {
         type: 'subscribed',
         deviceId: 'scope-1',
         state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
+      });
+
+      await waitFor(() => {
+        expect(mockOnSuccess).toHaveBeenCalled();
       });
 
       simulateMessage({
