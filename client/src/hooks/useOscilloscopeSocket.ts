@@ -1,50 +1,23 @@
 /**
  * useOscilloscopeSocket - React hook for oscilloscope state via WebSocket
  *
- * Similar to useDeviceSocket but with oscilloscope-specific operations:
- * - run/stop/single for trigger control
- * - getWaveform for waveform data
- * - getMeasurement for measurement queries
- * - getScreenshot for screen capture
+ * Thin wrapper around the Zustand oscilloscopeStore.
+ * Provides a convenient hook interface for components that manage a single oscilloscope.
+ *
+ * State management is delegated to the Zustand store - no duplicate local state.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { getWebSocketManager, ConnectionState } from '../websocket';
-import type { ServerMessage, OscilloscopeStatus, WaveformData, OscilloscopeMeasurement } from '../../../shared/types';
+import { useEffect, useCallback } from 'react';
+import type { ConnectionState } from '../websocket';
+import type { WaveformData, OscilloscopeMeasurement } from '../../../shared/types';
+import {
+  useOscilloscopeStore,
+  selectOscilloscope,
+  type OscilloscopeSessionState,
+} from '../stores';
 
-// Infer measurement unit from type
-function getMeasurementUnit(type: string): string {
-  const upper = type.toUpperCase();
-  if (upper === 'FREQ') return 'Hz';
-  if (upper === 'PER' || upper === 'PERIOD') return 's';
-  if (upper.includes('TIM') || upper.includes('RISE') || upper.includes('FALL') || upper.includes('DELAY')) return 's';
-  if (upper.includes('WID')) return 's'; // Pulse width (PWID, NWID)
-  if (upper.includes('DUT')) return '%'; // Duty cycle (PDUT, NDUT)
-  if (upper === 'OVER' || upper === 'PRES') return '%'; // Overshoot/preshoot
-  return 'V'; // Default to voltage
-}
-
-export interface OscilloscopeSessionState {
-  info: {
-    id: string;
-    type: 'oscilloscope';
-    manufacturer: string;
-    model: string;
-    serial?: string;
-  };
-  capabilities: {
-    channels: number;
-    bandwidth: number;
-    maxSampleRate: number;
-    maxMemoryDepth: number;
-    supportedMeasurements: string[];
-    hasAWG: boolean;
-  };
-  connectionStatus: 'connected' | 'error' | 'disconnected';
-  consecutiveErrors: number;
-  status: OscilloscopeStatus | null;
-  lastUpdated: number;
-}
+// Re-export the session state type for consumers
+export type { OscilloscopeSessionState };
 
 export interface UseOscilloscopeSocketResult {
   state: OscilloscopeSessionState | null;
@@ -95,253 +68,152 @@ export interface UseOscilloscopeSocketResult {
 }
 
 export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketResult {
-  const [state, setState] = useState<OscilloscopeSessionState | null>(null);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [waveform, setWaveform] = useState<WaveformData | null>(null);
-  const [waveforms, setWaveforms] = useState<WaveformData[]>([]);
-  const [measurements, setMeasurements] = useState<OscilloscopeMeasurement[]>([]);
-  const [screenshot, setScreenshot] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
+  // Get state from Zustand store using selector
+  const oscState = useOscilloscopeStore(selectOscilloscope(deviceId));
+  const connectionState = useOscilloscopeStore((s) => s.connectionState);
 
-  const wsManager = useRef(getWebSocketManager());
-  const isSubscribedRef = useRef(false);
+  // Extract individual pieces from oscilloscope state
+  const state = oscState.sessionState;
+  const isSubscribed = oscState.isSubscribed;
+  const error = oscState.error;
+  const waveform = oscState.waveform;
+  const waveforms = oscState.waveforms;
+  const measurements = oscState.measurements;
+  const screenshot = oscState.screenshot;
+  const isStreaming = oscState.isStreaming;
 
-  // Handle incoming messages
+  // Get store actions
+  const subscribeOscilloscope = useOscilloscopeStore((s) => s.subscribeOscilloscope);
+  const unsubscribeOscilloscope = useOscilloscopeStore((s) => s.unsubscribeOscilloscope);
+  const runAction = useOscilloscopeStore((s) => s.run);
+  const stopAction = useOscilloscopeStore((s) => s.stop);
+  const singleAction = useOscilloscopeStore((s) => s.single);
+  const autoSetupAction = useOscilloscopeStore((s) => s.autoSetup);
+  const getWaveformAction = useOscilloscopeStore((s) => s.getWaveform);
+  const getMeasurementAction = useOscilloscopeStore((s) => s.getMeasurement);
+  const getScreenshotAction = useOscilloscopeStore((s) => s.getScreenshot);
+  const clearErrorAction = useOscilloscopeStore((s) => s.clearError);
+  const setChannelEnabledAction = useOscilloscopeStore((s) => s.setChannelEnabled);
+  const setChannelScaleAction = useOscilloscopeStore((s) => s.setChannelScale);
+  const setChannelOffsetAction = useOscilloscopeStore((s) => s.setChannelOffset);
+  const setChannelCouplingAction = useOscilloscopeStore((s) => s.setChannelCoupling);
+  const setChannelProbeAction = useOscilloscopeStore((s) => s.setChannelProbe);
+  const setChannelBwLimitAction = useOscilloscopeStore((s) => s.setChannelBwLimit);
+  const setTimebaseScaleAction = useOscilloscopeStore((s) => s.setTimebaseScale);
+  const setTimebaseOffsetAction = useOscilloscopeStore((s) => s.setTimebaseOffset);
+  const setTriggerSourceAction = useOscilloscopeStore((s) => s.setTriggerSource);
+  const setTriggerLevelAction = useOscilloscopeStore((s) => s.setTriggerLevel);
+  const setTriggerEdgeAction = useOscilloscopeStore((s) => s.setTriggerEdge);
+  const setTriggerSweepAction = useOscilloscopeStore((s) => s.setTriggerSweep);
+  const startStreamingAction = useOscilloscopeStore((s) => s.startStreaming);
+  const stopStreamingAction = useOscilloscopeStore((s) => s.stopStreaming);
+  const initializeWebSocket = useOscilloscopeStore((s) => s._initializeWebSocket);
+
+  // Initialize WebSocket on mount
   useEffect(() => {
-    const manager = wsManager.current;
+    initializeWebSocket();
+  }, [initializeWebSocket]);
 
-    // Set up connection state tracking and re-subscribe on reconnect
-    const unsubscribeState = manager.onStateChange((newState) => {
-      setConnectionState(newState);
-      // Re-subscribe when connection is restored
-      if (newState === 'connected' && isSubscribedRef.current) {
-        manager.send({ type: 'subscribe', deviceId });
-      }
-    });
-
-    // Set initial connection state
-    setConnectionState(manager.getState());
-
-    // Connect the WebSocket
-    manager.connect();
-
-    // Set up message handler
-    const unsubscribeMessage = manager.onMessage((message: ServerMessage) => {
-      // Only handle messages for our device
-      if ('deviceId' in message && message.deviceId !== deviceId) {
-        return;
-      }
-
-      switch (message.type) {
-        case 'subscribed':
-          if (message.deviceId === deviceId) {
-            // The state from oscilloscope subscription has a different shape
-            setState(message.state as unknown as OscilloscopeSessionState);
-            setIsSubscribed(true);
-            isSubscribedRef.current = true;
-            setError(null);
-          }
-          break;
-
-        case 'unsubscribed':
-          if (message.deviceId === deviceId) {
-            setIsSubscribed(false);
-            isSubscribedRef.current = false;
-          }
-          break;
-
-        case 'field':
-          if (message.deviceId === deviceId) {
-            setState((prev) => {
-              if (!prev) return prev;
-
-              const { field, value } = message;
-
-              switch (field) {
-                case 'connectionStatus':
-                  return { ...prev, connectionStatus: value as OscilloscopeSessionState['connectionStatus'] };
-                case 'oscilloscopeStatus':
-                  return { ...prev, status: value as OscilloscopeStatus };
-                default:
-                  return { ...prev, [field]: value };
-              }
-            });
-          }
-          break;
-
-        case 'scopeWaveform':
-          if (message.deviceId === deviceId) {
-            setWaveform(message.waveform);
-            // Update waveforms array (replace if same channel, add if new)
-            setWaveforms(prev => {
-              const idx = prev.findIndex(w => w.channel === message.waveform.channel);
-              if (idx >= 0) {
-                const updated = [...prev];
-                updated[idx] = message.waveform;
-                return updated;
-              }
-              return [...prev, message.waveform];
-            });
-          }
-          break;
-
-        case 'scopeScreenshot':
-          if (message.deviceId === deviceId) {
-            setScreenshot(message.data);
-          }
-          break;
-
-        case 'scopeMeasurement':
-          if (message.deviceId === deviceId && message.value !== null) {
-            // Update or add measurement
-            // Infer unit from measurement type
-            const unit = getMeasurementUnit(message.measurementType);
-            setMeasurements(prev => {
-              const idx = prev.findIndex(m =>
-                m.channel === message.channel && m.type === message.measurementType
-              );
-              const newMeasurement: OscilloscopeMeasurement = {
-                channel: message.channel,
-                type: message.measurementType,
-                value: message.value as number,
-                unit,
-              };
-              if (idx >= 0) {
-                const updated = [...prev];
-                updated[idx] = newMeasurement;
-                return updated;
-              }
-              return [...prev, newMeasurement];
-            });
-          }
-          break;
-
-        case 'error':
-          if (!message.deviceId || message.deviceId === deviceId) {
-            setError(message.message);
-          }
-          break;
-      }
-    });
-
-    // Cleanup
-    return () => {
-      unsubscribeState();
-      unsubscribeMessage();
-
-      // Unsubscribe from device if we were subscribed
-      if (isSubscribedRef.current) {
-        manager.send({ type: 'unsubscribe', deviceId });
-        isSubscribedRef.current = false;
-      }
-    };
-  }, [deviceId]);
-
+  // Stable callbacks that delegate to store actions
   const subscribe = useCallback(() => {
-    wsManager.current.send({ type: 'subscribe', deviceId });
-  }, [deviceId]);
+    subscribeOscilloscope(deviceId);
+  }, [subscribeOscilloscope, deviceId]);
 
   const unsubscribe = useCallback(() => {
-    wsManager.current.send({ type: 'unsubscribe', deviceId });
-    setIsSubscribed(false);
-    isSubscribedRef.current = false;
-  }, [deviceId]);
+    unsubscribeOscilloscope(deviceId);
+  }, [unsubscribeOscilloscope, deviceId]);
 
   const run = useCallback(() => {
-    wsManager.current.send({ type: 'scopeRun', deviceId });
-  }, [deviceId]);
+    runAction(deviceId);
+  }, [runAction, deviceId]);
 
   const stop = useCallback(() => {
-    wsManager.current.send({ type: 'scopeStop', deviceId });
-  }, [deviceId]);
+    stopAction(deviceId);
+  }, [stopAction, deviceId]);
 
   const single = useCallback(() => {
-    wsManager.current.send({ type: 'scopeSingle', deviceId });
-  }, [deviceId]);
+    singleAction(deviceId);
+  }, [singleAction, deviceId]);
 
   const autoSetup = useCallback(() => {
-    wsManager.current.send({ type: 'scopeAutoSetup', deviceId });
-  }, [deviceId]);
+    autoSetupAction(deviceId);
+  }, [autoSetupAction, deviceId]);
 
   const getWaveform = useCallback((channel: string) => {
-    wsManager.current.send({ type: 'scopeGetWaveform', deviceId, channel });
-  }, [deviceId]);
+    getWaveformAction(deviceId, channel);
+  }, [getWaveformAction, deviceId]);
 
-  const getMeasurement = useCallback((channel: string, measurementType: string) => {
-    wsManager.current.send({ type: 'scopeGetMeasurement', deviceId, channel, measurementType });
-  }, [deviceId]);
+  const getMeasurement = useCallback((channel: string, type: string) => {
+    getMeasurementAction(deviceId, channel, type);
+  }, [getMeasurementAction, deviceId]);
 
   const getScreenshot = useCallback(() => {
-    wsManager.current.send({ type: 'scopeGetScreenshot', deviceId });
-  }, [deviceId]);
+    getScreenshotAction(deviceId);
+  }, [getScreenshotAction, deviceId]);
 
   const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+    clearErrorAction(deviceId);
+  }, [clearErrorAction, deviceId]);
 
   // Channel settings
   const setChannelEnabled = useCallback((channel: string, enabled: boolean) => {
-    wsManager.current.send({ type: 'scopeSetChannelEnabled', deviceId, channel, enabled });
-  }, [deviceId]);
+    setChannelEnabledAction(deviceId, channel, enabled);
+  }, [setChannelEnabledAction, deviceId]);
 
   const setChannelScale = useCallback((channel: string, scale: number) => {
-    wsManager.current.send({ type: 'scopeSetChannelScale', deviceId, channel, scale });
-  }, [deviceId]);
+    setChannelScaleAction(deviceId, channel, scale);
+  }, [setChannelScaleAction, deviceId]);
 
   const setChannelOffset = useCallback((channel: string, offset: number) => {
-    wsManager.current.send({ type: 'scopeSetChannelOffset', deviceId, channel, offset });
-  }, [deviceId]);
+    setChannelOffsetAction(deviceId, channel, offset);
+  }, [setChannelOffsetAction, deviceId]);
 
   const setChannelCoupling = useCallback((channel: string, coupling: 'AC' | 'DC' | 'GND') => {
-    wsManager.current.send({ type: 'scopeSetChannelCoupling', deviceId, channel, coupling });
-  }, [deviceId]);
+    setChannelCouplingAction(deviceId, channel, coupling);
+  }, [setChannelCouplingAction, deviceId]);
 
   const setChannelProbe = useCallback((channel: string, ratio: number) => {
-    wsManager.current.send({ type: 'scopeSetChannelProbe', deviceId, channel, ratio });
-  }, [deviceId]);
+    setChannelProbeAction(deviceId, channel, ratio);
+  }, [setChannelProbeAction, deviceId]);
 
   const setChannelBwLimit = useCallback((channel: string, enabled: boolean) => {
-    wsManager.current.send({ type: 'scopeSetChannelBwLimit', deviceId, channel, enabled });
-  }, [deviceId]);
+    setChannelBwLimitAction(deviceId, channel, enabled);
+  }, [setChannelBwLimitAction, deviceId]);
 
   // Timebase settings
   const setTimebaseScale = useCallback((scale: number) => {
-    wsManager.current.send({ type: 'scopeSetTimebaseScale', deviceId, scale });
-  }, [deviceId]);
+    setTimebaseScaleAction(deviceId, scale);
+  }, [setTimebaseScaleAction, deviceId]);
 
   const setTimebaseOffset = useCallback((offset: number) => {
-    wsManager.current.send({ type: 'scopeSetTimebaseOffset', deviceId, offset });
-  }, [deviceId]);
+    setTimebaseOffsetAction(deviceId, offset);
+  }, [setTimebaseOffsetAction, deviceId]);
 
   // Trigger settings
   const setTriggerSource = useCallback((source: string) => {
-    wsManager.current.send({ type: 'scopeSetTriggerSource', deviceId, source });
-  }, [deviceId]);
+    setTriggerSourceAction(deviceId, source);
+  }, [setTriggerSourceAction, deviceId]);
 
   const setTriggerLevel = useCallback((level: number) => {
-    wsManager.current.send({ type: 'scopeSetTriggerLevel', deviceId, level });
-  }, [deviceId]);
+    setTriggerLevelAction(deviceId, level);
+  }, [setTriggerLevelAction, deviceId]);
 
   const setTriggerEdge = useCallback((edge: 'rising' | 'falling' | 'either') => {
-    wsManager.current.send({ type: 'scopeSetTriggerEdge', deviceId, edge });
-  }, [deviceId]);
+    setTriggerEdgeAction(deviceId, edge);
+  }, [setTriggerEdgeAction, deviceId]);
 
   const setTriggerSweep = useCallback((sweep: 'auto' | 'normal' | 'single') => {
-    wsManager.current.send({ type: 'scopeSetTriggerSweep', deviceId, sweep });
-  }, [deviceId]);
+    setTriggerSweepAction(deviceId, sweep);
+  }, [setTriggerSweepAction, deviceId]);
 
   // Streaming
   const startStreaming = useCallback((channels: string[], intervalMs: number, measurements?: string[]) => {
-    wsManager.current.send({ type: 'scopeStartStreaming', deviceId, channels, intervalMs, measurements });
-    setIsStreaming(true);
-  }, [deviceId]);
+    startStreamingAction(deviceId, channels, intervalMs, measurements);
+  }, [startStreamingAction, deviceId]);
 
   const stopStreaming = useCallback(() => {
-    wsManager.current.send({ type: 'scopeStopStreaming', deviceId });
-    setIsStreaming(false);
-  }, [deviceId]);
+    stopStreamingAction(deviceId);
+  }, [stopStreamingAction, deviceId]);
 
   return {
     state,
