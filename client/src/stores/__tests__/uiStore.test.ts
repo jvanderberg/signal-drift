@@ -3,7 +3,9 @@ import { act } from '@testing-library/react';
 import { useUIStore, getDeviceKey } from '../uiStore';
 
 describe('uiStore', () => {
-  const STORAGE_KEY = 'lab-controller-ui';
+  // Storage key for reference (used implicitly by the store)
+  const _STORAGE_KEY = 'lab-controller-ui';
+  void _STORAGE_KEY; // Mark as intentionally unused
 
   beforeEach(() => {
     vi.useFakeTimers();

@@ -1,5 +1,56 @@
 import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { act } from '@testing-library/react';
+import type { ServerMessage, WaveformData, OscilloscopeCapabilities, DeviceSessionState, DeviceCapabilities } from '../../../../shared/types';
+import type { OscilloscopeSessionState } from '../oscilloscopeStore';
+
+// Helper to create valid mock WaveformData
+const createMockWaveform = (channel: string, points: number[] = [0, 0.5, 1, 0.5, 0]): WaveformData => ({
+  channel,
+  points,
+  xIncrement: 0.001,
+  xOrigin: 0,
+  yIncrement: 0.01,
+  yOrigin: 0,
+  yReference: 128,
+});
+
+// Helper to create valid mock OscilloscopeCapabilities
+const createMockOscilloscopeCapabilities = (): OscilloscopeCapabilities => ({
+  channels: 4,
+  bandwidth: 100,
+  maxSampleRate: 1e9,
+  maxMemoryDepth: 1e6,
+  supportedMeasurements: ['VPP', 'VAVG', 'FREQ'],
+  hasAWG: false,
+});
+
+// Mark unused imports as intentionally available
+void ({} as DeviceCapabilities);
+
+// Helper to create valid mock OscilloscopeSessionState
+const createMockOscilloscopeSessionState = (overrides?: Partial<OscilloscopeSessionState>): OscilloscopeSessionState => ({
+  info: { id: 'scope-1', type: 'oscilloscope', manufacturer: 'Test', model: 'Scope' },
+  capabilities: createMockOscilloscopeCapabilities(),
+  connectionStatus: 'connected',
+  consecutiveErrors: 0,
+  status: null,
+  lastUpdated: Date.now(),
+  ...overrides,
+});
+
+// Helper to create mock DeviceSessionState for PSU (non-oscilloscope) test
+const createMockPSUSessionState = (): DeviceSessionState => ({
+  info: { id: 'psu-1', type: 'power-supply', manufacturer: 'Test', model: 'PSU' },
+  capabilities: { deviceClass: 'psu', features: {}, modes: ['CV'], modesSettable: true, outputs: [], measurements: [] },
+  connectionStatus: 'connected',
+  consecutiveErrors: 0,
+  mode: 'CV',
+  outputEnabled: false,
+  setpoints: {},
+  measurements: {},
+  history: { timestamps: [], voltage: [], current: [], power: [] },
+  lastUpdated: Date.now(),
+});
 
 // Mock state needs to be declared before vi.mock due to hoisting
 const mockState = {
@@ -7,7 +58,7 @@ const mockState = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   getState: vi.fn(() => 'disconnected'),
-  messageHandlers: [] as ((msg: unknown) => void)[],
+  messageHandlers: [] as ((msg: ServerMessage) => void)[],
   stateHandlers: [] as ((state: string) => void)[],
 };
 
@@ -17,7 +68,7 @@ vi.mock('../../websocket', () => ({
     connect: () => mockState.connect(),
     disconnect: () => mockState.disconnect(),
     getState: () => mockState.getState(),
-    onMessage: (handler: (msg: unknown) => void) => {
+    onMessage: (handler: (msg: ServerMessage) => void) => {
       mockState.messageHandlers.push(handler);
       return () => {
         mockState.messageHandlers = mockState.messageHandlers.filter(h => h !== handler);
@@ -43,7 +94,7 @@ import {
 } from '../oscilloscopeStore';
 
 // Helper to simulate WebSocket messages
-function simulateMessage(msg: unknown) {
+function simulateMessage(msg: ServerMessage) {
   mockState.messageHandlers.forEach(h => h(msg));
 }
 
@@ -300,18 +351,15 @@ describe('oscilloscopeStore', () => {
   describe('Message handling', () => {
     describe('subscribed message', () => {
       it('should set up oscilloscope state on subscription', () => {
-        const mockSessionState = {
-          info: { id: 'scope-1', type: 'oscilloscope' },
-          capabilities: { channels: 4, bandwidth: 100 },
-          connectionStatus: 'connected',
-          status: null,
-        };
+        const mockSessionState = createMockOscilloscopeSessionState();
 
         act(() => {
           simulateMessage({
             type: 'subscribed',
             deviceId: 'scope-1',
-            state: mockSessionState,
+            // The server sends DeviceSessionState but oscilloscopes have extra fields
+            // The store uses isOscilloscopeState() to check and cast at runtime
+            state: mockSessionState as unknown as DeviceSessionState,
           });
         });
 
@@ -322,11 +370,8 @@ describe('oscilloscopeStore', () => {
       });
 
       it('should ignore non-oscilloscope subscriptions', () => {
-        const mockPSUState = {
-          info: { id: 'psu-1', type: 'power-supply' },
-          mode: 'CV',
-          outputEnabled: false,
-        };
+        // Create a PSU state that looks like a non-oscilloscope device
+        const mockPSUState = createMockPSUSessionState();
 
         act(() => {
           simulateMessage({
@@ -357,16 +402,13 @@ describe('oscilloscopeStore', () => {
           },
         });
 
-        const mockWaveform = {
-          channel: 'CH1',
-          data: [0, 0.5, 1, 0.5, 0],
-          timebase: { scale: 0.001, offset: 0 },
-        };
+        const mockWaveform = createMockWaveform('CH1');
 
         act(() => {
           simulateMessage({
             type: 'scopeWaveform',
             deviceId: 'scope-1',
+            channel: 'CH1',
             waveform: mockWaveform,
           });
         });
@@ -378,7 +420,7 @@ describe('oscilloscopeStore', () => {
       });
 
       it('should replace existing waveform for same channel', () => {
-        const existingWaveform = { channel: 'CH1', data: [0, 0], timebase: { scale: 0.001, offset: 0 } };
+        const existingWaveform = createMockWaveform('CH1', [0, 0]);
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
@@ -394,19 +436,20 @@ describe('oscilloscopeStore', () => {
           },
         });
 
-        const newWaveform = { channel: 'CH1', data: [1, 1, 1], timebase: { scale: 0.001, offset: 0 } };
+        const newWaveform = createMockWaveform('CH1', [1, 1, 1]);
 
         act(() => {
           simulateMessage({
             type: 'scopeWaveform',
             deviceId: 'scope-1',
+            channel: 'CH1',
             waveform: newWaveform,
           });
         });
 
         const state = useOscilloscopeStore.getState().oscilloscopeStates['scope-1'];
         expect(state.waveforms).toHaveLength(1);
-        expect(state.waveforms[0].data).toEqual([1, 1, 1]);
+        expect(state.waveforms[0].points).toEqual([1, 1, 1]);
       });
     });
 
@@ -559,6 +602,7 @@ describe('oscilloscopeStore', () => {
           simulateMessage({
             type: 'error',
             deviceId: 'scope-1',
+            code: 'CONNECTION_TIMEOUT',
             message: 'Connection timeout',
           });
         });
@@ -569,16 +613,21 @@ describe('oscilloscopeStore', () => {
   });
 
   describe('Selectors', () => {
+    let sampleSessionState: OscilloscopeSessionState;
+    let sampleWaveform: WaveformData;
+
     beforeEach(() => {
+      sampleSessionState = createMockOscilloscopeSessionState();
+      sampleWaveform = createMockWaveform('CH1', [1, 2, 3]);
       useOscilloscopeStore.setState({
         oscilloscopeStates: {
           'scope-1': {
-            sessionState: { capabilities: { channels: 4 } },
+            sessionState: sampleSessionState,
             isSubscribed: true,
             isStreaming: true,
             error: null,
-            waveform: { channel: 'CH1', data: [1, 2, 3] },
-            waveforms: [{ channel: 'CH1', data: [1, 2, 3] }],
+            waveform: sampleWaveform,
+            waveforms: [sampleWaveform],
             measurements: [{ channel: 'CH1', type: 'FREQ', value: 1000, unit: 'Hz' }],
             screenshot: null,
           },
@@ -596,7 +645,7 @@ describe('oscilloscopeStore', () => {
     });
 
     it('selectOscilloscopeState should return session state or null', () => {
-      expect(selectOscilloscopeState('scope-1')(useOscilloscopeStore.getState())).toEqual({ capabilities: { channels: 4 } });
+      expect(selectOscilloscopeState('scope-1')(useOscilloscopeStore.getState())).toEqual(sampleSessionState);
       expect(selectOscilloscopeState('scope-999')(useOscilloscopeStore.getState())).toBeNull();
     });
 

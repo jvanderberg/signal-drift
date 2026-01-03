@@ -49,12 +49,15 @@ function generateSequenceId(): string {
   return `seq-${++sequenceIdCounter}-${Date.now()}`;
 }
 
-export function createSequenceManager(sessionManager: SessionManager): SequenceManager {
+export function createSequenceManager(
+  sessionManager: SessionManager,
+  externalStore?: SequenceStore
+): SequenceManager {
   // In-memory library (synced with persistent storage)
   const library = new Map<string, SequenceDefinition>();
 
-  // Persistent storage
-  const store: SequenceStore = createSequenceStore();
+  // Persistent storage - use external store if provided, otherwise create default
+  const store: SequenceStore = externalStore ?? createSequenceStore();
 
   // Active sequence
   let activeController: SequenceController | null = null;

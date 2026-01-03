@@ -18,6 +18,13 @@ import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
 import { createSequenceManager } from './sequences/SequenceManager.js';
 import { createTriggerScriptManager } from './triggers/TriggerScriptManager.js';
+import {
+  createDatabase,
+  createSequenceStoreSqlite,
+  createTriggerScriptStoreSqlite,
+  createDeviceAliasStore,
+  createSettingsManager,
+} from './db/index.js';
 
 // Configuration (defaults, overridable by ENV)
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -90,15 +97,29 @@ const sessionManager = createSessionManager(registry, {
   historyWindowMs: HISTORY_WINDOW_MS,
 });
 
-// Create sequence manager (for AWG/sequencing functionality)
-const sequenceManager = createSequenceManager(sessionManager);
+// Initialize database and stores
+const database = createDatabase();
+const sequenceStore = createSequenceStoreSqlite(database);
+const triggerScriptStore = createTriggerScriptStoreSqlite(database);
+const deviceAliasStore = createDeviceAliasStore(database);
+const settingsManager = createSettingsManager(sequenceStore, triggerScriptStore, deviceAliasStore);
 
-// Create trigger script manager (for reactive automation)
-const triggerScriptManager = createTriggerScriptManager(sessionManager, sequenceManager);
+// Create sequence manager (for AWG/sequencing functionality) with SQLite store
+const sequenceManager = createSequenceManager(sessionManager, sequenceStore);
+
+// Create trigger script manager (for reactive automation) with SQLite store
+const triggerScriptManager = createTriggerScriptManager(sessionManager, sequenceManager, triggerScriptStore);
 
 // Create WebSocket server
 const wss = new WebSocketServer({ server, path: '/ws' });
-const wsHandler = createWebSocketHandler(wss, sessionManager, sequenceManager, triggerScriptManager);
+const wsHandler = createWebSocketHandler(
+  wss,
+  sessionManager,
+  sequenceManager,
+  triggerScriptManager,
+  deviceAliasStore,
+  settingsManager
+);
 
 // Start server
 async function start() {
@@ -235,6 +256,10 @@ async function stop(): Promise<void> {
   // Close all device transports (USB, serial) - critical for clean shutdown
   console.log('Closing device transports...');
   await registry.clearDevices();
+
+  // Close database connection
+  console.log('Closing database...');
+  database.close();
 
   // Close HTTP server
   await new Promise<void>((resolve) => {

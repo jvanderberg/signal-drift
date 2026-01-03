@@ -1,5 +1,39 @@
 import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { act } from '@testing-library/react';
+import type { DeviceSessionState, ServerMessage, DeviceSummary, DeviceCapabilities } from '../../../../shared/types';
+
+// Helper to create valid mock capabilities
+const createMockCapabilities = (): DeviceCapabilities => ({
+  deviceClass: 'psu',
+  features: {},
+  modes: ['CV'],
+  modesSettable: true,
+  outputs: [],
+  measurements: [],
+});
+
+// Helper to create valid mock DeviceSessionState
+const createMockSessionState = (overrides?: Partial<DeviceSessionState>): DeviceSessionState => ({
+  info: { id: 'device-1', type: 'power-supply', manufacturer: 'Test', model: 'Test' },
+  capabilities: createMockCapabilities(),
+  connectionStatus: 'connected',
+  consecutiveErrors: 0,
+  mode: 'CV',
+  outputEnabled: false,
+  setpoints: { voltage: 12, current: 1 },
+  measurements: { voltage: 0, current: 0, power: 0 },
+  history: { timestamps: [], voltage: [], current: [], power: [] },
+  lastUpdated: Date.now(),
+  ...overrides,
+});
+
+// Helper to create valid mock DeviceSummary
+const createMockDeviceSummary = (id: string, manufacturer: string, model: string): DeviceSummary => ({
+  id,
+  info: { id, type: 'power-supply', manufacturer, model },
+  capabilities: createMockCapabilities(),
+  connectionStatus: 'connected',
+});
 
 // Mock state needs to be declared before vi.mock due to hoisting
 const mockState = {
@@ -7,7 +41,7 @@ const mockState = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   getState: vi.fn(() => 'disconnected'),
-  messageHandlers: [] as ((msg: unknown) => void)[],
+  messageHandlers: [] as ((msg: ServerMessage) => void)[],
   stateHandlers: [] as ((state: string) => void)[],
 };
 
@@ -17,7 +51,7 @@ vi.mock('../../websocket', () => ({
     connect: () => mockState.connect(),
     disconnect: () => mockState.disconnect(),
     getState: () => mockState.getState(),
-    onMessage: (handler: (msg: unknown) => void) => {
+    onMessage: (handler: (msg: ServerMessage) => void) => {
       mockState.messageHandlers.push(handler);
       return () => {
         mockState.messageHandlers = mockState.messageHandlers.filter(h => h !== handler);
@@ -36,14 +70,16 @@ vi.mock('../../websocket', () => ({
 import { useDeviceStore, selectDevice, selectDeviceState, selectIsSubscribed } from '../deviceStore';
 
 // Helper to simulate WebSocket messages
-function simulateMessage(msg: unknown) {
+function simulateMessage(msg: ServerMessage) {
   mockState.messageHandlers.forEach(h => h(msg));
 }
 
-// Helper to simulate connection state changes
+// Helper to simulate connection state changes (used by store internally)
 function simulateStateChange(state: string) {
   mockState.stateHandlers.forEach(h => h(state));
 }
+// Mark as intentionally available for future tests
+void simulateStateChange;
 
 describe('deviceStore', () => {
   // Initialize store handlers once before all tests
@@ -189,9 +225,9 @@ describe('deviceStore', () => {
 
     describe('deviceList message', () => {
       it('should update devices and loading state', () => {
-        const mockDevices = [
-          { id: 'device-1', info: { manufacturer: 'Rigol', model: 'DP832' } },
-          { id: 'device-2', info: { manufacturer: 'Siglent', model: 'SPD3303X' } },
+        const mockDevices: DeviceSummary[] = [
+          createMockDeviceSummary('device-1', 'Rigol', 'DP832'),
+          createMockDeviceSummary('device-2', 'Siglent', 'SPD3303X'),
         ];
 
         act(() => {
@@ -207,40 +243,48 @@ describe('deviceStore', () => {
 
     describe('subscribed message', () => {
       it('should update device state on subscription', () => {
-        const mockState = {
-          info: { id: 'device-1', type: 'power-supply' },
-          mode: 'CV',
-          outputEnabled: false,
-          measurements: { voltage: 0, current: 0, power: 0 },
-          setpoints: { voltage: 12, current: 1 },
-          history: { timestamps: [], voltage: [], current: [], power: [] },
-        };
+        const sessionState = createMockSessionState();
 
         act(() => {
           simulateMessage({
             type: 'subscribed',
             deviceId: 'device-1',
-            state: mockState,
+            state: sessionState,
           });
         });
 
         const deviceState = useDeviceStore.getState().deviceStates['device-1'];
         expect(deviceState.isSubscribed).toBe(true);
-        expect(deviceState.sessionState).toEqual(mockState);
+        expect(deviceState.sessionState).toEqual(sessionState);
         expect(deviceState.error).toBeNull();
       });
 
-      it('should ignore oscilloscope subscriptions (has capabilities)', () => {
-        const mockOscilloscopeState = {
-          info: { id: 'scope-1', type: 'oscilloscope' },
-          capabilities: { channels: 4, bandwidth: 100 },
+      it('should ignore oscilloscope subscriptions (has oscilloscope capabilities)', () => {
+        // This test verifies that oscilloscope devices are not stored in deviceStore
+        // The deviceStore checks for OscilloscopeCapabilities which has 'channels' as a number
+        // Create a state with oscilloscope-style capabilities (channels: number)
+        const oscCapabilities = {
+          channels: 4,
+          bandwidth: 100,
+          maxSampleRate: 1e9,
+          maxMemoryDepth: 1e6,
+          supportedMeasurements: [],
+          hasAWG: false,
+        };
+        const oscState = {
+          info: { id: 'scope-1', type: 'oscilloscope', manufacturer: 'Test', model: 'Scope' },
+          capabilities: oscCapabilities,  // OscilloscopeCapabilities with channels: number
+          connectionStatus: 'connected',
+          consecutiveErrors: 0,
+          status: null,
+          lastUpdated: Date.now(),
         };
 
         act(() => {
           simulateMessage({
             type: 'subscribed',
             deviceId: 'scope-1',
-            state: mockOscilloscopeState,
+            state: oscState as unknown as DeviceSessionState,
           });
         });
 
@@ -272,10 +316,7 @@ describe('deviceStore', () => {
         useDeviceStore.setState({
           deviceStates: {
             'device-1': {
-              sessionState: {
-                measurements: { voltage: 0, current: 0, power: 0 },
-                history: { timestamps: [], voltage: [], current: [], power: [] },
-              },
+              sessionState: createMockSessionState(),
               isSubscribed: true,
               error: null,
             },
@@ -293,7 +334,7 @@ describe('deviceStore', () => {
           });
         });
 
-        const state = useDeviceStore.getState().deviceStates['device-1'].sessionState;
+        const state = useDeviceStore.getState().deviceStates['device-1'].sessionState!;
         expect(state.measurements).toEqual({ voltage: 12.5, current: 1.2, power: 15 });
         expect(state.history.timestamps).toEqual([1000]);
         expect(state.history.voltage).toEqual([12.5]);
@@ -307,7 +348,7 @@ describe('deviceStore', () => {
         useDeviceStore.setState({
           deviceStates: {
             'device-1': {
-              sessionState: { mode: 'CV' },
+              sessionState: createMockSessionState({ mode: 'CV' }),
               isSubscribed: true,
               error: null,
             },
@@ -318,14 +359,14 @@ describe('deviceStore', () => {
           simulateMessage({ type: 'field', deviceId: 'device-1', field: 'mode', value: 'CC' });
         });
 
-        expect(useDeviceStore.getState().deviceStates['device-1'].sessionState.mode).toBe('CC');
+        expect(useDeviceStore.getState().deviceStates['device-1'].sessionState!.mode).toBe('CC');
       });
 
       it('should update outputEnabled field', () => {
         useDeviceStore.setState({
           deviceStates: {
             'device-1': {
-              sessionState: { outputEnabled: false },
+              sessionState: createMockSessionState({ outputEnabled: false }),
               isSubscribed: true,
               error: null,
             },
@@ -336,7 +377,7 @@ describe('deviceStore', () => {
           simulateMessage({ type: 'field', deviceId: 'device-1', field: 'outputEnabled', value: true });
         });
 
-        expect(useDeviceStore.getState().deviceStates['device-1'].sessionState.outputEnabled).toBe(true);
+        expect(useDeviceStore.getState().deviceStates['device-1'].sessionState!.outputEnabled).toBe(true);
       });
     });
 
@@ -349,7 +390,7 @@ describe('deviceStore', () => {
         });
 
         act(() => {
-          simulateMessage({ type: 'error', deviceId: 'device-1', message: 'Connection lost' });
+          simulateMessage({ type: 'error', deviceId: 'device-1', code: 'CONNECTION_LOST', message: 'Connection lost' });
         });
 
         expect(useDeviceStore.getState().deviceStates['device-1'].error).toBe('Connection lost');
@@ -357,7 +398,7 @@ describe('deviceStore', () => {
 
       it('should set global error for non-device errors', () => {
         act(() => {
-          simulateMessage({ type: 'error', message: 'Server error' });
+          simulateMessage({ type: 'error', code: 'SERVER_ERROR', message: 'Server error' });
         });
 
         expect(useDeviceStore.getState().deviceListError).toBe('Server error');
@@ -368,9 +409,10 @@ describe('deviceStore', () => {
 
   describe('Selectors', () => {
     it('selectDevice should return device state or default', () => {
+      const sessionState = createMockSessionState({ mode: 'CV' });
       useDeviceStore.setState({
         deviceStates: {
-          'device-1': { sessionState: { mode: 'CV' }, isSubscribed: true, error: null },
+          'device-1': { sessionState, isSubscribed: true, error: null },
         },
       });
 
@@ -382,13 +424,14 @@ describe('deviceStore', () => {
     });
 
     it('selectDeviceState should return session state or null', () => {
+      const sessionState = createMockSessionState({ mode: 'CV' });
       useDeviceStore.setState({
         deviceStates: {
-          'device-1': { sessionState: { mode: 'CV' }, isSubscribed: true, error: null },
+          'device-1': { sessionState, isSubscribed: true, error: null },
         },
       });
 
-      expect(selectDeviceState('device-1')(useDeviceStore.getState())).toEqual({ mode: 'CV' });
+      expect(selectDeviceState('device-1')(useDeviceStore.getState())).toEqual(sessionState);
       expect(selectDeviceState('device-999')(useDeviceStore.getState())).toBeNull();
     });
 

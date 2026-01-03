@@ -14,31 +14,35 @@ vi.mock('../../hooks/useDeviceNames', () => ({
 const mockDevices: DeviceSummary[] = [
   {
     id: 'device-1',
-    info: { manufacturer: 'Test', model: 'PSU-1' },
-    status: { mode: 'CC', output: false, setpoints: {}, readings: {}, connectionStatus: 'connected' },
+    info: { id: 'device-1', type: 'power-supply', manufacturer: 'Test', model: 'PSU-1' },
     capabilities: {
+      deviceClass: 'psu',
+      features: {},
       modes: ['CC', 'CV'],
       modesSettable: true,
-      outputs: [{ name: 'current', min: 0, max: 10, resolution: 0.001 }],
-      measurements: [{ name: 'voltage', min: 0, max: 30, resolution: 0.001 }],
+      outputs: [{ name: 'current', min: 0, max: 10, unit: 'A', decimals: 3 }],
+      measurements: [{ name: 'voltage', min: 0, max: 30, unit: 'V', decimals: 3 }],
     },
+    connectionStatus: 'connected',
   },
   {
     id: 'device-2',
-    info: { manufacturer: 'Test', model: 'Load-1' },
-    status: { mode: 'CC', output: false, setpoints: {}, readings: {}, connectionStatus: 'connected' },
+    info: { id: 'device-2', type: 'electronic-load', manufacturer: 'Test', model: 'Load-1' },
     capabilities: {
+      deviceClass: 'load',
+      features: {},
       modes: ['CC', 'CV', 'CR'],
       modesSettable: true,
-      outputs: [{ name: 'resistance', min: 0, max: 1000, resolution: 0.1 }],
-      measurements: [{ name: 'power', min: 0, max: 100, resolution: 0.01 }],
+      outputs: [{ name: 'resistance', min: 0, max: 1000, unit: 'Ω', decimals: 2 }],
+      measurements: [{ name: 'power', min: 0, max: 100, unit: 'W', decimals: 2 }],
     },
+    connectionStatus: 'connected',
   },
 ];
 
 const mockSequences: SequenceDefinition[] = [
-  { id: 'seq-1', name: 'Ramp Up', type: 'ramp', steps: [] },
-  { id: 'seq-2', name: 'Pulse', type: 'pulse', steps: [] },
+  { id: 'seq-1', name: 'Ramp Up', unit: 'V', waveform: { type: 'ramp', min: 0, max: 10, pointsPerCycle: 100, intervalMs: 100 }, createdAt: Date.now(), updatedAt: Date.now() },
+  { id: 'seq-2', name: 'Pulse', unit: 'A', waveform: { type: 'square', min: 0, max: 5, pointsPerCycle: 50, intervalMs: 100 }, createdAt: Date.now(), updatedAt: Date.now() },
 ];
 
 const createTimeTrigger = (): Trigger => ({

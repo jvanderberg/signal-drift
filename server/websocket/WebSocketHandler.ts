@@ -11,7 +11,9 @@ import type { WebSocket, WebSocketServer } from 'ws';
 import type { SessionManager } from '../sessions/SessionManager.js';
 import type { SequenceManager } from '../sequences/SequenceManager.js';
 import type { TriggerScriptManager } from '../triggers/TriggerScriptManager.js';
-import type { ClientMessage, ServerMessage, DeviceSessionState } from '../../shared/types.js';
+import type { DeviceAliasStore } from '../db/DeviceAliasStore.js';
+import type { SettingsManager } from '../db/SettingsManager.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState, SettingsExportData } from '../../shared/types.js';
 
 export interface WebSocketHandler {
   getClientCount(): number;
@@ -35,7 +37,9 @@ export function createWebSocketHandler(
   wss: WebSocketServer,
   sessionManager: SessionManager,
   sequenceManager?: SequenceManager,
-  triggerScriptManager?: TriggerScriptManager
+  triggerScriptManager?: TriggerScriptManager,
+  deviceAliasStore?: DeviceAliasStore,
+  settingsManager?: SettingsManager
 ): WebSocketHandler {
   const clients = new Map<WebSocket, ClientState>();
 
@@ -282,6 +286,28 @@ export function createWebSocketHandler(
         handleScopeStopStreaming(clientState, message.deviceId);
         break;
 
+      // Device alias messages
+      case 'deviceAliasList':
+        handleDeviceAliasList(clientState);
+        break;
+
+      case 'deviceAliasSet':
+        handleDeviceAliasSet(clientState, message.idn, message.alias);
+        break;
+
+      case 'deviceAliasClear':
+        handleDeviceAliasClear(clientState, message.idn);
+        break;
+
+      // Settings export/import messages
+      case 'settingsExport':
+        handleSettingsExport(clientState);
+        break;
+
+      case 'settingsImport':
+        handleSettingsImport(clientState, message.data);
+        break;
+
       default: {
         // Extract type from unknown message for error reporting
         const unknownMessage = message as { type?: string };
@@ -294,14 +320,47 @@ export function createWebSocketHandler(
     }
   }
 
+  // Helper to enrich device summaries with aliases
+  function enrichWithAliases(devices: ReturnType<SessionManager['getDeviceSummaries']>) {
+    if (!deviceAliasStore) return devices;
+
+    const aliasResult = deviceAliasStore.getAll();
+    if (!aliasResult.ok) return devices;
+
+    const aliasMap = aliasResult.value;
+
+    return devices.map(device => {
+      // Build IDN from device info (format: manufacturer,model,serial,version)
+      const serial = device.info.serial || '';
+      const idn = `${device.info.manufacturer},${device.info.model},${serial}`;
+
+      // Try to find alias by partial match (IDN may have version suffix)
+      let alias: string | undefined;
+      for (const [storedIdn, storedAlias] of aliasMap) {
+        if (storedIdn.startsWith(idn) || idn.startsWith(storedIdn)) {
+          alias = storedAlias;
+          break;
+        }
+      }
+
+      // Also try exact match on full IDN string from info
+      if (!alias) {
+        // The device registry might store full IDN differently
+        alias = aliasMap.get(idn);
+      }
+
+      return alias ? { ...device, alias } : device;
+    });
+  }
+
   function handleGetDevices(clientState: ClientState): void {
-    const devices = sessionManager.getDeviceSummaries();
+    const devices = enrichWithAliases(sessionManager.getDeviceSummaries());
     send(clientState.ws, { type: 'deviceList', devices });
   }
 
   function handleScan(clientState: ClientState): void {
     sessionManager.syncDevices();
-    const devices = sessionManager.getDeviceSummaries();
+    const devices = enrichWithAliases(sessionManager.getDeviceSummaries());
     send(clientState.ws, { type: 'deviceList', devices });
   }
 
@@ -1050,6 +1109,160 @@ export function createWebSocketHandler(
     }
   }
 
+  // Device alias handlers
+  function handleDeviceAliasList(clientState: ClientState): void {
+    if (!deviceAliasStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_NOT_AVAILABLE',
+        message: 'Device alias store not available',
+      });
+      return;
+    }
+    const result = deviceAliasStore.list();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_LIST_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'deviceAliases',
+      aliases: result.value,
+    });
+  }
+
+  function handleDeviceAliasSet(clientState: ClientState, idn: string, alias: string): void {
+    if (!deviceAliasStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_NOT_AVAILABLE',
+        message: 'Device alias store not available',
+      });
+      return;
+    }
+    const result = deviceAliasStore.set(idn, alias);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_SET_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    // Broadcast the change to all clients
+    broadcastToAll({
+      type: 'deviceAliasChanged',
+      idn,
+      alias,
+    });
+    // Also update device list since aliases may have changed
+    broadcastDeviceList();
+  }
+
+  function handleDeviceAliasClear(clientState: ClientState, idn: string): void {
+    if (!deviceAliasStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_NOT_AVAILABLE',
+        message: 'Device alias store not available',
+      });
+      return;
+    }
+    const result = deviceAliasStore.clear(idn);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DEVICE_ALIAS_CLEAR_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    // Broadcast the change to all clients
+    broadcastToAll({
+      type: 'deviceAliasChanged',
+      idn,
+      alias: null,
+    });
+    // Also update device list since aliases may have changed
+    broadcastDeviceList();
+  }
+
+  // Settings export/import handlers
+  async function handleSettingsExport(clientState: ClientState): Promise<void> {
+    if (!settingsManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SETTINGS_NOT_AVAILABLE',
+        message: 'Settings manager not available',
+      });
+      return;
+    }
+    const result = await settingsManager.exportSettings();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SETTINGS_EXPORT_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'settingsExported',
+      data: result.value,
+    });
+  }
+
+  async function handleSettingsImport(clientState: ClientState, data: SettingsExportData): Promise<void> {
+    if (!settingsManager) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SETTINGS_NOT_AVAILABLE',
+        message: 'Settings manager not available',
+      });
+      return;
+    }
+    const result = await settingsManager.importSettings(data);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'SETTINGS_IMPORT_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'settingsImported',
+      result: result.value,
+    });
+    // Broadcast updated library lists to all clients
+    if (sequenceManager) {
+      broadcastToAll({
+        type: 'sequenceLibrary',
+        sequences: sequenceManager.listLibrary(),
+      });
+    }
+    if (triggerScriptManager) {
+      broadcastToAll({
+        type: 'triggerScriptLibrary',
+        scripts: triggerScriptManager.listLibrary(),
+      });
+    }
+    if (deviceAliasStore) {
+      const aliasResult = deviceAliasStore.list();
+      if (aliasResult.ok) {
+        broadcastToAll({
+          type: 'deviceAliases',
+          aliases: aliasResult.value,
+        });
+      }
+    }
+    // Also update device list since aliases may have changed
+    broadcastDeviceList();
+  }
+
   // Handle client disconnect
   function handleDisconnect(ws: WebSocket): void {
     const clientState = clients.get(ws);
@@ -1088,7 +1301,7 @@ export function createWebSocketHandler(
   }
 
   function broadcastDeviceList(): void {
-    const devices = sessionManager.getDeviceSummaries();
+    const devices = enrichWithAliases(sessionManager.getDeviceSummaries());
     const message: ServerMessage = { type: 'deviceList', devices };
     const data = JSON.stringify(message);
 
