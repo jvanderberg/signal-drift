@@ -1,3 +1,40 @@
+/**
+ * OscilloscopePanel - Main control panel for oscilloscope devices
+ *
+ * This component provides the primary interface for interacting with oscilloscopes:
+ * - Real-time waveform display with multi-channel support
+ * - Channel configuration (enable, scale, offset, coupling, probe)
+ * - Timebase and trigger controls
+ * - Automatic waveform streaming
+ * - Measurement display (VPP, FREQ, VAVG, etc.)
+ * - Screenshot capture
+ *
+ * @example
+ * ```tsx
+ * <OscilloscopePanel
+ *   device={oscilloscope}
+ *   onClose={() => setSelectedDevice(null)}
+ *   onError={(msg) => toast.error(msg)}
+ *   onSuccess={(msg) => toast.success(msg)}
+ * />
+ * ```
+ *
+ * Waveform Display:
+ * - SVG-based rendering for crisp display at any size
+ * - Supports up to 4 channels with distinct colors
+ * - Interactive trigger level adjustment via drag
+ * - Grid with 10 horizontal and 8 vertical divisions
+ *
+ * Streaming:
+ * - Auto-starts streaming enabled channels on subscription
+ * - Continues streaming regardless of UI state
+ * - Measurements calculated locally from waveform data
+ *
+ * State Management:
+ * - Uses useOscilloscopeSocket hook for WebSocket communication
+ * - Waveform data stored per-channel for multi-channel display
+ */
+
 import { useState, useEffect, useRef } from 'react';
 import type { DeviceSummary } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
@@ -9,10 +46,17 @@ import { TriggerSettings } from './TriggerSettings';
 import { ChannelSettings } from './ChannelSettings';
 import { TimebaseControls } from './TimebaseControls';
 
+/**
+ * Props for OscilloscopePanel component
+ */
 interface OscilloscopePanelProps {
+  /** Device summary from the scanner (includes id, info, oscilloscope capabilities) */
   device: DeviceSummary;
+  /** Called when user clicks the close button */
   onClose: () => void;
+  /** Called when an error occurs (WebSocket error, device error) */
   onError: (message: string) => void;
+  /** Called on successful actions (connected, screenshot saved, etc.) */
   onSuccess: (message: string) => void;
 }
 

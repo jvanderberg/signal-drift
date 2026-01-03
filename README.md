@@ -173,22 +173,127 @@ npm run test:run      # Single run
 
 ### Device Not Found
 
-- Check USB connection
-- Ensure no other software is using the device
-- Try unplugging and reconnecting
-- Click **Scan** to rescan
+- Check USB connection - try a different port or cable
+- Ensure no other software is using the device (NI MAX, Rigol software, etc.)
+- Try unplugging and reconnecting the device
+- Click **Scan** to trigger a manual rescan
+- Check the server console for error messages
 
 ### Permission Errors (Linux)
 
-USB-TMC devices may need udev rules:
+USB-TMC devices require udev rules for non-root access:
 
 ```bash
-# /etc/udev/rules.d/99-usbtmc.rules
+# Create udev rules file
+sudo nano /etc/udev/rules.d/99-usbtmc.rules
+
+# Add these rules (adjust vendor IDs as needed)
+# Rigol devices
 SUBSYSTEM=="usb", ATTR{idVendor}=="1ab1", MODE="0666"
+# Generic USB-TMC
+SUBSYSTEM=="usb", ATTR{idProduct}=="*", ATTR{bInterfaceClass}=="fe", ATTR{bInterfaceSubClass}=="03", MODE="0666"
+
+# Reload rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+For serial devices, add your user to the `dialout` group:
+
+```bash
+sudo usermod -aG dialout $USER
+# Log out and back in for changes to take effect
 ```
 
 ### WebSocket Connection Failed
 
+**Server not running:**
 - Ensure the server is running (`npm run dev`)
-- Check that port 3001 isn't blocked by firewall
-- For remote access, ensure port 5173 is accessible
+- Check for errors in the server terminal
+
+**Port conflicts:**
+- Check that port 3001 isn't in use: `lsof -i :3001`
+- Kill conflicting processes or change the port via `PORT=3002 npm run dev`
+
+**Firewall issues:**
+- For remote access, ensure port 5173 (Vite) is accessible
+- The WebSocket proxies through Vite, so only 5173 needs to be open
+
+**Connection keeps dropping:**
+- Check network stability
+- The UI shows a red indicator when disconnected
+- Connections auto-reconnect with exponential backoff (max 30s)
+
+### Device Disconnects During Operation
+
+**USB power issues:**
+- Use a powered USB hub for multiple devices
+- Avoid USB extension cables
+
+**Driver conflicts:**
+- On Windows, ensure no other USBTMC driver is loaded
+- On macOS, kernel extensions may need to be detached
+
+### Measurements Not Updating
+
+**Polling issues:**
+- Check the server console for SCPI errors
+- The device may be in an error state - power cycle it
+- Reduce polling frequency if the device is slow: `POLL_INTERVAL=500 npm run dev`
+
+**History not showing:**
+- History requires subscription - ensure you're subscribed to the device
+- Check that the history window is set correctly in the UI
+
+### Oscilloscope Waveform Issues
+
+**Waveforms not appearing:**
+- Ensure channels are enabled (click channel buttons)
+- Check that the scope is running (not stopped)
+- Try Auto Setup to configure for the current signal
+
+**Corrupted or noisy waveforms:**
+- Some Rigol oscilloscopes have USB-TMC quirks (see `server/devices/docs/rigol-usbtmc-quirk.md`)
+- Reduce the streaming interval if bandwidth is limited
+
+**Measurements showing incorrect values:**
+- Measurements are calculated locally from waveform data
+- Ensure the waveform capture includes complete cycles
+- Check probe attenuation settings
+
+### Sequencer Issues
+
+**Sequence not starting:**
+- Ensure a device is selected
+- Check that the parameter matches the device capabilities
+- Verify the device output is in the correct mode
+
+**Timing drift:**
+- The sequencer uses server-side timing to prevent drift
+- If running in a VM, clock accuracy may be affected
+- Check server CPU usage - high load can cause timing issues
+
+### Development Issues
+
+**Tests failing:**
+- Run `npm run test:run` for full test output
+- Check that you're not running tests with real devices connected (unless intended)
+- Use `USE_SIMULATED_DEVICES=true` for isolated testing
+
+**TypeScript errors:**
+- Run `npx tsc --noEmit` to check for type errors
+- Shared types are in `shared/types.ts` - ensure consistency
+
+**Hot reload not working:**
+- Vite HMR doesn't reset `useState` initializers - refresh the page
+- Some server changes require a full restart
+
+### Using Simulated Devices
+
+For development without hardware:
+
+```bash
+USE_SIMULATED_DEVICES=true npm run dev
+```
+
+This creates virtual PSU and Load devices that respond to commands and generate realistic measurements. See `.env.example` for simulation parameters.
