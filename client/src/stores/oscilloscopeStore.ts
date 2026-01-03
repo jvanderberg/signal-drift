@@ -160,16 +160,29 @@ const defaultOscilloscopeState: OscilloscopeState = {
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
 let _unsubscribeMessage: (() => void) | null = null;
-// Suppress unused variable warnings - these are intentionally stored for future cleanup
-void _unsubscribeStateChange;
-void _unsubscribeMessage;
+let _isInitialized = false;
+
+/**
+ * Cleanup function for testing and HMR.
+ * Unsubscribes from WebSocket events and resets initialization state.
+ */
+export function cleanupOscilloscopeStore(): void {
+  if (_unsubscribeStateChange) {
+    _unsubscribeStateChange();
+    _unsubscribeStateChange = null;
+  }
+  if (_unsubscribeMessage) {
+    _unsubscribeMessage();
+    _unsubscribeMessage = null;
+  }
+  _isInitialized = false;
+}
 
 // Create store
 export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
   devtools(
     subscribeWithSelector((set, get) => {
       const wsManager = getWebSocketManager();
-      let isInitialized = false;
 
       return {
         // Initial state
@@ -178,8 +191,8 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
 
         // Initialize WebSocket handlers
         _initializeWebSocket: () => {
-          if (isInitialized) return;
-          isInitialized = true;
+          if (_isInitialized) return;
+          _isInitialized = true;
 
           _unsubscribeStateChange = wsManager.onStateChange((newState) => {
             set({ connectionState: newState });

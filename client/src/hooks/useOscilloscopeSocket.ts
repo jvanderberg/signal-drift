@@ -5,6 +5,7 @@
  * Provides a convenient hook interface for components that manage a single oscilloscope.
  *
  * State management is delegated to the Zustand store - no duplicate local state.
+ * Actions are accessed via getState() to avoid unnecessary subscriptions.
  */
 
 import { useEffect, useCallback } from 'react';
@@ -67,12 +68,44 @@ export interface UseOscilloscopeSocketResult {
   stopStreaming: () => void;
 }
 
+// Get actions from store without subscribing (actions are stable references)
+const getActions = () => {
+  const store = useOscilloscopeStore.getState();
+  return {
+    subscribeOscilloscope: store.subscribeOscilloscope,
+    unsubscribeOscilloscope: store.unsubscribeOscilloscope,
+    run: store.run,
+    stop: store.stop,
+    single: store.single,
+    autoSetup: store.autoSetup,
+    getWaveform: store.getWaveform,
+    getMeasurement: store.getMeasurement,
+    getScreenshot: store.getScreenshot,
+    clearError: store.clearError,
+    setChannelEnabled: store.setChannelEnabled,
+    setChannelScale: store.setChannelScale,
+    setChannelOffset: store.setChannelOffset,
+    setChannelCoupling: store.setChannelCoupling,
+    setChannelProbe: store.setChannelProbe,
+    setChannelBwLimit: store.setChannelBwLimit,
+    setTimebaseScale: store.setTimebaseScale,
+    setTimebaseOffset: store.setTimebaseOffset,
+    setTriggerSource: store.setTriggerSource,
+    setTriggerLevel: store.setTriggerLevel,
+    setTriggerEdge: store.setTriggerEdge,
+    setTriggerSweep: store.setTriggerSweep,
+    startStreaming: store.startStreaming,
+    stopStreaming: store.stopStreaming,
+    _initializeWebSocket: store._initializeWebSocket,
+  };
+};
+
 export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketResult {
-  // Get state from Zustand store using selector
+  // Get state from Zustand store using selector (2 subscriptions for reactive state)
   const oscState = useOscilloscopeStore(selectOscilloscope(deviceId));
   const connectionState = useOscilloscopeStore((s) => s.connectionState);
 
-  // Extract individual pieces from oscilloscope state
+  // Extract individual pieces from oscilloscope state (no additional subscriptions)
   const state = oscState.sessionState;
   const isSubscribed = oscState.isSubscribed;
   const error = oscState.error;
@@ -82,138 +115,112 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   const screenshot = oscState.screenshot;
   const isStreaming = oscState.isStreaming;
 
-  // Get store actions
-  const subscribeOscilloscope = useOscilloscopeStore((s) => s.subscribeOscilloscope);
-  const unsubscribeOscilloscope = useOscilloscopeStore((s) => s.unsubscribeOscilloscope);
-  const runAction = useOscilloscopeStore((s) => s.run);
-  const stopAction = useOscilloscopeStore((s) => s.stop);
-  const singleAction = useOscilloscopeStore((s) => s.single);
-  const autoSetupAction = useOscilloscopeStore((s) => s.autoSetup);
-  const getWaveformAction = useOscilloscopeStore((s) => s.getWaveform);
-  const getMeasurementAction = useOscilloscopeStore((s) => s.getMeasurement);
-  const getScreenshotAction = useOscilloscopeStore((s) => s.getScreenshot);
-  const clearErrorAction = useOscilloscopeStore((s) => s.clearError);
-  const setChannelEnabledAction = useOscilloscopeStore((s) => s.setChannelEnabled);
-  const setChannelScaleAction = useOscilloscopeStore((s) => s.setChannelScale);
-  const setChannelOffsetAction = useOscilloscopeStore((s) => s.setChannelOffset);
-  const setChannelCouplingAction = useOscilloscopeStore((s) => s.setChannelCoupling);
-  const setChannelProbeAction = useOscilloscopeStore((s) => s.setChannelProbe);
-  const setChannelBwLimitAction = useOscilloscopeStore((s) => s.setChannelBwLimit);
-  const setTimebaseScaleAction = useOscilloscopeStore((s) => s.setTimebaseScale);
-  const setTimebaseOffsetAction = useOscilloscopeStore((s) => s.setTimebaseOffset);
-  const setTriggerSourceAction = useOscilloscopeStore((s) => s.setTriggerSource);
-  const setTriggerLevelAction = useOscilloscopeStore((s) => s.setTriggerLevel);
-  const setTriggerEdgeAction = useOscilloscopeStore((s) => s.setTriggerEdge);
-  const setTriggerSweepAction = useOscilloscopeStore((s) => s.setTriggerSweep);
-  const startStreamingAction = useOscilloscopeStore((s) => s.startStreaming);
-  const stopStreamingAction = useOscilloscopeStore((s) => s.stopStreaming);
-  const initializeWebSocket = useOscilloscopeStore((s) => s._initializeWebSocket);
-
   // Initialize WebSocket on mount
   useEffect(() => {
-    initializeWebSocket();
-  }, [initializeWebSocket]);
+    getActions()._initializeWebSocket();
+  }, []);
 
   // Stable callbacks that delegate to store actions
+  // Using getActions() inside callbacks to avoid subscribing to action changes
   const subscribe = useCallback(() => {
-    subscribeOscilloscope(deviceId);
-  }, [subscribeOscilloscope, deviceId]);
+    getActions().subscribeOscilloscope(deviceId);
+  }, [deviceId]);
 
   const unsubscribe = useCallback(() => {
-    unsubscribeOscilloscope(deviceId);
-  }, [unsubscribeOscilloscope, deviceId]);
+    getActions().unsubscribeOscilloscope(deviceId);
+  }, [deviceId]);
 
   const run = useCallback(() => {
-    runAction(deviceId);
-  }, [runAction, deviceId]);
+    getActions().run(deviceId);
+  }, [deviceId]);
 
   const stop = useCallback(() => {
-    stopAction(deviceId);
-  }, [stopAction, deviceId]);
+    getActions().stop(deviceId);
+  }, [deviceId]);
 
   const single = useCallback(() => {
-    singleAction(deviceId);
-  }, [singleAction, deviceId]);
+    getActions().single(deviceId);
+  }, [deviceId]);
 
   const autoSetup = useCallback(() => {
-    autoSetupAction(deviceId);
-  }, [autoSetupAction, deviceId]);
+    getActions().autoSetup(deviceId);
+  }, [deviceId]);
 
   const getWaveform = useCallback((channel: string) => {
-    getWaveformAction(deviceId, channel);
-  }, [getWaveformAction, deviceId]);
+    getActions().getWaveform(deviceId, channel);
+  }, [deviceId]);
 
   const getMeasurement = useCallback((channel: string, type: string) => {
-    getMeasurementAction(deviceId, channel, type);
-  }, [getMeasurementAction, deviceId]);
+    getActions().getMeasurement(deviceId, channel, type);
+  }, [deviceId]);
 
   const getScreenshot = useCallback(() => {
-    getScreenshotAction(deviceId);
-  }, [getScreenshotAction, deviceId]);
+    getActions().getScreenshot(deviceId);
+  }, [deviceId]);
 
   const clearError = useCallback(() => {
-    clearErrorAction(deviceId);
-  }, [clearErrorAction, deviceId]);
+    getActions().clearError(deviceId);
+  }, [deviceId]);
 
   // Channel settings
   const setChannelEnabled = useCallback((channel: string, enabled: boolean) => {
-    setChannelEnabledAction(deviceId, channel, enabled);
-  }, [setChannelEnabledAction, deviceId]);
+    getActions().setChannelEnabled(deviceId, channel, enabled);
+  }, [deviceId]);
 
   const setChannelScale = useCallback((channel: string, scale: number) => {
-    setChannelScaleAction(deviceId, channel, scale);
-  }, [setChannelScaleAction, deviceId]);
+    getActions().setChannelScale(deviceId, channel, scale);
+  }, [deviceId]);
 
   const setChannelOffset = useCallback((channel: string, offset: number) => {
-    setChannelOffsetAction(deviceId, channel, offset);
-  }, [setChannelOffsetAction, deviceId]);
+    getActions().setChannelOffset(deviceId, channel, offset);
+  }, [deviceId]);
 
   const setChannelCoupling = useCallback((channel: string, coupling: 'AC' | 'DC' | 'GND') => {
-    setChannelCouplingAction(deviceId, channel, coupling);
-  }, [setChannelCouplingAction, deviceId]);
+    getActions().setChannelCoupling(deviceId, channel, coupling);
+  }, [deviceId]);
 
   const setChannelProbe = useCallback((channel: string, ratio: number) => {
-    setChannelProbeAction(deviceId, channel, ratio);
-  }, [setChannelProbeAction, deviceId]);
+    getActions().setChannelProbe(deviceId, channel, ratio);
+  }, [deviceId]);
 
   const setChannelBwLimit = useCallback((channel: string, enabled: boolean) => {
-    setChannelBwLimitAction(deviceId, channel, enabled);
-  }, [setChannelBwLimitAction, deviceId]);
+    getActions().setChannelBwLimit(deviceId, channel, enabled);
+  }, [deviceId]);
 
   // Timebase settings
   const setTimebaseScale = useCallback((scale: number) => {
-    setTimebaseScaleAction(deviceId, scale);
-  }, [setTimebaseScaleAction, deviceId]);
+    getActions().setTimebaseScale(deviceId, scale);
+  }, [deviceId]);
 
   const setTimebaseOffset = useCallback((offset: number) => {
-    setTimebaseOffsetAction(deviceId, offset);
-  }, [setTimebaseOffsetAction, deviceId]);
+    getActions().setTimebaseOffset(deviceId, offset);
+  }, [deviceId]);
 
   // Trigger settings
   const setTriggerSource = useCallback((source: string) => {
-    setTriggerSourceAction(deviceId, source);
-  }, [setTriggerSourceAction, deviceId]);
+    getActions().setTriggerSource(deviceId, source);
+  }, [deviceId]);
 
   const setTriggerLevel = useCallback((level: number) => {
-    setTriggerLevelAction(deviceId, level);
-  }, [setTriggerLevelAction, deviceId]);
+    getActions().setTriggerLevel(deviceId, level);
+  }, [deviceId]);
 
   const setTriggerEdge = useCallback((edge: 'rising' | 'falling' | 'either') => {
-    setTriggerEdgeAction(deviceId, edge);
-  }, [setTriggerEdgeAction, deviceId]);
+    getActions().setTriggerEdge(deviceId, edge);
+  }, [deviceId]);
 
   const setTriggerSweep = useCallback((sweep: 'auto' | 'normal' | 'single') => {
-    setTriggerSweepAction(deviceId, sweep);
-  }, [setTriggerSweepAction, deviceId]);
+    getActions().setTriggerSweep(deviceId, sweep);
+  }, [deviceId]);
 
   // Streaming
   const startStreaming = useCallback((channels: string[], intervalMs: number, measurements?: string[]) => {
-    startStreamingAction(deviceId, channels, intervalMs, measurements);
-  }, [startStreamingAction, deviceId]);
+    getActions().startStreaming(deviceId, channels, intervalMs, measurements);
+  }, [deviceId]);
 
   const stopStreaming = useCallback(() => {
-    stopStreamingAction(deviceId);
-  }, [stopStreamingAction, deviceId]);
+    getActions().stopStreaming(deviceId);
+  }, [deviceId]);
 
   return {
     state,

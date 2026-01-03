@@ -86,21 +86,34 @@ const MAX_HISTORY_POINTS = 10_000;
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
 let _unsubscribeMessage: (() => void) | null = null;
-// Suppress unused variable warnings - these are intentionally stored for future cleanup
-void _unsubscribeStateChange;
-void _unsubscribeMessage;
+let _isInitialized = false;
+
+/**
+ * Cleanup function for testing and HMR.
+ * Unsubscribes from WebSocket events and resets initialization state.
+ */
+export function cleanupDeviceStore(): void {
+  if (_unsubscribeStateChange) {
+    _unsubscribeStateChange();
+    _unsubscribeStateChange = null;
+  }
+  if (_unsubscribeMessage) {
+    _unsubscribeMessage();
+    _unsubscribeMessage = null;
+  }
+  _isInitialized = false;
+}
 
 // Create store with subscribeWithSelector for fine-grained subscriptions
 export const useDeviceStore = create<DeviceStoreState>()(
   devtools(
     subscribeWithSelector((set, get) => {
       const wsManager = getWebSocketManager();
-      let isInitialized = false;
 
       // Initialize WebSocket handlers once
       const initializeWebSocket = () => {
-        if (isInitialized) return;
-        isInitialized = true;
+        if (_isInitialized) return;
+        _isInitialized = true;
 
         // Track connection state
         _unsubscribeStateChange = wsManager.onStateChange((newState) => {

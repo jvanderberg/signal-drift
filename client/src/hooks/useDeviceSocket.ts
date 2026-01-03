@@ -5,6 +5,7 @@
  * Provides a convenient hook interface for components that manage a single device.
  *
  * State management is delegated to the Zustand store - no duplicate local state.
+ * Actions are accessed via getState() to avoid unnecessary subscriptions.
  */
 
 import { useEffect, useCallback } from 'react';
@@ -31,51 +32,57 @@ export interface UseDeviceSocketResult {
   clearError: () => void;
 }
 
+// Get actions from store without subscribing (actions are stable references)
+const getActions = () => {
+  const store = useDeviceStore.getState();
+  return {
+    connect: store.connect,
+    subscribeDevice: store.subscribeDevice,
+    unsubscribeDevice: store.unsubscribeDevice,
+    setMode: store.setMode,
+    setOutput: store.setOutput,
+    setValue: store.setValue,
+    clearDeviceError: store.clearDeviceError,
+  };
+};
+
 export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
-  // Get state from Zustand store using selectors
+  // Get state from Zustand store using selectors (4 subscriptions for reactive state)
   const state = useDeviceStore(selectDeviceState(deviceId));
   const connectionState = useDeviceStore((s) => s.connectionState);
   const isSubscribed = useDeviceStore(selectIsSubscribed(deviceId));
   const error = useDeviceStore(selectDeviceError(deviceId));
 
-  // Get store actions
-  const connect = useDeviceStore((s) => s.connect);
-  const subscribeDevice = useDeviceStore((s) => s.subscribeDevice);
-  const unsubscribeDevice = useDeviceStore((s) => s.unsubscribeDevice);
-  const setModeAction = useDeviceStore((s) => s.setMode);
-  const setOutputAction = useDeviceStore((s) => s.setOutput);
-  const setValueAction = useDeviceStore((s) => s.setValue);
-  const clearDeviceError = useDeviceStore((s) => s.clearDeviceError);
-
   // Connect WebSocket on mount
   useEffect(() => {
-    connect();
-  }, [connect]);
+    getActions().connect();
+  }, []);
 
   // Stable callbacks that delegate to store actions
+  // Using getActions() inside callbacks to avoid subscribing to action changes
   const subscribe = useCallback(() => {
-    subscribeDevice(deviceId);
-  }, [subscribeDevice, deviceId]);
+    getActions().subscribeDevice(deviceId);
+  }, [deviceId]);
 
   const unsubscribe = useCallback(() => {
-    unsubscribeDevice(deviceId);
-  }, [unsubscribeDevice, deviceId]);
+    getActions().unsubscribeDevice(deviceId);
+  }, [deviceId]);
 
   const setMode = useCallback((mode: string) => {
-    setModeAction(deviceId, mode);
-  }, [setModeAction, deviceId]);
+    getActions().setMode(deviceId, mode);
+  }, [deviceId]);
 
   const setOutput = useCallback((enabled: boolean) => {
-    setOutputAction(deviceId, enabled);
-  }, [setOutputAction, deviceId]);
+    getActions().setOutput(deviceId, enabled);
+  }, [deviceId]);
 
   const setValue = useCallback((name: string, value: number, immediate = false) => {
-    setValueAction(deviceId, name, value, immediate);
-  }, [setValueAction, deviceId]);
+    getActions().setValue(deviceId, name, value, immediate);
+  }, [deviceId]);
 
   const clearError = useCallback(() => {
-    clearDeviceError(deviceId);
-  }, [clearDeviceError, deviceId]);
+    getActions().clearDeviceError(deviceId);
+  }, [deviceId]);
 
   return {
     state,

@@ -93,14 +93,22 @@ const defaultOscState: OscilloscopeState = {
   isStreaming: false,
 };
 
-// Mock the stores module
-vi.mock('../../stores', () => ({
-  useOscilloscopeStore: (selector: (state: typeof mockStoreState) => unknown) => {
+// Create a mock useOscilloscopeStore with getState() support
+const mockUseOscilloscopeStore = Object.assign(
+  (selector: (state: typeof mockStoreState) => unknown) => {
     if (typeof selector === 'function') {
       return selector(mockStoreState);
     }
     return mockStoreState;
   },
+  {
+    getState: () => mockStoreState,
+  }
+);
+
+// Mock the stores module
+vi.mock('../../stores', () => ({
+  useOscilloscopeStore: mockUseOscilloscopeStore,
   selectOscilloscope: (deviceId: string) => (state: typeof mockStoreState) =>
     state.oscilloscopeStates[deviceId] ?? defaultOscState,
 }));
@@ -450,6 +458,55 @@ describe('useOscilloscopeSocket', () => {
       });
 
       expect(mockStoreState.clearError).toHaveBeenCalledWith('scope-1');
+    });
+  });
+
+  describe('Callback Stability', () => {
+    it('should maintain stable callback references when deviceId does not change', async () => {
+      const useOscilloscopeSocket = await getHook();
+      const { result, rerender } = renderHook(() => useOscilloscopeSocket('scope-1'));
+
+      const firstCallbacks = {
+        subscribe: result.current.subscribe,
+        unsubscribe: result.current.unsubscribe,
+        run: result.current.run,
+        stop: result.current.stop,
+        setChannelEnabled: result.current.setChannelEnabled,
+        setTimebaseScale: result.current.setTimebaseScale,
+        startStreaming: result.current.startStreaming,
+      };
+
+      // Re-render with same deviceId
+      rerender();
+
+      expect(result.current.subscribe).toBe(firstCallbacks.subscribe);
+      expect(result.current.unsubscribe).toBe(firstCallbacks.unsubscribe);
+      expect(result.current.run).toBe(firstCallbacks.run);
+      expect(result.current.stop).toBe(firstCallbacks.stop);
+      expect(result.current.setChannelEnabled).toBe(firstCallbacks.setChannelEnabled);
+      expect(result.current.setTimebaseScale).toBe(firstCallbacks.setTimebaseScale);
+      expect(result.current.startStreaming).toBe(firstCallbacks.startStreaming);
+    });
+
+    it('should update callback references when deviceId changes', async () => {
+      const useOscilloscopeSocket = await getHook();
+      let deviceId = 'scope-1';
+      const { result, rerender } = renderHook(() => useOscilloscopeSocket(deviceId));
+
+      const firstRun = result.current.run;
+
+      // Change deviceId
+      deviceId = 'scope-2';
+      rerender();
+
+      expect(result.current.run).not.toBe(firstRun);
+
+      // Verify the new callback uses the new deviceId
+      act(() => {
+        result.current.run();
+      });
+
+      expect(mockStoreState.run).toHaveBeenCalledWith('scope-2');
     });
   });
 });

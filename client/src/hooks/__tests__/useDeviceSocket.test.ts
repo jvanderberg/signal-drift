@@ -48,14 +48,22 @@ const mockStoreState = {
   clearDeviceError: vi.fn(),
 };
 
-// Mock the stores module
-vi.mock('../../stores', () => ({
-  useDeviceStore: (selector: (state: typeof mockStoreState) => unknown) => {
+// Create a mock useDeviceStore with getState() support
+const mockUseDeviceStore = Object.assign(
+  (selector: (state: typeof mockStoreState) => unknown) => {
     if (typeof selector === 'function') {
       return selector(mockStoreState);
     }
     return mockStoreState;
   },
+  {
+    getState: () => mockStoreState,
+  }
+);
+
+// Mock the stores module
+vi.mock('../../stores', () => ({
+  useDeviceStore: mockUseDeviceStore,
   selectDeviceState: (deviceId: string) => (state: typeof mockStoreState) =>
     state.deviceStates[deviceId]?.sessionState ?? null,
   selectIsSubscribed: (deviceId: string) => (state: typeof mockStoreState) =>
@@ -228,6 +236,53 @@ describe('useDeviceSocket', () => {
       });
 
       expect(mockStoreState.subscribeDevice).toHaveBeenCalledWith('device-1');
+      expect(mockStoreState.subscribeDevice).toHaveBeenCalledWith('device-2');
+    });
+  });
+
+  describe('Callback Stability', () => {
+    it('should maintain stable callback references when deviceId does not change', async () => {
+      const useDeviceSocket = await getHook();
+      const { result, rerender } = renderHook(() => useDeviceSocket('device-1'));
+
+      const firstCallbacks = {
+        subscribe: result.current.subscribe,
+        unsubscribe: result.current.unsubscribe,
+        setMode: result.current.setMode,
+        setOutput: result.current.setOutput,
+        setValue: result.current.setValue,
+        clearError: result.current.clearError,
+      };
+
+      // Re-render with same deviceId
+      rerender();
+
+      expect(result.current.subscribe).toBe(firstCallbacks.subscribe);
+      expect(result.current.unsubscribe).toBe(firstCallbacks.unsubscribe);
+      expect(result.current.setMode).toBe(firstCallbacks.setMode);
+      expect(result.current.setOutput).toBe(firstCallbacks.setOutput);
+      expect(result.current.setValue).toBe(firstCallbacks.setValue);
+      expect(result.current.clearError).toBe(firstCallbacks.clearError);
+    });
+
+    it('should update callback references when deviceId changes', async () => {
+      const useDeviceSocket = await getHook();
+      let deviceId = 'device-1';
+      const { result, rerender } = renderHook(() => useDeviceSocket(deviceId));
+
+      const firstSubscribe = result.current.subscribe;
+
+      // Change deviceId
+      deviceId = 'device-2';
+      rerender();
+
+      expect(result.current.subscribe).not.toBe(firstSubscribe);
+
+      // Verify the new callback uses the new deviceId
+      act(() => {
+        result.current.subscribe();
+      });
+
       expect(mockStoreState.subscribeDevice).toHaveBeenCalledWith('device-2');
     });
   });
