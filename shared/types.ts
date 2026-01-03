@@ -341,7 +341,10 @@ export type ClientMessage =
   | { type: 'deviceAliasClear'; idn: string }
   // Settings export/import messages
   | { type: 'settingsExport' }
-  | { type: 'settingsImport'; data: SettingsExportData };
+  | { type: 'settingsImport'; data: SettingsExportData }
+  // Dashboard layout messages
+  | { type: 'dashboardLayoutGet' }
+  | { type: 'dashboardLayoutSave'; layout: DashboardLayoutData };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner
@@ -387,7 +390,10 @@ export type ServerMessage =
   | { type: 'deviceAliasChanged'; idn: string; alias: string | null }
   // Settings export/import responses
   | { type: 'settingsExported'; data: SettingsExportData }
-  | { type: 'settingsImported'; result: SettingsImportResult };
+  | { type: 'settingsImported'; result: SettingsImportResult }
+  // Dashboard layout responses
+  | { type: 'dashboardLayout'; layout: DashboardLayoutData | null }
+  | { type: 'dashboardLayoutSaved' };
 
 // Lightweight device info for listing (before subscription)
 export interface DeviceSummary {
@@ -641,4 +647,39 @@ export interface SettingsImportResult {
   sequences: number;
   triggerScripts: number;
   deviceAliases: number;
+}
+
+// ============ Dashboard Layout Types ============
+
+/** Panel types that can be placed on the dashboard */
+export type DashboardPanelType = 'device' | 'sequencer' | 'trigger-scripts';
+
+/** A single panel's layout position and size */
+export interface DashboardLayoutItem {
+  i: string;           // Unique key (e.g., 'device-{id}', 'sequencer', 'trigger-scripts')
+  x: number;           // Grid column position
+  y: number;           // Grid row position
+  w: number;           // Width in grid units
+  h: number;           // Height in grid units
+  minW?: number;       // Minimum width
+  minH?: number;       // Minimum height
+  maxW?: number;       // Maximum width
+  maxH?: number;       // Maximum height
+}
+
+/** Responsive layout breakpoints */
+export type DashboardBreakpoint = 'lg' | 'md' | 'sm' | 'xs';
+
+/** Complete dashboard layout with responsive breakpoints */
+export interface DashboardLayout {
+  id: string;
+  name: string;
+  layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Simplified layout for single breakpoint storage */
+export interface DashboardLayoutData {
+  layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>;
 }

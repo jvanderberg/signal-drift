@@ -99,7 +99,7 @@ export function EditableDeviceHeader({
   const isConnected = connectionStatus === 'connected';
 
   return (
-    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+    <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 panel-drag-handle">
       <div className="flex justify-between items-center">
         <div
           className="flex items-center gap-2.5 cursor-pointer group"

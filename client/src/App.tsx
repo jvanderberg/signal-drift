@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import type { DeviceSummary } from './types';
-import { useUIStore, selectTheme, selectToasts } from './stores';
+import { useUIStore, useLayoutStore, initializeLayoutStore, selectTheme, selectToasts, selectLayouts } from './stores';
 import { useDeviceList } from './hooks/useDeviceList';
 import { DevicePanel } from './components/DevicePanel';
 import { OscilloscopePanel } from './components/OscilloscopePanel';
@@ -8,19 +8,41 @@ import { ToastContainer } from './components/ToastContainer';
 import { DeviceSidebar } from './components/DeviceSidebar';
 import { SequencePanel } from './components/sequencer';
 import { TriggerScriptPanel } from './components/triggers';
+import { DashboardGrid, getDevicePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
+import { useState } from 'react';
 
 function App() {
   const { devices, isLoading, scan } = useDeviceList();
-  const [openDeviceIds, setOpenDeviceIds] = useState<Set<string>>(new Set());
-  const [showSequencer, setShowSequencer] = useState(false);
-  const [showTriggerScripts, setShowTriggerScripts] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Use individual selectors for state values (only re-render when they change)
   const theme = useUIStore(selectTheme);
   const toasts = useUIStore(selectToasts);
+  const layouts = useLayoutStore(selectLayouts);
+
   // Actions are stable references
   const { setTheme, success, error } = useUIStore.getState();
+  const { addPanel, removePanel, hasPanel } = useLayoutStore.getState();
+
+  // Initialize layout store on mount
+  useEffect(() => {
+    initializeLayoutStore();
+  }, []);
+
+  // Get open device IDs from layout
+  const openDeviceIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of layouts.lg) {
+      if (item.i.startsWith('device-')) {
+        ids.add(item.i.replace('device-', ''));
+      }
+    }
+    return ids;
+  }, [layouts.lg]);
+
+  // Check if sequencer/trigger scripts are shown
+  const showSequencer = useMemo(() => hasPanel(getSequencerPanelKey()), [layouts.lg]);
+  const showTriggerScripts = useMemo(() => hasPanel(getTriggerScriptsPanelKey()), [layouts.lg]);
 
   // Get open devices from the device list
   const openDevices = useMemo(() =>
@@ -29,36 +51,50 @@ function App() {
   );
 
   // Handle sidebar device click - toggle panel open/close
-  const handleDeviceClick = (device: DeviceSummary) => {
-    setOpenDeviceIds(prev => {
-      const next = new Set(prev);
-      if (next.has(device.id)) {
-        next.delete(device.id);
-      } else {
-        next.add(device.id);
-      }
-      return next;
-    });
+  const handleDeviceClick = useCallback((device: DeviceSummary) => {
+    const key = getDevicePanelKey(device.id);
+    if (hasPanel(key)) {
+      removePanel(key);
+    } else {
+      addPanel(key);
+    }
     setSidebarOpen(false);
-  };
+  }, [addPanel, removePanel, hasPanel]);
 
-  const handleDeviceClose = (deviceId: string) => {
-    setOpenDeviceIds(prev => {
-      const next = new Set(prev);
-      next.delete(deviceId);
-      return next;
-    });
-  };
+  const handleDeviceClose = useCallback((deviceId: string) => {
+    removePanel(getDevicePanelKey(deviceId));
+  }, [removePanel]);
 
-  const handleSequencerClick = () => {
-    setShowSequencer(prev => !prev);
+  const handleSequencerClick = useCallback(() => {
+    const key = getSequencerPanelKey();
+    if (hasPanel(key)) {
+      removePanel(key);
+    } else {
+      addPanel(key);
+    }
     setSidebarOpen(false);
-  };
+  }, [addPanel, removePanel, hasPanel]);
 
-  const handleTriggerScriptsClick = () => {
-    setShowTriggerScripts(prev => !prev);
+  const handleTriggerScriptsClick = useCallback(() => {
+    const key = getTriggerScriptsPanelKey();
+    if (hasPanel(key)) {
+      removePanel(key);
+    } else {
+      addPanel(key);
+    }
     setSidebarOpen(false);
-  };
+  }, [addPanel, removePanel, hasPanel]);
+
+  const handleSequencerClose = useCallback(() => {
+    removePanel(getSequencerPanelKey());
+  }, [removePanel]);
+
+  const handleTriggerScriptsClose = useCallback(() => {
+    removePanel(getTriggerScriptsPanelKey());
+  }, [removePanel]);
+
+  // Check if any panels are open
+  const hasPanels = layouts.lg.length > 0;
 
   return (
     <div className="h-screen flex flex-col">
@@ -91,14 +127,15 @@ function App() {
         </select>
       </div>
 
-      {/* Scrollable panel area */}
+      {/* Scrollable panel area with dashboard grid */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="flex flex-wrap gap-4 items-start">
-          {/* Device Panels */}
-          {openDevices.map(device => (
-            <div key={device.id} className="flex-1 basis-[calc(50%-0.5rem)] min-w-[420px]">
-              {device.info.type === 'oscilloscope' ? (
+        {hasPanels ? (
+          <DashboardGrid>
+            {/* Device Panels */}
+            {openDevices.map(device => (
+              device.info.type === 'oscilloscope' ? (
                 <OscilloscopePanel
+                  key={getDevicePanelKey(device.id)}
                   device={device}
                   onClose={() => handleDeviceClose(device.id)}
                   onError={error}
@@ -106,36 +143,36 @@ function App() {
                 />
               ) : (
                 <DevicePanel
+                  key={getDevicePanelKey(device.id)}
                   device={device}
                   onClose={() => handleDeviceClose(device.id)}
                   onError={error}
                   onSuccess={success}
                 />
-              )}
-            </div>
-          ))}
+              )
+            ))}
 
-          {/* Sequence Panel */}
-          {showSequencer && (
-            <div className="flex-1 basis-[calc(50%-0.5rem)] min-w-[420px]">
-              <SequencePanel />
-            </div>
-          )}
+            {/* Sequence Panel */}
+            {showSequencer && (
+              <SequencePanel
+                key={getSequencerPanelKey()}
+                onClose={handleSequencerClose}
+              />
+            )}
 
-          {/* Trigger Script Panel */}
-          {showTriggerScripts && (
-            <div className="flex-1 basis-[calc(50%-0.5rem)] min-w-[420px]">
-              <TriggerScriptPanel />
-            </div>
-          )}
-
-          {/* Empty state when nothing is open */}
-          {openDevices.length === 0 && !showSequencer && !showTriggerScripts && (
-            <div className="flex-1 flex items-center justify-center text-[var(--color-text-secondary)] text-sm py-20">
-              Click the menu to open devices or widgets
-            </div>
-          )}
-        </div>
+            {/* Trigger Script Panel */}
+            {showTriggerScripts && (
+              <TriggerScriptPanel
+                key={getTriggerScriptsPanelKey()}
+                onClose={handleTriggerScriptsClose}
+              />
+            )}
+          </DashboardGrid>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-[var(--color-text-secondary)] text-sm py-20">
+            Click the menu to open devices or widgets
+          </div>
+        )}
       </div>
 
       {/* Toast Notifications */}
