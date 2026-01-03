@@ -1,5 +1,34 @@
 # TODO
 
+## React Codebase Improvements
+
+### High Priority
+
+- [ ] **Consolidate state management**: Remove duplicate state in `useDeviceSocket` and `useOscilloscopeSocket` hooks - components should use Zustand stores directly (`deviceStore`, `oscilloscopeStore`) instead of maintaining parallel local state
+  - Files: `client/src/hooks/useDeviceSocket.ts`, `client/src/hooks/useOscilloscopeSocket.ts`
+
+- [ ] **Split large components**: Break down `OscilloscopePanel` (535 lines) and `TriggerScriptPanel` (515 lines) into smaller, focused sub-components
+  - `OscilloscopePanel` → `OscilloscopeControls`, `OscilloscopeChannelBar`, `OscilloscopeMeasurements`
+  - `TriggerScriptPanel` → `TriggerScriptList`, `TriggerScriptEditor`, `TriggerPlaybackControls`
+  - Files: `client/src/components/OscilloscopePanel.tsx`, `client/src/components/triggers/TriggerScriptPanel.tsx`
+
+- [ ] **Fix type casting**: Replace `as unknown as` patterns with proper type guards in `useOscilloscopeSocket.ts:141`
+  - Create type guard functions like `isOscilloscopeState()` instead of bypassing TypeScript checks
+  - File: `client/src/hooks/useOscilloscopeSocket.ts`
+
+### Medium Priority
+
+- [ ] **Extract magic numbers**: Create named constants for streaming interval values (350ms, 200ms) and other hardcoded values
+  - Files: `client/src/components/OscilloscopePanel.tsx:124`, `client/src/components/OscilloscopePanel.tsx:173`
+
+- [ ] **Centralize localStorage access**: Move `scope-measurements-${device.id}` persistence from `OscilloscopePanel` into the Zustand store using `persist` middleware for consistency
+  - File: `client/src/components/OscilloscopePanel.tsx:87-95`
+
+- [ ] **Add integration tests**: Create cross-component tests and expand component test coverage beyond smoke tests
+  - Directory: `client/src/components/__tests__/`
+
+---
+
 ## Oscilloscope Capture Optimization
 
 Current: ~3fps for 2 channels
