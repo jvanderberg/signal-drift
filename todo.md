@@ -24,8 +24,13 @@
 - [ ] **Centralize localStorage access**: Move `scope-measurements-${device.id}` persistence from `OscilloscopePanel` into the Zustand store using `persist` middleware for consistency
   - File: `client/src/components/OscilloscopePanel.tsx:87-95`
 
-- [ ] **Add integration tests**: Create cross-component tests and expand component test coverage beyond smoke tests
+- [x] **Add integration tests**: Create cross-component tests and expand component test coverage beyond smoke tests
   - Directory: `client/src/components/__tests__/`
+  - Added: `testUtils.tsx` (shared mock factories and helpers)
+  - Added: `App.integration.test.tsx` (app layout, device list, panel opening)
+  - Added: `DevicePanel.integration.test.tsx` (subscription, measurement updates, controls)
+  - Added: `OscilloscopePanel.integration.test.tsx` (streaming, run/stop, screenshot)
+  - Added: `SequencePanel.integration.test.tsx` (library, playback, error handling)
 
 ---
 
