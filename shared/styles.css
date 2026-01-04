@@ -1,0 +1,191 @@
+/* Shared CSS variables and styles used by both client and demo */
+
+/* Light theme (default) */
+:root {
+  --color-bg-body: #f5f5f7;
+  --color-bg-panel: #ffffff;
+  --color-bg-secondary: #f0f0f2;
+  --color-bg-readings: #e8e8ed;
+  --color-accent-psu: #e67e22;
+  --color-accent-load: #0099cc;
+  --color-success: #27ae60;
+  --color-danger: #e74c3c;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #666666;
+  --color-text-muted: #999999;
+  --color-border-light: #e0e0e0;
+  --color-border-dark: #d0d0d0;
+  /* Waveform display */
+  --color-waveform-bg: #f0f0f2;
+  --color-waveform-grid: #d0d0d5;
+  --color-waveform-grid-major: #b0b0b8;
+  --color-waveform-label: #666666;
+  --color-waveform-trigger: #e65c00;
+  /* Channel trace colors (darker for light bg) */
+  --color-waveform-chan1: #b8960a;
+  --color-waveform-chan2: #0099aa;
+  --color-waveform-chan3: #aa00aa;
+  --color-waveform-chan4: #00aa00;
+}
+
+/* Dark mode - system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg-body: #141418;
+    --color-bg-panel: #1c1c22;
+    --color-bg-secondary: #252530;
+    --color-bg-readings: #111115;
+    --color-accent-psu: #ff9f43;
+    --color-accent-load: #00d4ff;
+    --color-success: #2ed573;
+    --color-danger: #ff4757;
+    --color-text-primary: #e8e8ea;
+    --color-text-secondary: #9090a0;
+    --color-text-muted: #606068;
+    --color-border-light: #505058;
+    --color-border-dark: #3a3a42;
+    /* Waveform display */
+    --color-waveform-bg: #1a1a1e;
+    --color-waveform-grid: #333338;
+    --color-waveform-grid-major: #444448;
+    --color-waveform-label: #888888;
+    --color-waveform-trigger: #ff6600;
+    /* Channel trace colors (bright for dark bg) */
+    --color-waveform-chan1: #FFD700;
+    --color-waveform-chan2: #00FFFF;
+    --color-waveform-chan3: #FF00FF;
+    --color-waveform-chan4: #00FF00;
+  }
+}
+
+/* Manual light theme override */
+[data-theme="light"] {
+  --color-bg-body: #f5f5f7;
+  --color-bg-panel: #ffffff;
+  --color-bg-secondary: #f0f0f2;
+  --color-bg-readings: #e8e8ed;
+  --color-accent-psu: #e67e22;
+  --color-accent-load: #0099cc;
+  --color-success: #27ae60;
+  --color-danger: #e74c3c;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #666666;
+  --color-text-muted: #999999;
+  --color-border-light: #e0e0e0;
+  --color-border-dark: #d0d0d0;
+  /* Waveform display */
+  --color-waveform-bg: #f0f0f2;
+  --color-waveform-grid: #d0d0d5;
+  --color-waveform-grid-major: #b0b0b8;
+  --color-waveform-label: #666666;
+  --color-waveform-trigger: #e65c00;
+  /* Channel trace colors (darker for light bg) */
+  --color-waveform-chan1: #b8960a;
+  --color-waveform-chan2: #0099aa;
+  --color-waveform-chan3: #aa00aa;
+  --color-waveform-chan4: #00aa00;
+}
+
+/* Manual dark theme override */
+[data-theme="dark"] {
+  --color-bg-body: #141418;
+  --color-bg-panel: #1c1c22;
+  --color-bg-secondary: #252530;
+  --color-bg-readings: #111115;
+  --color-accent-psu: #ff9f43;
+  --color-accent-load: #00d4ff;
+  --color-success: #2ed573;
+  --color-danger: #ff4757;
+  --color-text-primary: #e8e8ea;
+  --color-text-secondary: #9090a0;
+  --color-text-muted: #606068;
+  --color-border-light: #505058;
+  --color-border-dark: #3a3a42;
+  /* Waveform display */
+  --color-waveform-bg: #1a1a1e;
+  --color-waveform-grid: #333338;
+  --color-waveform-grid-major: #444448;
+  --color-waveform-label: #888888;
+  --color-waveform-trigger: #ff6600;
+  /* Channel trace colors (bright for dark bg) */
+  --color-waveform-chan1: #FFD700;
+  --color-waveform-chan2: #00FFFF;
+  --color-waveform-chan3: #FF00FF;
+  --color-waveform-chan4: #00FF00;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg-body);
+  color: var(--color-text-primary);
+}
+
+/* Status dot */
+.status-dot {
+  @apply inline-block w-2 h-2 rounded-full;
+}
+
+.status-dot.connected,
+.status-dot.on {
+  background-color: var(--color-success);
+}
+
+.status-dot.disconnected,
+.status-dot.off {
+  background-color: var(--color-text-muted);
+}
+
+/* Mode badge */
+.mode-badge {
+  @apply inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase;
+}
+
+.mode-badge.cv {
+  background-color: var(--color-accent-psu);
+  color: white;
+}
+
+.mode-badge.cc {
+  background-color: var(--color-accent-load);
+  color: white;
+}
+
+/* Toast notifications */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast {
+  animation: slideIn 0.2s ease-out;
+}
+
+.toast.success {
+  background-color: var(--color-success);
+}
+
+.toast.error {
+  background-color: var(--color-danger);
+}
+
+.toast.info {
+  background-color: var(--color-accent-load);
+}
+
+/* Form elements */
+input, select {
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-primary);
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--color-accent-load);
+}
