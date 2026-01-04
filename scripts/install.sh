@@ -15,7 +15,12 @@
 set -e
 
 # Configuration
-BUILD_DIR="${SIGNAL_DRIFT_BUILD_DIR:-$HOME/signal-drift-src}"
+# Use current directory if it's a git repo, otherwise clone to ~/signal-drift
+if [ -d ".git" ]; then
+    BUILD_DIR="${SIGNAL_DRIFT_BUILD_DIR:-$(pwd)}"
+else
+    BUILD_DIR="${SIGNAL_DRIFT_BUILD_DIR:-$HOME/signal-drift}"
+fi
 INSTALL_DIR="${SIGNAL_DRIFT_INSTALL_DIR:-/opt/signal-drift}"
 DATA_DIR="${SIGNAL_DRIFT_DATA_DIR:-}"
 SERVICE_NAME="signal-drift"
