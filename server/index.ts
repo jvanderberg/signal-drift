@@ -4,6 +4,8 @@
  */
 
 import { createServer } from 'http';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -86,6 +88,28 @@ app.get('/api/health', (_req, res) => {
     sessions: sessionManager.getSessionCount(),
     wsClients: wsHandler?.getClientCount() ?? 0,
   });
+});
+
+// Serve static frontend in production
+// In dev: server/index.ts -> ../client/dist -> client/dist
+// In prod: dist/server/index.js -> ../../client/dist -> client/dist
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const isProduction = __dirname.includes('/dist/');
+const clientDistPath = isProduction
+  ? join(__dirname, '../../client/dist')
+  : join(__dirname, '../client/dist');
+
+// Serve static files from client/dist
+app.use(express.static(clientDistPath));
+
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(join(clientDistPath, 'index.html'));
 });
 
 // Create HTTP server (needed for WebSocket)
