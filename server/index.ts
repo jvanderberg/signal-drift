@@ -4,6 +4,7 @@
  */
 
 import { createServer } from 'http';
+import { resolve } from 'path';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -88,18 +89,17 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Serve static frontend from client/dist in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('client/dist'));
+// Serve static frontend from client/dist
+const clientDistPath = resolve('client/dist');
+app.use(express.static(clientDistPath));
 
-  // SPA fallback - serve index.html for all non-API routes
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) {
-      return next();
-    }
-    res.sendFile('client/dist/index.html', { root: '.' });
-  });
-}
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(resolve(clientDistPath, 'index.html'));
+});
 
 // Create HTTP server (needed for WebSocket)
 const server = createServer(app);
