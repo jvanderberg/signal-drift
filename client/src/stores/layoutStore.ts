@@ -54,7 +54,7 @@ interface LayoutStoreState {
 
   // Actions
   setLayouts: (layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>) => void;
-  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout) => void;
+  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, preserveSizes?: boolean) => void;
   saveLayoutDebounced: () => void;
   addPanel: (key: string) => void;
   removePanel: (key: string) => void;
@@ -163,15 +163,33 @@ export const useLayoutStore = create<LayoutStoreState>()(
       set({ layouts, isLoaded: true });
     },
 
-    updateLayout: (breakpoint, layout) => {
+    updateLayout: (breakpoint, layout, preserveSizes = true) => {
       const newItems = layout.map(layoutItemToDashboardItem);
       const currentItems = get().layouts[breakpoint];
 
       // Merge: update existing items, add new items, but PRESERVE items
       // that aren't in the new layout (they may just not be rendered yet)
       const newItemKeys = new Set(newItems.map(item => item.i));
+      const currentItemMap = new Map(currentItems.map(item => [item.i, item]));
       const preservedItems = currentItems.filter(item => !newItemKeys.has(item.i));
-      const mergedItems = [...newItems, ...preservedItems];
+
+      // For items in newItems, update position; only update size if preserveSizes is false
+      const updatedItems = newItems.map(newItem => {
+        const currentItem = currentItemMap.get(newItem.i);
+        if (currentItem && preserveSizes) {
+          // Item exists and we're preserving sizes - keep current size, update position
+          return {
+            ...newItem,
+            w: currentItem.w,
+            h: currentItem.h,
+            minW: currentItem.minW,
+            minH: currentItem.minH,
+          };
+        }
+        return newItem;
+      });
+
+      const mergedItems = [...updatedItems, ...preservedItems];
 
       // Check if layout actually changed (compare JSON for deep equality)
       const currentJson = JSON.stringify(currentItems);
@@ -179,6 +197,10 @@ export const useLayoutStore = create<LayoutStoreState>()(
       if (currentJson === mergedJson) {
         return; // No change, skip update
       }
+
+      console.log('[LayoutStore] updateLayout:', breakpoint,
+        'preserveSizes:', preserveSizes,
+        'items:', mergedItems.map(i => `${i.i}(${i.w}x${i.h})`).join(', '));
 
       set((state) => ({
         layouts: {

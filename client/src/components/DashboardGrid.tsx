@@ -89,9 +89,14 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     saveLayoutDebounced();
   }, [saveLayoutDebounced]);
 
-  const handleResizeStop = useCallback(() => {
-    saveLayoutDebounced();
-  }, [saveLayoutDebounced]);
+  const handleResizeStop = useCallback(
+    (layout: Layout) => {
+      // Update with new sizes (preserveSizes: false)
+      updateLayout(currentBreakpoint.current, layout, false);
+      saveLayoutDebounced();
+    },
+    [updateLayout, saveLayoutDebounced]
+  );
 
   // Wrap children with panel wrappers and ensure they have keys
   const wrappedChildren = useMemo(() => {
