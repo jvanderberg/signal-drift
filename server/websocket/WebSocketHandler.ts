@@ -13,7 +13,8 @@ import type { SequenceManager } from '../sequences/SequenceManager.js';
 import type { TriggerScriptManager } from '../triggers/TriggerScriptManager.js';
 import type { DeviceAliasStore } from '../db/DeviceAliasStore.js';
 import type { SettingsManager } from '../db/SettingsManager.js';
-import type { ClientMessage, ServerMessage, DeviceSessionState, SettingsExportData } from '../../shared/types.js';
+import type { DashboardLayoutStore } from '../db/DashboardLayoutStore.js';
+import type { ClientMessage, ServerMessage, DeviceSessionState, SettingsExportData, DashboardLayoutData } from '../../shared/types.js';
 
 export interface WebSocketHandler {
   getClientCount(): number;
@@ -39,7 +40,8 @@ export function createWebSocketHandler(
   sequenceManager?: SequenceManager,
   triggerScriptManager?: TriggerScriptManager,
   deviceAliasStore?: DeviceAliasStore,
-  settingsManager?: SettingsManager
+  settingsManager?: SettingsManager,
+  dashboardLayoutStore?: DashboardLayoutStore
 ): WebSocketHandler {
   const clients = new Map<WebSocket, ClientState>();
 
@@ -306,6 +308,19 @@ export function createWebSocketHandler(
 
       case 'settingsImport':
         handleSettingsImport(clientState, message.data);
+        break;
+
+      // Dashboard layout messages
+      case 'dashboardLayoutGet':
+        handleDashboardLayoutGet(clientState);
+        break;
+
+      case 'dashboardLayoutSave':
+        handleDashboardLayoutSave(clientState, message.layout);
+        break;
+
+      case 'dashboardLayoutClear':
+        handleDashboardLayoutClear(clientState);
         break;
 
       default: {
@@ -1261,6 +1276,83 @@ export function createWebSocketHandler(
     }
     // Also update device list since aliases may have changed
     broadcastDeviceList();
+  }
+
+  // Dashboard layout handlers
+  function handleDashboardLayoutGet(clientState: ClientState): void {
+    if (!dashboardLayoutStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_NOT_AVAILABLE',
+        message: 'Dashboard layout store not available',
+      });
+      return;
+    }
+    const result = dashboardLayoutStore.get();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_GET_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    const panelKeys = result.value?.layouts?.lg?.map(item => item.i).join(', ') || 'none';
+    console.log('[WebSocket] Sending dashboard layout, lg keys:', panelKeys);
+    send(clientState.ws, {
+      type: 'dashboardLayout',
+      layout: result.value,
+    });
+  }
+
+  function handleDashboardLayoutSave(clientState: ClientState, layout: DashboardLayoutData): void {
+    if (!dashboardLayoutStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_NOT_AVAILABLE',
+        message: 'Dashboard layout store not available',
+      });
+      return;
+    }
+    const panelKeys = layout?.layouts?.lg?.map(item => item.i).join(', ') || 'none';
+    console.log('[WebSocket] Saving dashboard layout, lg keys:', panelKeys);
+    const result = dashboardLayoutStore.save(layout);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_SAVE_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    send(clientState.ws, {
+      type: 'dashboardLayoutSaved',
+    });
+  }
+
+  function handleDashboardLayoutClear(clientState: ClientState): void {
+    if (!dashboardLayoutStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_NOT_AVAILABLE',
+        message: 'Dashboard layout store not available',
+      });
+      return;
+    }
+    const result = dashboardLayoutStore.clear();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_CLEAR_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    // Respond with empty layout
+    send(clientState.ws, {
+      type: 'dashboardLayout',
+      layout: null,
+    });
   }
 
   // Handle client disconnect

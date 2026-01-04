@@ -26,6 +26,7 @@ import {
   createTriggerScriptStoreSqlite,
   createDeviceAliasStore,
   createSettingsManager,
+  createDashboardLayoutStore,
 } from './db/index.js';
 
 // Configuration (defaults, overridable by ENV)
@@ -126,6 +127,7 @@ const database = createDatabase();
 const sequenceStore = createSequenceStoreSqlite(database);
 const triggerScriptStore = createTriggerScriptStoreSqlite(database);
 const deviceAliasStore = createDeviceAliasStore(database);
+const dashboardLayoutStore = createDashboardLayoutStore(database);
 const settingsManager = createSettingsManager(sequenceStore, triggerScriptStore, deviceAliasStore);
 
 // Create sequence manager (for AWG/sequencing functionality) with SQLite store
@@ -142,7 +144,8 @@ const wsHandler = createWebSocketHandler(
   sequenceManager,
   triggerScriptManager,
   deviceAliasStore,
-  settingsManager
+  settingsManager,
+  dashboardLayoutStore
 );
 
 // Start server

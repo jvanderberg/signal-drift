@@ -16,12 +16,16 @@ import type { Trigger, TriggerScript } from '../../types';
 
 type PanelMode = 'run' | 'edit';
 
+interface TriggerScriptPanelProps {
+  onClose?: () => void;
+}
+
 let triggerIdCounter = 0;
 function generateTriggerId(): string {
   return `trigger-${++triggerIdCounter}-${Date.now()}`;
 }
 
-export function TriggerScriptPanel() {
+export function TriggerScriptPanel({ onClose }: TriggerScriptPanelProps) {
   const {
     library,
     isLibraryLoading,
@@ -326,7 +330,7 @@ export function TriggerScriptPanel() {
   return (
     <div className="h-[470px] bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
+      <div className="flex items-center justify-between mb-3 flex-shrink-0 panel-drag-handle">
         <h2 className="text-sm font-medium">Trigger Scripts</h2>
         <div className="flex items-center gap-1">
           <button
@@ -353,6 +357,15 @@ export function TriggerScriptPanel() {
               title="Delete selected script"
             >
               Delete
+            </button>
+          )}
+          {onClose && (
+            <button
+              className="w-6 h-6 flex items-center justify-center text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-secondary)] hover:opacity-90 ml-1"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              ×
             </button>
           )}
         </div>
