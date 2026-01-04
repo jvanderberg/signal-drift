@@ -244,6 +244,12 @@ install_application() {
     sudo cp -r "$BUILD_DIR/client/dist" "$INSTALL_DIR/client/"
     sudo cp -r "$BUILD_DIR/node_modules" "$INSTALL_DIR/"
     sudo cp "$BUILD_DIR/package.json" "$INSTALL_DIR/"
+    sudo cp "$BUILD_DIR/package-lock.json" "$INSTALL_DIR/"
+
+    # Rebuild native modules for this system's Node.js version
+    log_info "Rebuilding native modules for Node $(node -v)..."
+    cd "$INSTALL_DIR"
+    sudo npm rebuild
 
     log_success "Installed"
 }
