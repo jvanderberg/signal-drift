@@ -344,7 +344,8 @@ export type ClientMessage =
   | { type: 'settingsImport'; data: SettingsExportData }
   // Dashboard layout messages
   | { type: 'dashboardLayoutGet' }
-  | { type: 'dashboardLayoutSave'; layout: DashboardLayoutData };
+  | { type: 'dashboardLayoutSave'; layout: DashboardLayoutData }
+  | { type: 'dashboardLayoutClear' };
 
 // setValue behavior:
 // - immediate: false (default) - debounced ~250ms, for UI digit spinner

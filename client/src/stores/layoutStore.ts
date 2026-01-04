@@ -59,6 +59,7 @@ interface LayoutStoreState {
   removePanel: (key: string) => void;
   hasPanel: (key: string) => boolean;
   resetLayout: () => void;
+  clearLayoutFromServer: () => void;
 
   // Internal
   _saveDebounceTimer: ReturnType<typeof setTimeout> | null;
@@ -207,12 +208,24 @@ export const useLayoutStore = create<LayoutStoreState>()(
 
     hasPanel: (key) => {
       const { layouts } = get();
-      return layouts.lg.some((item) => item.i === key);
+      // Check all breakpoints since layouts might be inconsistent
+      for (const bp of Object.keys(layouts) as DashboardBreakpoint[]) {
+        if (layouts[bp].some((item) => item.i === key)) {
+          return true;
+        }
+      }
+      return false;
     },
 
     resetLayout: () => {
       set({ layouts: createEmptyLayouts() });
       get()._saveToServer();
+    },
+
+    clearLayoutFromServer: () => {
+      set({ layouts: createEmptyLayouts(), isLoading: true });
+      const wsManager = getWebSocketManager();
+      wsManager.send({ type: 'dashboardLayoutClear' });
     },
 
     _loadFromServer: () => {

@@ -28,6 +28,19 @@ async function openSidebar(page: Page): Promise<void> {
   await expect(page.getByText('Devices & Widgets')).toBeVisible();
 }
 
+/**
+ * Helper: Clear layout state from server (ensures clean test state)
+ */
+async function clearLayoutFromServer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const layoutStore = (window as { __LAYOUT_STORE__?: { getState: () => { clearLayoutFromServer: () => void } } }).__LAYOUT_STORE__;
+    if (layoutStore) {
+      layoutStore.getState().clearLayoutFromServer();
+    }
+  });
+  await page.waitForTimeout(1000);
+}
+
 // =============================================================================
 // UI Structure Constants
 // =============================================================================
@@ -57,6 +70,9 @@ test.describe('PSU + Load Smoke Test', () => {
     // Navigate to the app
     await page.goto('/');
     await waitForAppReady(page);
+
+    // Clear any existing layout state for clean test
+    await clearLayoutFromServer(page);
 
     // Open sidebar
     await openSidebar(page);

@@ -79,14 +79,15 @@ export function DashboardGrid({ children }: DashboardGridProps) {
 
   // Wrap children with panel wrappers and ensure they have keys
   const wrappedChildren = useMemo(() => {
-    const childArray = Array.isArray(children) ? children : [children];
+    // Flatten children (handles nested arrays from .map() calls)
+    const childArray = Array.isArray(children) ? children.flat(Infinity) : [children];
     return childArray
-      .filter((child) => child != null)
+      .filter((child) => child != null && child !== false)
       .map((child) => {
-        // Each child should have a 'data-grid-key' prop for identification
+        // Each child should have a React key for identification
         const key = (child as React.ReactElement).key;
         if (!key) {
-          console.warn('DashboardGrid child missing key');
+          console.warn('DashboardGrid child missing key', child);
           return null;
         }
         return (

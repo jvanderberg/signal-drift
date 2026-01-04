@@ -36,18 +36,18 @@ async function waitForPanelInGrid(page: Page, timeout = 10000): Promise<void> {
 }
 
 /**
- * Helper: Reset layout state by calling the store's resetLayout method
- * This clears all panels and saves the empty state to the server
+ * Helper: Clear layout state from server
+ * This sends a clear message to the server and clears the database
  */
-async function resetLayoutState(page: Page): Promise<void> {
+async function clearLayoutFromServer(page: Page): Promise<void> {
   await page.evaluate(() => {
     // Access the Zustand store from window (exposed by main.tsx in dev mode)
-    const layoutStore = (window as { __LAYOUT_STORE__?: { getState: () => { resetLayout: () => void } } }).__LAYOUT_STORE__;
+    const layoutStore = (window as { __LAYOUT_STORE__?: { getState: () => { clearLayoutFromServer: () => void } } }).__LAYOUT_STORE__;
     if (layoutStore) {
-      layoutStore.getState().resetLayout();
+      layoutStore.getState().clearLayoutFromServer();
     }
   });
-  // Wait for the reset to propagate to the server
+  // Wait for the server to process the clear request
   await page.waitForTimeout(1000);
 }
 
@@ -59,9 +59,9 @@ test.describe('Dashboard Layout', () => {
     await page.goto('/');
     await waitForAppReady(page);
 
-    // Reset layout state via the store (clears DB)
-    await resetLayoutState(page);
-    // Wait for reset to complete and for clean state
+    // Clear layout state from server (clears DB)
+    await clearLayoutFromServer(page);
+    // Wait for clear to complete
     await page.waitForTimeout(500);
   });
 
@@ -76,11 +76,8 @@ test.describe('Dashboard Layout', () => {
     await page.getByText('Matrix').first().click();
     await page.waitForTimeout(1500);
 
-    // Wait for the panel to be ready (mode badge visible = panel is subscribed)
-    await expect(page.locator('.mode-badge').first()).toBeVisible({ timeout: 10000 });
-
-    // Now verify the dashboard grid structure
-    await expect(page.locator('.dashboard-grid')).toBeVisible();
+    // Wait for the dashboard grid to appear
+    await expect(page.locator('.dashboard-grid')).toBeVisible({ timeout: 10000 });
 
     // Verify the panel is inside the grid
     const dashboardPanels = page.locator('.dashboard-panel');
@@ -90,6 +87,9 @@ test.describe('Dashboard Layout', () => {
     const panel = dashboardPanels.first();
     const className = await panel.getAttribute('class');
     expect(className).toContain('react-grid-item');
+
+    // Wait for mode badge to appear (device is subscribed and has state)
+    await expect(page.locator('.mode-badge').first()).toBeVisible({ timeout: 15000 });
   });
 
   test('should display widget panel in draggable grid layout', async ({ page }) => {

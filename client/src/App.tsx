@@ -29,20 +29,23 @@ function App() {
     initializeLayoutStore();
   }, []);
 
-  // Get open device IDs from layout
+  // Get open device IDs from layout (check all breakpoints for robustness)
   const openDeviceIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const item of layouts.lg) {
-      if (item.i.startsWith('device-')) {
-        ids.add(item.i.replace('device-', ''));
+    // Check all breakpoints since layouts might be inconsistent
+    for (const bp of Object.keys(layouts) as (keyof typeof layouts)[]) {
+      for (const item of layouts[bp]) {
+        if (item.i.startsWith('device-')) {
+          ids.add(item.i.replace('device-', ''));
+        }
       }
     }
     return ids;
-  }, [layouts.lg]);
+  }, [layouts]);
 
   // Check if sequencer/trigger scripts are shown
-  const showSequencer = useMemo(() => hasPanel(getSequencerPanelKey()), [layouts.lg]);
-  const showTriggerScripts = useMemo(() => hasPanel(getTriggerScriptsPanelKey()), [layouts.lg]);
+  const showSequencer = useMemo(() => hasPanel(getSequencerPanelKey()), [layouts]);
+  const showTriggerScripts = useMemo(() => hasPanel(getTriggerScriptsPanelKey()), [layouts]);
 
   // Get open devices from the device list
   const openDevices = useMemo(() =>
@@ -93,8 +96,10 @@ function App() {
     removePanel(getTriggerScriptsPanelKey());
   }, [removePanel]);
 
-  // Check if any panels are open
-  const hasPanels = layouts.lg.length > 0;
+  // Check if any panels are open (check all breakpoints for robustness)
+  const hasPanels = useMemo(() => {
+    return Object.values(layouts).some(items => items.length > 0);
+  }, [layouts]);
 
   return (
     <div className="h-screen flex flex-col">

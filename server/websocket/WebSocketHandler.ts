@@ -319,6 +319,10 @@ export function createWebSocketHandler(
         handleDashboardLayoutSave(clientState, message.layout);
         break;
 
+      case 'dashboardLayoutClear':
+        handleDashboardLayoutClear(clientState);
+        break;
+
       default: {
         // Extract type from unknown message for error reporting
         const unknownMessage = message as { type?: string };
@@ -1319,6 +1323,31 @@ export function createWebSocketHandler(
     }
     send(clientState.ws, {
       type: 'dashboardLayoutSaved',
+    });
+  }
+
+  function handleDashboardLayoutClear(clientState: ClientState): void {
+    if (!dashboardLayoutStore) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_NOT_AVAILABLE',
+        message: 'Dashboard layout store not available',
+      });
+      return;
+    }
+    const result = dashboardLayoutStore.clear();
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        code: 'DASHBOARD_LAYOUT_CLEAR_FAILED',
+        message: result.error.message,
+      });
+      return;
+    }
+    // Respond with empty layout
+    send(clientState.ws, {
+      type: 'dashboardLayout',
+      layout: null,
     });
   }
 
