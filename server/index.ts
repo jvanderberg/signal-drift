@@ -100,6 +100,8 @@ const clientDistPath = isProduction
   ? join(__dirname, '../../client/dist')
   : join(__dirname, '../client/dist');
 
+console.log(`Static files: ${clientDistPath} (isProduction: ${isProduction})`);
+
 // Serve static files from client/dist
 app.use(express.static(clientDistPath));
 
@@ -109,7 +111,13 @@ app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  res.sendFile(join(clientDistPath, 'index.html'));
+  const indexPath = join(clientDistPath, 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error(`Failed to serve ${indexPath}:`, err);
+      next(err);
+    }
+  });
 });
 
 // Create HTTP server (needed for WebSocket)
