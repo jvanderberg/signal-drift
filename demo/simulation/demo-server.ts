@@ -13,6 +13,17 @@ import type {
   HistoryData,
   MeasurementUpdate,
   ConnectionStatus,
+  SequenceDefinition,
+  SequenceRunConfig,
+  SequenceState,
+  SequenceStep,
+  WaveformParams,
+  RandomWalkParams,
+  ArbitraryWaveform,
+  TriggerScript,
+  TriggerScriptState,
+  TriggerState,
+  DeviceAlias,
 } from '../../shared/types';
 import { createVirtualConnection, type VirtualConnection } from './virtual-connection';
 import { createPsuSimulator, type PsuSimulator } from './psu-simulator';
@@ -48,10 +59,95 @@ export interface DemoServer {
 const POLL_INTERVAL = 250;
 const HISTORY_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
+// Helper to generate unique IDs
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Helper to generate waveform steps
+function generateSteps(waveform: WaveformParams | RandomWalkParams | ArbitraryWaveform): SequenceStep[] {
+  if ('steps' in waveform) {
+    // Arbitrary waveform
+    return waveform.steps;
+  }
+
+  if (waveform.type === 'random') {
+    // Random walk - generate steps with random values
+    const params = waveform as RandomWalkParams;
+    const steps: SequenceStep[] = [];
+    let value = params.startValue;
+    for (let i = 0; i < params.pointsPerCycle; i++) {
+      const step = (Math.random() - 0.5) * 2 * params.maxStepSize;
+      value = Math.max(params.min, Math.min(params.max, value + step));
+      steps.push({ value, duration: params.intervalMs });
+    }
+    return steps;
+  }
+
+  // Standard waveform
+  const params = waveform as WaveformParams;
+  const steps: SequenceStep[] = [];
+  const amplitude = (params.max - params.min) / 2;
+  const center = (params.max + params.min) / 2;
+
+  for (let i = 0; i < params.pointsPerCycle; i++) {
+    const phase = (i / params.pointsPerCycle) * 2 * Math.PI;
+    let value: number;
+
+    switch (params.type) {
+      case 'sine':
+        value = center + amplitude * Math.sin(phase);
+        break;
+      case 'triangle':
+        // Triangle wave: 0 -> max -> min -> 0
+        if (phase < Math.PI) {
+          value = params.min + (params.max - params.min) * (phase / Math.PI);
+        } else {
+          value = params.max - (params.max - params.min) * ((phase - Math.PI) / Math.PI);
+        }
+        break;
+      case 'ramp':
+        // Ramp: min to max linearly
+        value = params.min + (params.max - params.min) * (i / params.pointsPerCycle);
+        break;
+      case 'square':
+        // Square wave: 50% duty cycle
+        value = phase < Math.PI ? params.max : params.min;
+        break;
+      default:
+        value = center;
+    }
+
+    steps.push({ value, duration: params.intervalMs });
+  }
+
+  return steps;
+}
+
 export function createDemoServer(): DemoServer {
   const messageHandlers = new Set<(message: ServerMessage) => void>();
   const subscriptions = new Set<string>();
   const sessions = new Map<string, DeviceSession>();
+
+  // In-memory storage for sequences, trigger scripts, and device aliases
+  const sequenceLibrary = new Map<string, SequenceDefinition>();
+  const triggerScriptLibrary = new Map<string, TriggerScript>();
+  const deviceAliases = new Map<string, DeviceAlias>();
+
+  // Running sequence state
+  let runningSequence: {
+    state: SequenceState;
+    steps: SequenceStep[];
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+
+  // Running trigger script state
+  let runningTriggerScript: {
+    state: TriggerScriptState;
+    script: TriggerScript;
+    timer: ReturnType<typeof setInterval> | null;
+    triggerStates: Map<string, TriggerState>;
+  } | null = null;
 
   let connection: VirtualConnection;
   let psuDevice: SimulatedDevice;
@@ -416,22 +512,460 @@ export function createDemoServer(): DemoServer {
         handleSetValue(message.deviceId, message.name, message.value);
         break;
 
-      // Sequence/trigger messages - respond with empty lists for demo
+      // Sequence library operations
       case 'sequenceLibraryList':
-        broadcast({ type: 'sequenceLibrary', sequences: [] });
+        broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
         break;
 
+      case 'sequenceLibrarySave': {
+        const now = Date.now();
+        const newSequence: SequenceDefinition = {
+          ...message.definition,
+          id: generateId(),
+          createdAt: now,
+          updatedAt: now,
+        };
+        sequenceLibrary.set(newSequence.id, newSequence);
+        broadcast({ type: 'sequenceLibrarySaved', sequenceId: newSequence.id });
+        broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
+        break;
+      }
+
+      case 'sequenceLibraryUpdate': {
+        const existing = sequenceLibrary.get(message.definition.id);
+        if (existing) {
+          const updated = { ...message.definition, updatedAt: Date.now() };
+          sequenceLibrary.set(updated.id, updated);
+          broadcast({ type: 'sequenceLibrarySaved', sequenceId: updated.id });
+          broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
+        }
+        break;
+      }
+
+      case 'sequenceLibraryDelete':
+        if (sequenceLibrary.delete(message.sequenceId)) {
+          broadcast({ type: 'sequenceLibraryDeleted', sequenceId: message.sequenceId });
+          broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
+        }
+        break;
+
+      // Sequence execution
+      case 'sequenceRun':
+        handleSequenceRun(message.config);
+        break;
+
+      case 'sequenceAbort':
+        handleSequenceAbort();
+        break;
+
+      // Trigger script library operations
       case 'triggerScriptLibraryList':
-        broadcast({ type: 'triggerScriptLibrary', scripts: [] });
+        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
         break;
 
-      case 'deviceAliasList':
-        broadcast({ type: 'deviceAliases', aliases: [] });
+      case 'triggerScriptLibrarySave': {
+        const now = Date.now();
+        const newScript: TriggerScript = {
+          ...message.script,
+          id: generateId(),
+          createdAt: now,
+          updatedAt: now,
+        };
+        triggerScriptLibrary.set(newScript.id, newScript);
+        broadcast({ type: 'triggerScriptLibrarySaved', scriptId: newScript.id });
+        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
         break;
+      }
+
+      case 'triggerScriptLibraryUpdate': {
+        const existing = triggerScriptLibrary.get(message.script.id);
+        if (existing) {
+          const updated = { ...message.script, updatedAt: Date.now() };
+          triggerScriptLibrary.set(updated.id, updated);
+          broadcast({ type: 'triggerScriptLibrarySaved', scriptId: updated.id });
+          broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        }
+        break;
+      }
+
+      case 'triggerScriptLibraryDelete':
+        if (triggerScriptLibrary.delete(message.scriptId)) {
+          broadcast({ type: 'triggerScriptLibraryDeleted', scriptId: message.scriptId });
+          broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        }
+        break;
+
+      // Trigger script execution
+      case 'triggerScriptRun':
+        handleTriggerScriptRun(message.scriptId);
+        break;
+
+      case 'triggerScriptStop':
+        handleTriggerScriptStop();
+        break;
+
+      case 'triggerScriptPause':
+        if (runningTriggerScript && runningTriggerScript.state.executionState === 'running') {
+          runningTriggerScript.state.executionState = 'paused';
+          broadcast({ type: 'triggerScriptPaused', scriptId: runningTriggerScript.state.scriptId });
+        }
+        break;
+
+      case 'triggerScriptResume':
+        if (runningTriggerScript && runningTriggerScript.state.executionState === 'paused') {
+          runningTriggerScript.state.executionState = 'running';
+          broadcast({ type: 'triggerScriptResumed', scriptId: runningTriggerScript.state.scriptId });
+        }
+        break;
+
+      // Device alias operations
+      case 'deviceAliasList':
+        broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
+        break;
+
+      case 'deviceAliasSet': {
+        const now = Date.now();
+        const existingAlias = deviceAliases.get(message.idn);
+        const alias: DeviceAlias = {
+          idn: message.idn,
+          alias: message.alias,
+          createdAt: existingAlias?.createdAt ?? now,
+          updatedAt: now,
+        };
+        deviceAliases.set(message.idn, alias);
+        broadcast({ type: 'deviceAliasChanged', idn: message.idn, alias: message.alias });
+        broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
+        break;
+      }
+
+      case 'deviceAliasClear':
+        if (deviceAliases.delete(message.idn)) {
+          broadcast({ type: 'deviceAliasChanged', idn: message.idn, alias: null });
+          broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
+        }
+        break;
+
+      // Settings export/import
+      case 'settingsExport':
+        broadcast({
+          type: 'settingsExported',
+          data: {
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            sequences: Array.from(sequenceLibrary.values()),
+            triggerScripts: Array.from(triggerScriptLibrary.values()),
+            deviceAliases: Array.from(deviceAliases.values()),
+          },
+        });
+        break;
+
+      case 'settingsImport': {
+        let seqCount = 0;
+        let scriptCount = 0;
+        let aliasCount = 0;
+
+        for (const seq of message.data.sequences ?? []) {
+          sequenceLibrary.set(seq.id, seq);
+          seqCount++;
+        }
+        for (const script of message.data.triggerScripts ?? []) {
+          triggerScriptLibrary.set(script.id, script);
+          scriptCount++;
+        }
+        for (const alias of message.data.deviceAliases ?? []) {
+          deviceAliases.set(alias.idn, alias);
+          aliasCount++;
+        }
+
+        broadcast({
+          type: 'settingsImported',
+          result: { sequences: seqCount, triggerScripts: scriptCount, deviceAliases: aliasCount },
+        });
+        broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
+        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
+        break;
+      }
 
       default:
         // Ignore unsupported messages in demo mode
         console.log('[Demo] Unsupported message type:', (message as { type: string }).type);
+    }
+  }
+
+  // Sequence execution handlers
+  function handleSequenceRun(config: SequenceRunConfig): void {
+    // Abort any running sequence
+    handleSequenceAbort();
+
+    const sequence = sequenceLibrary.get(config.sequenceId);
+    if (!sequence) {
+      broadcast({ type: 'sequenceError', sequenceId: config.sequenceId, error: 'Sequence not found' });
+      return;
+    }
+
+    const session = sessions.get(config.deviceId);
+    if (!session) {
+      broadcast({ type: 'sequenceError', sequenceId: config.sequenceId, error: 'Device not found' });
+      return;
+    }
+
+    const steps = generateSteps(sequence.waveform);
+    const totalCycles = config.repeatMode === 'count' ? (config.repeatCount ?? 1) :
+                        config.repeatMode === 'once' ? 1 : null;
+
+    const state: SequenceState = {
+      sequenceId: config.sequenceId,
+      runConfig: config,
+      executionState: 'running',
+      currentStepIndex: 0,
+      totalSteps: steps.length,
+      currentCycle: 1,
+      totalCycles,
+      startedAt: Date.now(),
+      elapsedMs: 0,
+      commandedValue: steps[0]?.value ?? 0,
+    };
+
+    runningSequence = { state, steps, timer: null };
+
+    // Apply pre-value if specified
+    if (sequence.preValue !== undefined) {
+      applyValue(session, config.parameter, sequence.preValue, sequence);
+    }
+
+    broadcast({ type: 'sequenceStarted', state });
+    scheduleNextStep();
+  }
+
+  function applyValue(session: DeviceSession, parameter: string, rawValue: number, sequence: SequenceDefinition): void {
+    let value = rawValue;
+
+    // Apply scale and offset
+    if (sequence.scale !== undefined) value *= sequence.scale;
+    if (sequence.offset !== undefined) value += sequence.offset;
+
+    // Apply clamps
+    if (sequence.minClamp !== undefined) value = Math.max(sequence.minClamp, value);
+    if (sequence.maxClamp !== undefined) value = Math.min(sequence.maxClamp, value);
+
+    // Apply to device
+    handleSetValue(session.device.id, parameter, value);
+  }
+
+  function scheduleNextStep(): void {
+    if (!runningSequence || runningSequence.state.executionState !== 'running') return;
+
+    const { state, steps } = runningSequence;
+    const step = steps[state.currentStepIndex];
+    const sequence = sequenceLibrary.get(state.sequenceId);
+    const session = sessions.get(state.runConfig.deviceId);
+
+    if (!sequence || !session || !step) {
+      handleSequenceAbort();
+      return;
+    }
+
+    // Apply current step value
+    applyValue(session, state.runConfig.parameter, step.value, sequence);
+    state.commandedValue = step.value;
+    state.elapsedMs = Date.now() - (state.startedAt ?? Date.now());
+
+    broadcast({ type: 'sequenceProgress', state: { ...state } });
+
+    // Schedule next step
+    runningSequence.timer = setTimeout(() => {
+      if (!runningSequence) return;
+
+      state.currentStepIndex++;
+
+      // Check if cycle complete
+      if (state.currentStepIndex >= steps.length) {
+        state.currentStepIndex = 0;
+        state.currentCycle++;
+
+        // For random walk, regenerate steps each cycle
+        if ('type' in sequence.waveform && sequence.waveform.type === 'random') {
+          runningSequence.steps = generateSteps(sequence.waveform);
+        }
+
+        // Check if done
+        if (state.totalCycles !== null && state.currentCycle > state.totalCycles) {
+          // Apply post-value if specified
+          if (sequence.postValue !== undefined) {
+            applyValue(session, state.runConfig.parameter, sequence.postValue, sequence);
+          }
+          state.executionState = 'completed';
+          broadcast({ type: 'sequenceCompleted', sequenceId: state.sequenceId });
+          runningSequence = null;
+          return;
+        }
+      }
+
+      scheduleNextStep();
+    }, step.duration);
+  }
+
+  function handleSequenceAbort(): void {
+    if (runningSequence) {
+      if (runningSequence.timer) {
+        clearTimeout(runningSequence.timer);
+      }
+      const sequenceId = runningSequence.state.sequenceId;
+      runningSequence = null;
+      broadcast({ type: 'sequenceAborted', sequenceId });
+    }
+  }
+
+  // Trigger script execution handlers
+  function handleTriggerScriptRun(scriptId: string): void {
+    handleTriggerScriptStop();
+
+    const script = triggerScriptLibrary.get(scriptId);
+    if (!script) {
+      broadcast({ type: 'triggerScriptError', scriptId, error: 'Trigger script not found' });
+      return;
+    }
+
+    const triggerStates = new Map<string, TriggerState>();
+    for (const trigger of script.triggers) {
+      triggerStates.set(trigger.id, {
+        triggerId: trigger.id,
+        firedCount: 0,
+        lastFiredAt: null,
+        conditionMet: false,
+      });
+    }
+
+    const state: TriggerScriptState = {
+      scriptId,
+      executionState: 'running',
+      startedAt: Date.now(),
+      elapsedMs: 0,
+      triggerStates: Array.from(triggerStates.values()),
+    };
+
+    runningTriggerScript = { state, script, timer: null, triggerStates };
+
+    broadcast({ type: 'triggerScriptStarted', state });
+
+    // Start monitoring triggers
+    runningTriggerScript.timer = setInterval(() => evaluateTriggers(), 100);
+  }
+
+  function evaluateTriggers(): void {
+    if (!runningTriggerScript || runningTriggerScript.state.executionState !== 'running') return;
+
+    const { state, script, triggerStates } = runningTriggerScript;
+    const now = Date.now();
+    state.elapsedMs = now - (state.startedAt ?? now);
+
+    for (const trigger of script.triggers) {
+      const triggerState = triggerStates.get(trigger.id);
+      if (!triggerState) continue;
+
+      // Check if already fired and not repeating
+      if (trigger.repeatMode === 'once' && triggerState.firedCount > 0) continue;
+
+      // Check debounce
+      if (triggerState.lastFiredAt && now - triggerState.lastFiredAt < trigger.debounceMs) continue;
+
+      // Evaluate condition
+      let conditionMet = false;
+
+      if (trigger.condition.type === 'time') {
+        conditionMet = state.elapsedMs >= trigger.condition.seconds * 1000;
+      } else if (trigger.condition.type === 'value') {
+        const session = sessions.get(trigger.condition.deviceId);
+        if (session) {
+          const currentValue = session.measurements[trigger.condition.parameter] ?? 0;
+          const targetValue = trigger.condition.value;
+          switch (trigger.condition.operator) {
+            case '>': conditionMet = currentValue > targetValue; break;
+            case '<': conditionMet = currentValue < targetValue; break;
+            case '>=': conditionMet = currentValue >= targetValue; break;
+            case '<=': conditionMet = currentValue <= targetValue; break;
+            case '==': conditionMet = Math.abs(currentValue - targetValue) < 0.0001; break;
+            case '!=': conditionMet = Math.abs(currentValue - targetValue) >= 0.0001; break;
+          }
+        }
+      }
+
+      const wasConditionMet = triggerState.conditionMet;
+      triggerState.conditionMet = conditionMet;
+
+      // Fire on rising edge
+      if (conditionMet && !wasConditionMet) {
+        triggerState.firedCount++;
+        triggerState.lastFiredAt = now;
+        executeTriggerAction(trigger, triggerState);
+      }
+    }
+
+    state.triggerStates = Array.from(triggerStates.values());
+    broadcast({ type: 'triggerScriptProgress', state: { ...state } });
+  }
+
+  function executeTriggerAction(trigger: TriggerScript['triggers'][0], triggerState: TriggerState): void {
+    if (!runningTriggerScript) return;
+
+    const action = trigger.action;
+    try {
+      switch (action.type) {
+        case 'setValue':
+          handleSetValue(action.deviceId, action.parameter, action.value);
+          break;
+        case 'setOutput':
+          handleSetOutput(action.deviceId, action.enabled);
+          break;
+        case 'setMode':
+          handleSetMode(action.deviceId, action.mode);
+          break;
+        case 'startSequence':
+          handleSequenceRun({
+            sequenceId: action.sequenceId,
+            deviceId: action.deviceId,
+            parameter: action.parameter,
+            repeatMode: action.repeatMode,
+            repeatCount: action.repeatCount,
+          });
+          break;
+        case 'stopSequence':
+          handleSequenceAbort();
+          break;
+        case 'pauseSequence':
+          if (runningSequence) {
+            runningSequence.state.executionState = 'paused';
+            if (runningSequence.timer) clearTimeout(runningSequence.timer);
+          }
+          break;
+      }
+
+      broadcast({
+        type: 'triggerFired',
+        scriptId: runningTriggerScript.state.scriptId,
+        triggerId: trigger.id,
+        triggerState,
+      });
+    } catch (err) {
+      broadcast({
+        type: 'triggerActionFailed',
+        scriptId: runningTriggerScript.state.scriptId,
+        triggerId: trigger.id,
+        actionType: action.type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  function handleTriggerScriptStop(): void {
+    if (runningTriggerScript) {
+      if (runningTriggerScript.timer) {
+        clearInterval(runningTriggerScript.timer);
+      }
+      const scriptId = runningTriggerScript.state.scriptId;
+      runningTriggerScript = null;
+      broadcast({ type: 'triggerScriptStopped', scriptId });
     }
   }
 
@@ -449,6 +983,16 @@ export function createDemoServer(): DemoServer {
   }
 
   function stop(): void {
+    // Stop running sequences and trigger scripts
+    if (runningSequence?.timer) {
+      clearTimeout(runningSequence.timer);
+      runningSequence = null;
+    }
+    if (runningTriggerScript?.timer) {
+      clearInterval(runningTriggerScript.timer);
+      runningTriggerScript = null;
+    }
+
     for (const session of sessions.values()) {
       stopPolling(session);
     }
