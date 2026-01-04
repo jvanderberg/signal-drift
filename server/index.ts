@@ -88,16 +88,18 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Serve static frontend from client/dist (relative to working directory)
-app.use(express.static('client/dist'));
+// Serve static frontend from client/dist in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('client/dist'));
 
-// SPA fallback - serve index.html for all non-API routes
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    return next();
-  }
-  res.sendFile('client/dist/index.html', { root: '.' });
-});
+  // SPA fallback - serve index.html for all non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    res.sendFile('client/dist/index.html', { root: '.' });
+  });
+}
 
 // Create HTTP server (needed for WebSocket)
 const server = createServer(app);
