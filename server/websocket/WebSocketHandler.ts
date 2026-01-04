@@ -1297,6 +1297,8 @@ export function createWebSocketHandler(
       });
       return;
     }
+    const panelKeys = result.value?.layouts?.lg?.map(item => item.i).join(', ') || 'none';
+    console.log('[WebSocket] Sending dashboard layout, lg keys:', panelKeys);
     send(clientState.ws, {
       type: 'dashboardLayout',
       layout: result.value,
@@ -1312,6 +1314,8 @@ export function createWebSocketHandler(
       });
       return;
     }
+    const panelKeys = layout?.layouts?.lg?.map(item => item.i).join(', ') || 'none';
+    console.log('[WebSocket] Saving dashboard layout, lg keys:', panelKeys);
     const result = dashboardLayoutStore.save(layout);
     if (!result.ok) {
       send(clientState.ws, {

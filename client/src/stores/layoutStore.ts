@@ -187,15 +187,18 @@ export const useLayoutStore = create<LayoutStoreState>()(
     saveLayoutDebounced: () => {
       // Only save if layout has been loaded from server
       if (!get().isLoaded) {
+        console.log('[LayoutStore] saveLayoutDebounced: skipping, not loaded yet');
         return;
       }
 
+      console.log('[LayoutStore] saveLayoutDebounced: scheduling save');
       // Debounced save to server
       const timer = get()._saveDebounceTimer;
       if (timer) {
         clearTimeout(timer);
       }
       const newTimer = setTimeout(() => {
+        console.log('[LayoutStore] saveLayoutDebounced: debounce timer fired');
         get()._saveToServer();
       }, SAVE_DEBOUNCE_MS);
       set({ _saveDebounceTimer: newTimer });
@@ -203,16 +206,22 @@ export const useLayoutStore = create<LayoutStoreState>()(
 
     addPanel: (key) => {
       const { layouts, hasPanel } = get();
-      if (hasPanel(key)) return;
+      if (hasPanel(key)) {
+        console.log('[LayoutStore] addPanel: already has panel', key);
+        return;
+      }
 
+      console.log('[LayoutStore] addPanel:', key);
       const newLayouts = generateResponsiveLayouts(key, layouts);
       set({ layouts: newLayouts });
 
       // Save immediately when adding a panel
+      console.log('[LayoutStore] addPanel: saving to server');
       get()._saveToServer();
     },
 
     removePanel: (key) => {
+      console.log('[LayoutStore] removePanel:', key);
       set((state) => {
         const newLayouts = { ...state.layouts };
         for (const bp of Object.keys(newLayouts) as DashboardBreakpoint[]) {
@@ -222,6 +231,7 @@ export const useLayoutStore = create<LayoutStoreState>()(
       });
 
       // Save immediately when removing a panel
+      console.log('[LayoutStore] removePanel: saving to server');
       get()._saveToServer();
     },
 
@@ -257,6 +267,9 @@ export const useLayoutStore = create<LayoutStoreState>()(
       const { layouts } = get();
       const wsManager = getWebSocketManager();
       const layoutData: DashboardLayoutData = { layouts };
+      const panelCounts = Object.entries(layouts).map(([bp, items]) => `${bp}:${items.length}`).join(', ');
+      const panelKeys = layouts.lg.map(item => item.i).join(', ');
+      console.log('[LayoutStore] _saveToServer:', panelCounts, '| keys:', panelKeys);
       wsManager.send({ type: 'dashboardLayoutSave', layout: layoutData });
     },
 
@@ -265,12 +278,16 @@ export const useLayoutStore = create<LayoutStoreState>()(
 
       if (msg.type === 'dashboardLayout') {
         if (msg.layout && msg.layout.layouts) {
+          const panelCounts = Object.entries(msg.layout.layouts).map(([bp, items]) => `${bp}:${(items as DashboardLayoutItem[]).length}`).join(', ');
+          const panelKeys = (msg.layout.layouts.lg || []).map((item: DashboardLayoutItem) => item.i).join(', ');
+          console.log('[LayoutStore] Loaded from server:', panelCounts, '| keys:', panelKeys);
           set({
             layouts: msg.layout.layouts,
             isLoading: false,
             isLoaded: true,
           });
         } else {
+          console.log('[LayoutStore] No saved layout from server, using empty');
           // No saved layout, use empty
           set({
             layouts: createEmptyLayouts(),
