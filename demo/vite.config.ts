@@ -13,7 +13,7 @@ function websocketRedirectPlugin(): Plugin {
     enforce: 'pre',
     resolveId(source, importer) {
       // Check if this is an import of the client's websocket module
-      if (importer && source.endsWith('/websocket') || source.endsWith('/websocket.ts')) {
+      if (importer && (source.endsWith('/websocket') || source.endsWith('/websocket.ts'))) {
         // Check if the importer is in the client directory
         if (importer?.includes('/client/src/')) {
           return demoWebsocketPath;
@@ -33,6 +33,7 @@ export default defineConfig({
       // Redirect dependencies to demo's node_modules
       'react': resolve(__dirname, 'node_modules/react'),
       'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      'zustand': resolve(__dirname, 'node_modules/zustand'),
       'chart.js': resolve(__dirname, 'node_modules/chart.js'),
       'react-chartjs-2': resolve(__dirname, 'node_modules/react-chartjs-2'),
     },
