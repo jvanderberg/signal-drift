@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lab Controller - Interactive Demo</title>
+    <meta name="description" content="Interactive demo of Lab Controller - a web-based control interface for lab equipment including power supplies, electronic loads, and oscilloscopes." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: #0f172a;
+        color: #f1f5f9;
+      }
+
+      /* Demo banner */
+      .demo-banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      .demo-banner strong {
+        color: #fef08a;
+      }
+
+      .demo-banner a {
+        color: #fff;
+        text-decoration: underline;
+      }
+
+      .demo-banner a:hover {
+        color: #fef08a;
+      }
+
+      .demo-badge {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+      }
+
+      /* Offset main content for banner */
+      #root {
+        padding-top: 40px;
+      }
+
+      /* Loading state */
+      .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 24px;
+      }
+
+      .loading-spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid rgba(99, 102, 241, 0.2);
+        border-top-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .loading-text {
+        color: #94a3b8;
+        font-size: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Demo banner -->
+    <div class="demo-banner">
+      <span class="demo-badge">DEMO</span>
+      <span>
+        <strong>This is an interactive demo</strong> running entirely in your browser with simulated devices.
+        <a href="https://github.com/jvanderberg/signal-drift" target="_blank" rel="noopener">View on GitHub</a>
+      </span>
+    </div>
+
+    <!-- React app root -->
+    <div id="root">
+      <div class="loading-container">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Starting simulation...</div>
+      </div>
+    </div>
+
+    <!-- Entry script -->
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
