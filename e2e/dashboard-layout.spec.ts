@@ -132,20 +132,24 @@ test.describe('Dashboard Layout', () => {
     const panelsBefore = await page.locator('.dashboard-panel').count();
     expect(panelsBefore).toBeGreaterThanOrEqual(1);
 
-    // Find and click close button (might be on header with × or aria-label)
+    // Find close button - try multiple selectors since panel structure may vary
     const closeButton = page.locator('.dashboard-panel button[aria-label="Close"]').first();
+    const altCloseButton = page.locator('.dashboard-panel .panel-header button').first();
 
-    if (await closeButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await closeButton.click();
+    const button = await closeButton.isVisible().catch(() => false)
+      ? closeButton
+      : altCloseButton;
+
+    if (await button.isVisible().catch(() => false)) {
+      await button.click();
       await page.waitForTimeout(500);
 
       // Verify panel is removed
       const panelsAfter = await page.locator('.dashboard-panel').count();
       expect(panelsAfter).toBeLessThan(panelsBefore);
     } else {
-      // If no close button visible, skip this assertion
-      // (Panel structure may vary)
-      console.log('Close button not found, skipping close test');
+      // Skip if no close button found - panel may not have one
+      test.skip();
     }
   });
 

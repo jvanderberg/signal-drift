@@ -128,8 +128,10 @@ export function DashboardGrid({ children }: DashboardGridProps) {
       .filter(Boolean);
   }, [children]);
 
-  // Don't render grid until layout is loaded and stabilized
-  // This forces react-grid-layout to mount fresh with correct sizes
+  // Don't render grid until layout is loaded and stabilized.
+  // react-grid-layout caches its internal layout state on mount. If we mount before
+  // the saved layout is loaded, it will use computed defaults. Waiting ensures the
+  // grid mounts fresh with correct saved sizes, avoiding a flash of wrong sizes.
   if (isStabilizing) {
     return (
       <div className="dashboard-grid">

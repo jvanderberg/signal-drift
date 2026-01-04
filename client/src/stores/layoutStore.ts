@@ -41,9 +41,12 @@ const DEFAULT_PANEL_MIN_WIDTH = 4;
 const DEFAULT_PANEL_MIN_HEIGHT = 10;
 
 // Debounce delay for saving layouts (ms)
+// Balances responsiveness with avoiding excessive server writes during rapid adjustments
 const SAVE_DEBOUNCE_MS = 1000;
 
-// Stabilization period after load (ms) - ignore layout changes during this time
+// Stabilization period after load (ms) - ignore automatic layout changes during this time
+// This prevents react-grid-layout's initial onLayoutChange from overwriting saved positions.
+// 500ms is enough for the grid to finish its initial render cycle.
 const LAYOUT_STABILIZATION_MS = 500;
 
 // ============ Store State ============
@@ -58,7 +61,9 @@ interface LayoutStoreState {
 
   // Actions
   setLayouts: (layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>) => void;
-  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, preserveCurrentLayout?: boolean) => void;
+  /** Update layout for a breakpoint. isAutoLayoutChange=true means this came from
+   *  react-grid-layout's onLayoutChange (automatic), not from explicit user interaction */
+  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, isAutoLayoutChange?: boolean) => void;
   updateSingleItem: (breakpoint: DashboardBreakpoint, item: LayoutItem) => void;
   saveLayoutDebounced: () => void;
   addPanel: (key: string) => void;
@@ -171,46 +176,40 @@ export const useLayoutStore = create<LayoutStoreState>()(
       set({ layouts, isLoaded: true });
     },
 
-    updateLayout: (breakpoint, layout, preserveCurrentLayout = true) => {
-      // Skip updates during stabilization period (except explicit user interactions)
-      if (get().isStabilizing && preserveCurrentLayout) {
+    updateLayout: (breakpoint, layout, isAutoLayoutChange = true) => {
+      // During stabilization, ignore automatic layout changes from react-grid-layout
+      // to prevent overwriting saved positions with computed ones
+      if (get().isStabilizing && isAutoLayoutChange) {
         return;
       }
 
-      const newItems = layout.map(layoutItemToDashboardItem);
-      const currentItems = get().layouts[breakpoint];
+      const incomingItems = layout.map(layoutItemToDashboardItem);
+      const existingItems = get().layouts[breakpoint];
 
-      // Merge: update existing items, add new items, but PRESERVE items
-      // that aren't in the new layout (they may just not be rendered yet)
-      const newItemKeys = new Set(newItems.map(item => item.i));
-      const currentItemMap = new Map(currentItems.map(item => [item.i, item]));
-      const preservedItems = currentItems.filter(item => !newItemKeys.has(item.i));
+      // Build lookup structures
+      const incomingItemKeys = new Set(incomingItems.map(item => item.i));
+      const existingItemsByKey = new Map(existingItems.map(item => [item.i, item]));
 
-      // For items in newItems:
-      // - If preserveCurrentLayout=true: keep current size AND position (only add new items)
-      // - If preserveCurrentLayout=false: use new layout (after user drag/resize)
-      const updatedItems = newItems.map(newItem => {
-        const currentItem = currentItemMap.get(newItem.i);
-        if (currentItem && preserveCurrentLayout) {
-          // Item exists and we're preserving layout - keep current size AND position
-          // This prevents react-grid-layout's onLayoutChange from overwriting saved layouts
-          return currentItem;
+      // Keep items that aren't in incoming layout (panels not currently rendered)
+      const unrenderedPanels = existingItems.filter(item => !incomingItemKeys.has(item.i));
+
+      // For each incoming item: use existing data for auto changes, new data for user changes
+      const updatedItems = incomingItems.map(incomingItem => {
+        const existingItem = existingItemsByKey.get(incomingItem.i);
+        if (existingItem && isAutoLayoutChange) {
+          // Auto change: keep saved position/size to prevent react-grid-layout
+          // from overwriting our stored layout
+          return existingItem;
         }
-        return newItem;
+        return incomingItem;
       });
 
-      const mergedItems = [...updatedItems, ...preservedItems];
+      const mergedItems = [...updatedItems, ...unrenderedPanels];
 
-      // Check if layout actually changed (compare JSON for deep equality)
-      const currentJson = JSON.stringify(currentItems);
-      const mergedJson = JSON.stringify(mergedItems);
-      if (currentJson === mergedJson) {
-        return; // No change, skip update
+      // Skip update if nothing changed
+      if (JSON.stringify(existingItems) === JSON.stringify(mergedItems)) {
+        return;
       }
-
-      console.log('[LayoutStore] updateLayout:', breakpoint,
-        'preserveCurrentLayout:', preserveCurrentLayout,
-        'items:', mergedItems.map(i => `${i.i}(${i.x},${i.y} ${i.w}x${i.h})`).join(', '));
 
       set((state) => ({
         layouts: {
@@ -218,25 +217,22 @@ export const useLayoutStore = create<LayoutStoreState>()(
           [breakpoint]: mergedItems,
         },
       }));
-      // Note: This only updates state. Call saveLayoutDebounced() after user
-      // interaction (drag/resize) to persist changes.
     },
 
     updateSingleItem: (breakpoint, item) => {
       const currentItems = get().layouts[breakpoint];
-      const itemIndex = currentItems.findIndex(i => i.i === item.i);
+      const newItem = layoutItemToDashboardItem(item);
 
-      if (itemIndex === -1) {
-        console.warn('[LayoutStore] updateSingleItem: item not found', item.i);
+      // Immutably replace the item at its index
+      const updatedItems = currentItems.map(existing =>
+        existing.i === item.i ? newItem : existing
+      );
+
+      // Verify item was found (updatedItems will be unchanged if not)
+      if (JSON.stringify(currentItems) === JSON.stringify(updatedItems)) {
+        console.warn('[LayoutStore] updateSingleItem: item not found or unchanged', item.i);
         return;
       }
-
-      const newItem = layoutItemToDashboardItem(item);
-      const updatedItems = [...currentItems];
-      updatedItems[itemIndex] = newItem;
-
-      console.log('[LayoutStore] updateSingleItem:', breakpoint,
-        'item:', `${newItem.i}(${newItem.x},${newItem.y} ${newItem.w}x${newItem.h})`);
 
       set((state) => ({
         layouts: {
@@ -248,23 +244,16 @@ export const useLayoutStore = create<LayoutStoreState>()(
 
     saveLayoutDebounced: () => {
       // Only save if layout has been loaded and stabilized
-      if (!get().isLoaded) {
-        console.log('[LayoutStore] saveLayoutDebounced: skipping, not loaded yet');
-        return;
-      }
-      if (get().isStabilizing) {
-        console.log('[LayoutStore] saveLayoutDebounced: skipping, still stabilizing');
+      if (!get().isLoaded || get().isStabilizing) {
         return;
       }
 
-      console.log('[LayoutStore] saveLayoutDebounced: scheduling save');
-      // Debounced save to server
+      // Clear existing timer and set new one
       const timer = get()._saveDebounceTimer;
       if (timer) {
         clearTimeout(timer);
       }
       const newTimer = setTimeout(() => {
-        console.log('[LayoutStore] saveLayoutDebounced: debounce timer fired');
         get()._saveToServer();
       }, SAVE_DEBOUNCE_MS);
       set({ _saveDebounceTimer: newTimer });
@@ -273,21 +262,15 @@ export const useLayoutStore = create<LayoutStoreState>()(
     addPanel: (key) => {
       const { layouts, hasPanel } = get();
       if (hasPanel(key)) {
-        console.log('[LayoutStore] addPanel: already has panel', key);
-        return;
+        return; // Panel already exists
       }
 
-      console.log('[LayoutStore] addPanel:', key);
       const newLayouts = generateResponsiveLayouts(key, layouts);
       set({ layouts: newLayouts });
-
-      // Save immediately when adding a panel
-      console.log('[LayoutStore] addPanel: saving to server');
       get()._saveToServer();
     },
 
     removePanel: (key) => {
-      console.log('[LayoutStore] removePanel:', key);
       set((state) => {
         const newLayouts = { ...state.layouts };
         for (const bp of Object.keys(newLayouts) as DashboardBreakpoint[]) {
@@ -295,9 +278,6 @@ export const useLayoutStore = create<LayoutStoreState>()(
         }
         return { layouts: newLayouts };
       });
-
-      // Save immediately when removing a panel
-      console.log('[LayoutStore] removePanel: saving to server');
       get()._saveToServer();
     },
 
@@ -333,13 +313,15 @@ export const useLayoutStore = create<LayoutStoreState>()(
       const { layouts } = get();
       const wsManager = getWebSocketManager();
       const layoutData: DashboardLayoutData = { layouts };
-      const panelCounts = Object.entries(layouts).map(([bp, items]) => `${bp}:${items.length}`).join(', ');
-      const panelKeys = layouts.lg.map(item => item.i).join(', ');
-      console.log('[LayoutStore] _saveToServer:', panelCounts, '| keys:', panelKeys);
       wsManager.send({ type: 'dashboardLayoutSave', layout: layoutData });
     },
 
     _handleMessage: (message: unknown) => {
+      // Runtime validation of message structure
+      if (!message || typeof message !== 'object' || !('type' in message)) {
+        console.error('[LayoutStore] Invalid message format:', message);
+        return;
+      }
       const msg = message as { type: string; layout?: DashboardLayoutData | null };
 
       if (msg.type === 'dashboardLayout') {
@@ -349,30 +331,17 @@ export const useLayoutStore = create<LayoutStoreState>()(
           clearTimeout(existingTimer);
         }
 
-        if (msg.layout && msg.layout.layouts) {
-          const panelCounts = Object.entries(msg.layout.layouts).map(([bp, items]) => `${bp}:${(items as DashboardLayoutItem[]).length}`).join(', ');
-          const panelKeys = (msg.layout.layouts.lg || []).map((item: DashboardLayoutItem) => item.i).join(', ');
-          console.log('[LayoutStore] Loaded from server:', panelCounts, '| keys:', panelKeys);
-          set({
-            layouts: msg.layout.layouts,
-            isLoading: false,
-            isLoaded: true,
-            isStabilizing: true, // Start stabilization period
-          });
-        } else {
-          console.log('[LayoutStore] No saved layout from server, using empty');
-          // No saved layout, use empty
-          set({
-            layouts: createEmptyLayouts(),
-            isLoading: false,
-            isLoaded: true,
-            isStabilizing: true, // Start stabilization period
-          });
-        }
+        // Apply layout from server or use empty if none saved
+        const layouts = msg.layout?.layouts ?? createEmptyLayouts();
+        set({
+          layouts,
+          isLoading: false,
+          isLoaded: true,
+          isStabilizing: true,
+        });
 
         // End stabilization after delay - layout changes will be accepted after this
         const stabilizationTimer = setTimeout(() => {
-          console.log('[LayoutStore] Stabilization period ended');
           set({ isStabilizing: false, _stabilizationTimer: null });
         }, LAYOUT_STABILIZATION_MS);
         set({ _stabilizationTimer: stabilizationTimer });
