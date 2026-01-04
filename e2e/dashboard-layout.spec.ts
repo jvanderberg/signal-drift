@@ -148,4 +148,98 @@ test.describe('Dashboard Layout', () => {
       console.log('Close button not found, skipping close test');
     }
   });
+
+  test('should persist panel resize across page refresh', async ({ page }) => {
+    // Open sidebar and add a widget panel (Sequencer)
+    await openSidebar(page);
+
+    // Click directly on the Sequencer text
+    await page.getByText('Sequencer').first().click();
+    await page.waitForTimeout(1500);
+
+    // Wait for panel to appear in grid
+    await waitForPanelInGrid(page);
+
+    // Wait for react-grid-layout to fully initialize
+    await page.waitForTimeout(500);
+
+    // Get the panel's grid item (parent of .dashboard-panel)
+    const gridItem = page.locator('.react-grid-item').first();
+    await expect(gridItem).toBeVisible();
+
+    // Get initial dimensions from the panel
+    const initialBox = await gridItem.boundingBox();
+    expect(initialBox).not.toBeNull();
+    const initialWidth = initialBox!.width;
+    const initialHeight = initialBox!.height;
+
+    // Find the SE resize handle
+    const resizeHandle = gridItem.locator('.react-resizable-handle-se');
+    await expect(resizeHandle).toBeVisible({ timeout: 5000 });
+
+    // Use Playwright's drag functionality with the resize handle
+    // Drag to a point 150px right and 90px down from the handle center
+    const handleBox = await resizeHandle.boundingBox();
+    expect(handleBox).not.toBeNull();
+
+    const targetX = handleBox!.x + handleBox!.width + 150;
+    const targetY = handleBox!.y + handleBox!.height + 90;
+
+    // Use the lower-level approach but with proper event handling
+    await resizeHandle.hover();
+    await page.waitForTimeout(200);
+
+    // Drag the handle to make panel larger
+    await resizeHandle.dragTo(page.locator('body'), {
+      targetPosition: { x: targetX, y: targetY },
+      force: true,
+    });
+
+    // Wait for layout to settle and save to server (debounce is 1000ms)
+    await page.waitForTimeout(1500);
+
+    // Get new dimensions after resize
+    const afterResizeBox = await gridItem.boundingBox();
+    expect(afterResizeBox).not.toBeNull();
+
+    // Verify the panel was actually resized (should be at least 1 grid column/row larger)
+    // Grid snapping means the change might not be exactly the drag delta
+    const minWidthIncrease = 50; // At least 50px wider
+    const minHeightIncrease = 30; // At least 30px taller (1 row)
+    expect(afterResizeBox!.width).toBeGreaterThanOrEqual(initialWidth + minWidthIncrease);
+    expect(afterResizeBox!.height).toBeGreaterThanOrEqual(initialHeight + minHeightIncrease);
+
+    // Store the new dimensions for comparison after refresh
+    const newWidth = afterResizeBox!.width;
+    const newHeight = afterResizeBox!.height;
+
+    // Refresh the page
+    await page.reload();
+    await waitForAppReady(page);
+
+    // Wait for the panel to reappear (it should be restored from server)
+    await waitForPanelInGrid(page, 15000);
+
+    // Get the panel's grid item after refresh
+    const gridItemAfterRefresh = page.locator('.react-grid-item').first();
+    await expect(gridItemAfterRefresh).toBeVisible();
+
+    // Wait a moment for layout to settle
+    await page.waitForTimeout(500);
+
+    // Get dimensions after refresh
+    const afterRefreshBox = await gridItemAfterRefresh.boundingBox();
+    expect(afterRefreshBox).not.toBeNull();
+
+    // Verify the resized dimensions persisted (with some tolerance for rounding)
+    const tolerance = 20; // Allow 20px tolerance for grid snapping
+    expect(afterRefreshBox!.width).toBeGreaterThanOrEqual(newWidth - tolerance);
+    expect(afterRefreshBox!.width).toBeLessThanOrEqual(newWidth + tolerance);
+    expect(afterRefreshBox!.height).toBeGreaterThanOrEqual(newHeight - tolerance);
+    expect(afterRefreshBox!.height).toBeLessThanOrEqual(newHeight + tolerance);
+
+    // Also verify it's still larger than initial (the resize was preserved)
+    expect(afterRefreshBox!.width).toBeGreaterThan(initialWidth);
+    expect(afterRefreshBox!.height).toBeGreaterThan(initialHeight);
+  });
 });
