@@ -168,10 +168,29 @@ describe('layoutStore', () => {
       expect(state.layouts.lg[0].i).toBe('panel-1');
     });
 
+    it('should not save to server before layout is loaded', () => {
+      const newLayout = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
+
+      // isLoaded is false by default
+      act(() => {
+        useLayoutStore.getState().updateLayout('lg', newLayout);
+      });
+
+      // Advance time by debounce period
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // Should not have saved because isLoaded is false
+      expect(mockState.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dashboardLayoutSave' }));
+    });
+
     it('should debounce save to server', () => {
       const newLayout = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
 
+      // Set isLoaded to true so updateLayout will save
       act(() => {
+        useLayoutStore.setState({ isLoaded: true });
         useLayoutStore.getState().updateLayout('lg', newLayout);
       });
 
@@ -191,7 +210,9 @@ describe('layoutStore', () => {
       const layout1 = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
       const layout2 = [{ i: 'panel-1', x: 1, y: 0, w: 6, h: 8 }];
 
+      // Set isLoaded to true so updateLayout will save
       act(() => {
+        useLayoutStore.setState({ isLoaded: true });
         useLayoutStore.getState().updateLayout('lg', layout1);
       });
 

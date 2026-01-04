@@ -180,6 +180,12 @@ export const useLayoutStore = create<LayoutStoreState>()(
         },
       }));
 
+      // Only save to server if layout has been loaded from server
+      // This prevents onLayoutChange during initial render from overwriting saved layout
+      if (!get().isLoaded) {
+        return;
+      }
+
       // Debounced save to server
       const timer = get()._saveDebounceTimer;
       if (timer) {
