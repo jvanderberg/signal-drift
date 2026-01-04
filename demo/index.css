@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../client/src/**/*.tsx";
+@source "../client/src/**/*.ts";
 
 /* Light theme (default) */
 :root {
