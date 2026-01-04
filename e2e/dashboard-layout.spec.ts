@@ -247,7 +247,81 @@ test.describe('Dashboard Layout', () => {
     expect(afterRefreshBox!.height).toBeGreaterThan(initialHeight);
   });
 
-  // Note: Drag position persistence test is skipped because with compactType="vertical",
-  // a single panel always compacts to the top. Multi-panel drag tests require more complex setup.
-  // The resize persistence test above validates the core persistence mechanism.
+  test('should persist panel drag position across page refresh', async ({ page }) => {
+    // Open sidebar and add a device panel (always has visible drag handle)
+    await openSidebar(page);
+
+    // Wait for devices to load and click on first device
+    await expect(page.getByText('Matrix')).toBeVisible({ timeout: 15000 });
+    await page.getByText('Matrix').first().click();
+    await page.waitForTimeout(1500);
+
+    // Wait for panel to appear in grid
+    await waitForPanelInGrid(page);
+    await page.waitForTimeout(1000);
+
+    // Get the panel's grid item
+    const gridItem = page.locator('.react-grid-item').first();
+    await expect(gridItem).toBeVisible();
+
+    // Get initial position
+    const initialBox = await gridItem.boundingBox();
+    expect(initialBox).not.toBeNull();
+    const initialY = initialBox!.y;
+
+    // Find the drag handle
+    const dragHandle = page.locator('.panel-drag-handle').first();
+    await expect(dragHandle).toBeVisible({ timeout: 10000 });
+
+    // Get handle position for dragging
+    const handleBox = await dragHandle.boundingBox();
+    expect(handleBox).not.toBeNull();
+
+    // Use mouse events to drag the panel down
+    const startX = handleBox!.x + handleBox!.width / 2;
+    const startY = handleBox!.y + handleBox!.height / 2;
+    const endY = startY + 150; // Drag down 150px
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX, endY, { steps: 10 });
+    await page.mouse.up();
+
+    // Wait for layout to settle and save to server
+    await page.waitForTimeout(1500);
+
+    // Get new position after drag
+    const afterDragBox = await gridItem.boundingBox();
+    expect(afterDragBox).not.toBeNull();
+
+    // Verify the panel was actually moved (Y should have changed)
+    expect(afterDragBox!.y).toBeGreaterThan(initialY);
+
+    // Store the new position for comparison after refresh
+    const newY = afterDragBox!.y;
+
+    // Refresh the page
+    await page.reload();
+    await waitForAppReady(page);
+
+    // Wait for the panel to reappear
+    await waitForPanelInGrid(page, 15000);
+
+    // Get the panel's grid item after refresh
+    const gridItemAfterRefresh = page.locator('.react-grid-item').first();
+    await expect(gridItemAfterRefresh).toBeVisible();
+    await page.waitForTimeout(500);
+
+    // Get position after refresh
+    const afterRefreshBox = await gridItemAfterRefresh.boundingBox();
+    expect(afterRefreshBox).not.toBeNull();
+
+    // Verify the dragged position persisted (with tolerance for grid snapping)
+    const tolerance = 40;
+    expect(afterRefreshBox!.y).toBeGreaterThanOrEqual(newY - tolerance);
+    expect(afterRefreshBox!.y).toBeLessThanOrEqual(newY + tolerance);
+
+    // Verify it's still lower than initial position
+    expect(afterRefreshBox!.y).toBeGreaterThan(initialY);
+  });
 });
