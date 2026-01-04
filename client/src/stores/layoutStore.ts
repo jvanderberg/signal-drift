@@ -43,6 +43,9 @@ const DEFAULT_PANEL_MIN_HEIGHT = 10;
 // Debounce delay for saving layouts (ms)
 const SAVE_DEBOUNCE_MS = 1000;
 
+// Stabilization period after load (ms) - ignore layout changes during this time
+const LAYOUT_STABILIZATION_MS = 500;
+
 // ============ Store State ============
 interface LayoutStoreState {
   // Current layouts for each breakpoint
@@ -51,10 +54,11 @@ interface LayoutStoreState {
   // Loading state
   isLoading: boolean;
   isLoaded: boolean;
+  isStabilizing: boolean; // True during stabilization period after load
 
   // Actions
   setLayouts: (layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>) => void;
-  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, preserveSizes?: boolean) => void;
+  updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, preserveCurrentLayout?: boolean) => void;
   saveLayoutDebounced: () => void;
   addPanel: (key: string) => void;
   removePanel: (key: string) => void;
@@ -64,6 +68,7 @@ interface LayoutStoreState {
 
   // Internal
   _saveDebounceTimer: ReturnType<typeof setTimeout> | null;
+  _stabilizationTimer: ReturnType<typeof setTimeout> | null;
   _loadFromServer: () => void;
   _saveToServer: () => void;
   _handleMessage: (message: unknown) => void;
@@ -157,13 +162,20 @@ export const useLayoutStore = create<LayoutStoreState>()(
     layouts: createEmptyLayouts(),
     isLoading: false,
     isLoaded: false,
+    isStabilizing: false,
     _saveDebounceTimer: null,
+    _stabilizationTimer: null,
 
     setLayouts: (layouts) => {
       set({ layouts, isLoaded: true });
     },
 
-    updateLayout: (breakpoint, layout, preserveSizes = true) => {
+    updateLayout: (breakpoint, layout, preserveCurrentLayout = true) => {
+      // Skip updates during stabilization period (except explicit user interactions)
+      if (get().isStabilizing && preserveCurrentLayout) {
+        return;
+      }
+
       const newItems = layout.map(layoutItemToDashboardItem);
       const currentItems = get().layouts[breakpoint];
 
@@ -173,18 +185,15 @@ export const useLayoutStore = create<LayoutStoreState>()(
       const currentItemMap = new Map(currentItems.map(item => [item.i, item]));
       const preservedItems = currentItems.filter(item => !newItemKeys.has(item.i));
 
-      // For items in newItems, update position; only update size if preserveSizes is false
+      // For items in newItems:
+      // - If preserveCurrentLayout=true: keep current size AND position (only add new items)
+      // - If preserveCurrentLayout=false: use new layout (after user drag/resize)
       const updatedItems = newItems.map(newItem => {
         const currentItem = currentItemMap.get(newItem.i);
-        if (currentItem && preserveSizes) {
-          // Item exists and we're preserving sizes - keep current size, update position
-          return {
-            ...newItem,
-            w: currentItem.w,
-            h: currentItem.h,
-            minW: currentItem.minW,
-            minH: currentItem.minH,
-          };
+        if (currentItem && preserveCurrentLayout) {
+          // Item exists and we're preserving layout - keep current size AND position
+          // This prevents react-grid-layout's onLayoutChange from overwriting saved layouts
+          return currentItem;
         }
         return newItem;
       });
@@ -199,8 +208,8 @@ export const useLayoutStore = create<LayoutStoreState>()(
       }
 
       console.log('[LayoutStore] updateLayout:', breakpoint,
-        'preserveSizes:', preserveSizes,
-        'items:', mergedItems.map(i => `${i.i}(${i.w}x${i.h})`).join(', '));
+        'preserveCurrentLayout:', preserveCurrentLayout,
+        'items:', mergedItems.map(i => `${i.i}(${i.x},${i.y} ${i.w}x${i.h})`).join(', '));
 
       set((state) => ({
         layouts: {
@@ -213,9 +222,13 @@ export const useLayoutStore = create<LayoutStoreState>()(
     },
 
     saveLayoutDebounced: () => {
-      // Only save if layout has been loaded from server
+      // Only save if layout has been loaded and stabilized
       if (!get().isLoaded) {
         console.log('[LayoutStore] saveLayoutDebounced: skipping, not loaded yet');
+        return;
+      }
+      if (get().isStabilizing) {
+        console.log('[LayoutStore] saveLayoutDebounced: skipping, still stabilizing');
         return;
       }
 
@@ -305,6 +318,12 @@ export const useLayoutStore = create<LayoutStoreState>()(
       const msg = message as { type: string; layout?: DashboardLayoutData | null };
 
       if (msg.type === 'dashboardLayout') {
+        // Clear any existing stabilization timer
+        const existingTimer = get()._stabilizationTimer;
+        if (existingTimer) {
+          clearTimeout(existingTimer);
+        }
+
         if (msg.layout && msg.layout.layouts) {
           const panelCounts = Object.entries(msg.layout.layouts).map(([bp, items]) => `${bp}:${(items as DashboardLayoutItem[]).length}`).join(', ');
           const panelKeys = (msg.layout.layouts.lg || []).map((item: DashboardLayoutItem) => item.i).join(', ');
@@ -313,6 +332,7 @@ export const useLayoutStore = create<LayoutStoreState>()(
             layouts: msg.layout.layouts,
             isLoading: false,
             isLoaded: true,
+            isStabilizing: true, // Start stabilization period
           });
         } else {
           console.log('[LayoutStore] No saved layout from server, using empty');
@@ -321,8 +341,16 @@ export const useLayoutStore = create<LayoutStoreState>()(
             layouts: createEmptyLayouts(),
             isLoading: false,
             isLoaded: true,
+            isStabilizing: true, // Start stabilization period
           });
         }
+
+        // End stabilization after delay - layout changes will be accepted after this
+        const stabilizationTimer = setTimeout(() => {
+          console.log('[LayoutStore] Stabilization period ended');
+          set({ isStabilizing: false, _stabilizationTimer: null });
+        }, LAYOUT_STABILIZATION_MS);
+        set({ _stabilizationTimer: stabilizationTimer });
       }
       // dashboardLayoutSaved - no action needed
     },

@@ -85,13 +85,18 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   }, []);
 
   // Save layout after user interaction (drag or resize)
-  const handleDragStop = useCallback(() => {
-    saveLayoutDebounced();
-  }, [saveLayoutDebounced]);
+  const handleDragStop = useCallback(
+    (layout: Layout) => {
+      // Update with new positions (preserveCurrentLayout: false)
+      updateLayout(currentBreakpoint.current, layout, false);
+      saveLayoutDebounced();
+    },
+    [updateLayout, saveLayoutDebounced]
+  );
 
   const handleResizeStop = useCallback(
     (layout: Layout) => {
-      // Update with new sizes (preserveSizes: false)
+      // Update with new sizes (preserveCurrentLayout: false)
       updateLayout(currentBreakpoint.current, layout, false);
       saveLayoutDebounced();
     },
