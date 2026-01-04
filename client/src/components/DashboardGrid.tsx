@@ -6,7 +6,7 @@
  */
 
 import { useMemo, useCallback, useRef, ReactNode } from 'react';
-import { Responsive, WidthProvider, type Layout } from 'react-grid-layout/legacy';
+import { Responsive, WidthProvider, type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import {
   useLayoutStore,
   selectLayouts,
@@ -42,6 +42,7 @@ function PanelWrapper({ children }: PanelWrapperProps) {
 export function DashboardGrid({ children }: DashboardGridProps) {
   const layouts = useLayoutStore(selectLayouts);
   const updateLayout = useLayoutStore((state) => state.updateLayout);
+  const updateSingleItem = useLayoutStore((state) => state.updateSingleItem);
   const saveLayoutDebounced = useLayoutStore((state) => state.saveLayoutDebounced);
   const currentBreakpoint = useRef<DashboardBreakpoint>('lg');
 
@@ -85,22 +86,23 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   }, []);
 
   // Save layout after user interaction (drag or resize)
+  // Only update the specific item that was changed, not the entire layout
   const handleDragStop = useCallback(
-    (layout: Layout) => {
-      // Update with new positions (preserveCurrentLayout: false)
-      updateLayout(currentBreakpoint.current, layout, false);
+    (_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+      // Update only the dragged item's position
+      updateSingleItem(currentBreakpoint.current, newItem);
       saveLayoutDebounced();
     },
-    [updateLayout, saveLayoutDebounced]
+    [updateSingleItem, saveLayoutDebounced]
   );
 
   const handleResizeStop = useCallback(
-    (layout: Layout) => {
-      // Update with new sizes (preserveCurrentLayout: false)
-      updateLayout(currentBreakpoint.current, layout, false);
+    (_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+      // Update only the resized item's size
+      updateSingleItem(currentBreakpoint.current, newItem);
       saveLayoutDebounced();
     },
-    [updateLayout, saveLayoutDebounced]
+    [updateSingleItem, saveLayoutDebounced]
   );
 
   // Wrap children with panel wrappers and ensure they have keys

@@ -59,6 +59,7 @@ interface LayoutStoreState {
   // Actions
   setLayouts: (layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>) => void;
   updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, preserveCurrentLayout?: boolean) => void;
+  updateSingleItem: (breakpoint: DashboardBreakpoint, item: LayoutItem) => void;
   saveLayoutDebounced: () => void;
   addPanel: (key: string) => void;
   removePanel: (key: string) => void;
@@ -219,6 +220,30 @@ export const useLayoutStore = create<LayoutStoreState>()(
       }));
       // Note: This only updates state. Call saveLayoutDebounced() after user
       // interaction (drag/resize) to persist changes.
+    },
+
+    updateSingleItem: (breakpoint, item) => {
+      const currentItems = get().layouts[breakpoint];
+      const itemIndex = currentItems.findIndex(i => i.i === item.i);
+
+      if (itemIndex === -1) {
+        console.warn('[LayoutStore] updateSingleItem: item not found', item.i);
+        return;
+      }
+
+      const newItem = layoutItemToDashboardItem(item);
+      const updatedItems = [...currentItems];
+      updatedItems[itemIndex] = newItem;
+
+      console.log('[LayoutStore] updateSingleItem:', breakpoint,
+        'item:', `${newItem.i}(${newItem.x},${newItem.y} ${newItem.w}x${newItem.h})`);
+
+      set((state) => ({
+        layouts: {
+          ...state.layouts,
+          [breakpoint]: updatedItems,
+        },
+      }));
     },
 
     saveLayoutDebounced: () => {
