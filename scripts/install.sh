@@ -199,9 +199,8 @@ setup_source() {
     if [ -d "$BUILD_DIR/.git" ]; then
         log_info "Updating existing source..."
         cd "$BUILD_DIR"
-        git fetch origin
-        git checkout "$BRANCH"
-        git pull origin "$BRANCH"
+        # Pull current branch (don't force switch branches)
+        git pull
     else
         log_info "Cloning repository..."
         git clone --branch "$BRANCH" "$REPO_URL" "$BUILD_DIR"
