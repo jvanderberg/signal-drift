@@ -53,16 +53,15 @@ function App() {
     [devices, openDeviceIds]
   );
 
-  // Handle sidebar device click - toggle panel open/close
+  // Handle sidebar device click - open panel (close via panel's X button only)
   const handleDeviceClick = useCallback((device: DeviceSummary) => {
     const key = getDevicePanelKey(device.id);
-    if (hasPanel(key)) {
-      removePanel(key);
-    } else {
+    if (!hasPanel(key)) {
       addPanel(key);
     }
+    // Always close sidebar
     setSidebarOpen(false);
-  }, [addPanel, removePanel, hasPanel]);
+  }, [addPanel, hasPanel]);
 
   const handleDeviceClose = useCallback((deviceId: string) => {
     removePanel(getDevicePanelKey(deviceId));
@@ -70,23 +69,19 @@ function App() {
 
   const handleSequencerClick = useCallback(() => {
     const key = getSequencerPanelKey();
-    if (hasPanel(key)) {
-      removePanel(key);
-    } else {
+    if (!hasPanel(key)) {
       addPanel(key);
     }
     setSidebarOpen(false);
-  }, [addPanel, removePanel, hasPanel]);
+  }, [addPanel, hasPanel]);
 
   const handleTriggerScriptsClick = useCallback(() => {
     const key = getTriggerScriptsPanelKey();
-    if (hasPanel(key)) {
-      removePanel(key);
-    } else {
+    if (!hasPanel(key)) {
       addPanel(key);
     }
     setSidebarOpen(false);
-  }, [addPanel, removePanel, hasPanel]);
+  }, [addPanel, hasPanel]);
 
   const handleSequencerClose = useCallback(() => {
     removePanel(getSequencerPanelKey());
