@@ -68,7 +68,7 @@ export function createDeviceRegistry(): DeviceRegistry {
       return registrations.find(
         r =>
           r.transportType === 'serial' &&
-          r.match.pathPattern?.test(path)
+          (!r.match.pathPattern || r.match.pathPattern.test(path))
       );
     },
 

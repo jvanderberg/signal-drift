@@ -4,6 +4,8 @@
  */
 
 import { createServer } from 'http';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -45,10 +47,11 @@ registry.registerDriver({
 
 // Register Matrix WPS300S (Serial)
 // Uses USB-serial adapter (CH340), requires 50ms command delay
+// No pathPattern - will probe all serial ports
 registry.registerDriver({
   create: createMatrixWPS300S,
   transportType: 'serial',
-  match: { pathPattern: /usbserial/i },
+  match: {},
   serialOptions: {
     baudRate: 115200,      // Known baud rate for Matrix PSU
     commandDelay: 50,      // Required delay between commands
@@ -86,6 +89,27 @@ app.get('/api/health', (_req, res) => {
     sessions: sessionManager.getSessionCount(),
     wsClients: wsHandler?.getClientCount() ?? 0,
   });
+});
+
+// Serve static frontend from client/dist
+const clientDistPath = resolve('client/dist');
+const indexHtmlPath = resolve(clientDistPath, 'index.html');
+
+console.log('Static file serving:');
+console.log(`  Working directory: ${process.cwd()}`);
+console.log(`  clientDistPath: ${clientDistPath}`);
+console.log(`  clientDistPath exists: ${existsSync(clientDistPath)}`);
+console.log(`  indexHtmlPath: ${indexHtmlPath}`);
+console.log(`  indexHtmlPath exists: ${existsSync(indexHtmlPath)}`);
+
+app.use(express.static(clientDistPath));
+
+// SPA fallback - serve index.html for all non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(indexHtmlPath);
 });
 
 // Create HTTP server (needed for WebSocket)
