@@ -216,15 +216,12 @@ build_application() {
     log_info "Building application..."
     cd "$BUILD_DIR"
 
-    npm ci --ignore-scripts
-
-    log_info "Building native modules..."
-    npm rebuild better-sqlite3 serialport usb --build-from-source
+    npm ci
 
     log_info "Building client..."
     cd client && npm ci && cd ..
 
-    log_info "Compiling..."
+    log_info "Compiling TypeScript..."
     npm run build
 
     log_success "Build complete"
