@@ -68,6 +68,18 @@
         padding-top: 40px;
       }
 
+      /* Offset fixed elements (hamburger, sidebar) for demo banner */
+      #root button[class*="fixed"][class*="top-"] {
+        top: 46px !important;
+      }
+      #root div[class*="fixed"][class*="top-0"][class*="left-0"][class*="h-full"] {
+        top: 40px !important;
+        height: calc(100% - 40px) !important;
+      }
+      #root div[class*="fixed"][class*="inset-0"] {
+        top: 40px !important;
+      }
+
       /* Loading state */
       .loading-container {
         display: flex;
