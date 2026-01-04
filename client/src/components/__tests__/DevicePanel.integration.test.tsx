@@ -86,7 +86,7 @@ function simulateMessage(msg: ServerMessage): void {
 
 // Import after mocking
 import { DevicePanel } from '../DevicePanel';
-import { useDeviceStore } from '../../stores/deviceStore';
+import { useDeviceStore, cleanupDeviceStore } from '../../stores/deviceStore';
 
 describe('DevicePanel Integration', () => {
   const mockOnClose = vi.fn();
@@ -99,7 +99,8 @@ describe('DevicePanel Integration', () => {
     mockState.onStateHandlers = [];
     mockState.connectionState = 'connected';
 
-    // Reset device store
+    // Cleanup and reset device store
+    cleanupDeviceStore();
     useDeviceStore.setState({
       connectionState: 'connected',
       devices: [],
@@ -108,7 +109,7 @@ describe('DevicePanel Integration', () => {
       deviceStates: {},
     });
 
-    // Initialize store handlers
+    // Initialize store with fresh WebSocket handlers
     useDeviceStore.getState().connect();
   });
 

@@ -94,7 +94,7 @@ function simulateMessage(msg: ServerMessage): void {
 
 // Import after mocking
 import { OscilloscopePanel } from '../OscilloscopePanel';
-import { useOscilloscopeStore } from '../../stores/oscilloscopeStore';
+import { useOscilloscopeStore, cleanupOscilloscopeStore } from '../../stores/oscilloscopeStore';
 
 describe('OscilloscopePanel Integration', () => {
   const mockOnClose = vi.fn();
@@ -125,13 +125,14 @@ describe('OscilloscopePanel Integration', () => {
     mockState.connectionState = 'connected';
     localStorageMock.getItem.mockReturnValue(null);
 
-    // Reset oscilloscope store
+    // Cleanup and reset oscilloscope store
+    cleanupOscilloscopeStore();
     useOscilloscopeStore.setState({
       connectionState: 'connected',
       oscilloscopeStates: {},
     });
 
-    // Initialize store
+    // Initialize store with fresh WebSocket handlers
     useOscilloscopeStore.getState()._initializeWebSocket();
   });
 
