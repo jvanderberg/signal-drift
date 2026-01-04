@@ -24,10 +24,10 @@
         color: #f1f5f9;
       }
 
-      /* Demo banner */
+      /* Demo banner - fixed at bottom to avoid conflicts with app header */
       .demo-banner {
         position: fixed;
-        top: 0;
+        bottom: 0;
         left: 0;
         right: 0;
         z-index: 1000;
@@ -38,7 +38,7 @@
         justify-content: center;
         gap: 16px;
         font-size: 14px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
       }
 
       .demo-banner strong {
@@ -61,25 +61,6 @@
         font-weight: 600;
         font-size: 12px;
         letter-spacing: 0.5px;
-      }
-
-      /* Offset main content for banner */
-      #root {
-        padding-top: 40px;
-      }
-
-      /* Offset hamburger menu button for demo banner */
-      button[title="Open menu"] {
-        top: 46px !important;
-        z-index: 1001 !important;
-      }
-      button[title="Close menu"] {
-        /* Close button is inside sidebar, no offset needed */
-      }
-      /* Offset sidebar panel for demo banner */
-      #root > div > div[style*="translate"] {
-        top: 40px !important;
-        height: calc(100% - 40px) !important;
       }
 
       /* Loading state */
