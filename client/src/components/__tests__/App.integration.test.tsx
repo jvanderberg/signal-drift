@@ -81,6 +81,7 @@ function simulateMessage(msg: ServerMessage): void {
 // Import after mocking
 import App from '../../App';
 import { useUIStore } from '../../stores/uiStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 
 describe('App Integration', () => {
   beforeEach(() => {
@@ -96,6 +97,16 @@ describe('App Integration', () => {
       theme: 'system',
       resolvedTheme: 'dark',
       deviceNames: {},
+    });
+
+    // Reset layout store to prevent layout saves from interfering with tests
+    useLayoutStore.setState({
+      layouts: { lg: [], md: [], sm: [], xs: [] },
+      isLoading: false,
+      isLoaded: true, // Mark as loaded so it doesn't try to load
+      isStabilizing: false,
+      _saveDebounceTimer: null,
+      _stabilizationTimer: null,
     });
   });
 
