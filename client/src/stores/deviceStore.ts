@@ -59,20 +59,24 @@ interface DeviceStoreState {
   _handleMessage: (message: ServerMessage) => void;
 }
 
+// Default values for selectors (stable references to prevent infinite re-render loops)
+const defaultDeviceState: DeviceState = { sessionState: null, isSubscribed: false, error: null };
+const defaultHistory: HistoryData = {
+  timestamps: [],
+  voltage: [],
+  current: [],
+  power: [],
+};
+
 // Selector helpers for per-device state
 export const selectDevice = (deviceId: string) => (state: DeviceStoreState) =>
-  state.deviceStates[deviceId] ?? { sessionState: null, isSubscribed: false, error: null };
+  state.deviceStates[deviceId] ?? defaultDeviceState;
 
 export const selectDeviceState = (deviceId: string) => (state: DeviceStoreState) =>
   state.deviceStates[deviceId]?.sessionState ?? null;
 
 export const selectDeviceHistory = (deviceId: string) => (state: DeviceStoreState) =>
-  state.deviceStates[deviceId]?.sessionState?.history ?? {
-    timestamps: [],
-    voltage: [],
-    current: [],
-    power: [],
-  };
+  state.deviceStates[deviceId]?.sessionState?.history ?? defaultHistory;
 
 export const selectIsSubscribed = (deviceId: string) => (state: DeviceStoreState) =>
   state.deviceStates[deviceId]?.isSubscribed ?? false;

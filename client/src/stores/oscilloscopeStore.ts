@@ -117,35 +117,7 @@ interface OscilloscopeStoreState {
   _initializeWebSocket: () => void;
 }
 
-// Selector helpers
-export const selectOscilloscope = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId] ?? {
-    sessionState: null,
-    isSubscribed: false,
-    error: null,
-    waveform: null,
-    waveforms: [],
-    measurements: [],
-    screenshot: null,
-    isStreaming: false,
-  };
-
-export const selectOscilloscopeState = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.sessionState ?? null;
-
-export const selectOscilloscopeStatus = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.sessionState?.status ?? null;
-
-export const selectWaveforms = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.waveforms ?? [];
-
-export const selectMeasurements = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.measurements ?? [];
-
-export const selectIsStreaming = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.isStreaming ?? false;
-
-// Default state for new oscilloscope
+// Default state for new oscilloscope (used by selectors and store)
 const defaultOscilloscopeState: OscilloscopeState = {
   sessionState: null,
   isSubscribed: false,
@@ -156,6 +128,29 @@ const defaultOscilloscopeState: OscilloscopeState = {
   screenshot: null,
   isStreaming: false,
 };
+
+// Default empty arrays for selectors (stable references to prevent re-renders)
+const emptyWaveforms: WaveformData[] = [];
+const emptyMeasurements: OscilloscopeMeasurement[] = [];
+
+// Selector helpers - use stable references to prevent infinite re-render loops
+export const selectOscilloscope = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState;
+
+export const selectOscilloscopeState = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.sessionState ?? null;
+
+export const selectOscilloscopeStatus = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.sessionState?.status ?? null;
+
+export const selectWaveforms = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.waveforms ?? emptyWaveforms;
+
+export const selectMeasurements = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.measurements ?? emptyMeasurements;
+
+export const selectIsStreaming = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.isStreaming ?? false;
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
