@@ -45,6 +45,51 @@ The client dev server binds to all interfaces (`0.0.0.0`). To access from a phon
 
 The WebSocket connection uses the Vite proxy, so only port 5173 needs to be accessible.
 
+### Raspberry Pi / Headless Installation
+
+For running Lab Controller on a Raspberry Pi (or any Debian-based system) as a headless service:
+
+```bash
+# Download and run the install script
+curl -sSL https://raw.githubusercontent.com/your-org/lab-controller/main/scripts/install-raspberry-pi.sh | bash
+```
+
+Or clone the repo first and run locally:
+
+```bash
+git clone https://github.com/your-org/lab-controller.git
+cd lab-controller
+./scripts/install-raspberry-pi.sh
+```
+
+The script will:
+- Install Node.js and build dependencies
+- Set up udev rules for USB device access
+- Build the application
+- Create and enable a systemd service
+
+After installation, access the web interface at `http://<pi-ip>:3001`.
+
+**Useful commands:**
+```bash
+# View logs
+journalctl -u lab-controller -f
+
+# Restart the service
+sudo systemctl restart lab-controller
+
+# Update to latest version
+./scripts/update-raspberry-pi.sh
+
+# Uninstall
+./scripts/install-raspberry-pi.sh --uninstall
+```
+
+**Environment variables** (set before running the script):
+- `LAB_CONTROLLER_PORT` - Server port (default: 3001)
+- `LAB_CONTROLLER_INSTALL_DIR` - Install location (default: ~/lab-controller)
+- `LAB_CONTROLLER_DATA_DIR` - Data directory (default: /var/lib/lab-controller)
+
 ## Usage
 
 ### Device Discovery
