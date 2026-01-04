@@ -143,7 +143,7 @@ export function DashboardGrid({ children }: DashboardGridProps) {
         draggableHandle=".panel-drag-handle"
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
         useCSSTransforms={true}
-        compactType="vertical"
+        compactType={null}
         preventCollision={false}
       >
         {wrappedChildren}
