@@ -50,7 +50,7 @@ registry.registerDriver({
 registry.registerDriver({
   create: createMatrixWPS300S,
   transportType: 'serial',
-  match: { pathPattern: /usbserial/i },
+  match: { pathPattern: /usbserial|ttyUSB|ttyACM/i },
   serialOptions: {
     baudRate: 115200,      // Known baud rate for Matrix PSU
     commandDelay: 50,      // Required delay between commands
