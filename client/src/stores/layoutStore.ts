@@ -164,20 +164,26 @@ export const useLayoutStore = create<LayoutStoreState>()(
     },
 
     updateLayout: (breakpoint, layout) => {
-      const items = layout.map(layoutItemToDashboardItem);
+      const newItems = layout.map(layoutItemToDashboardItem);
       const currentItems = get().layouts[breakpoint];
+
+      // Merge: update existing items, add new items, but PRESERVE items
+      // that aren't in the new layout (they may just not be rendered yet)
+      const newItemKeys = new Set(newItems.map(item => item.i));
+      const preservedItems = currentItems.filter(item => !newItemKeys.has(item.i));
+      const mergedItems = [...newItems, ...preservedItems];
 
       // Check if layout actually changed (compare JSON for deep equality)
       const currentJson = JSON.stringify(currentItems);
-      const newJson = JSON.stringify(items);
-      if (currentJson === newJson) {
+      const mergedJson = JSON.stringify(mergedItems);
+      if (currentJson === mergedJson) {
         return; // No change, skip update
       }
 
       set((state) => ({
         layouts: {
           ...state.layouts,
-          [breakpoint]: items,
+          [breakpoint]: mergedItems,
         },
       }));
       // Note: This only updates state. Call saveLayoutDebounced() after user
