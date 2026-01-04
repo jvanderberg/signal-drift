@@ -4,17 +4,19 @@
 
 ### High Priority
 
-- [ ] **Consolidate state management**: Remove duplicate state in `useDeviceSocket` and `useOscilloscopeSocket` hooks - components should use Zustand stores directly (`deviceStore`, `oscilloscopeStore`) instead of maintaining parallel local state
+- [x] **Consolidate state management**: Remove duplicate state in `useDeviceSocket` and `useOscilloscopeSocket` hooks - components should use Zustand stores directly (`deviceStore`, `oscilloscopeStore`) instead of maintaining parallel local state
   - Files: `client/src/hooks/useDeviceSocket.ts`, `client/src/hooks/useOscilloscopeSocket.ts`
+  - **Completed**: Refactored both hooks to be thin wrappers that delegate to Zustand stores. All 385 tests pass.
 
 - [ ] **Split large components**: Break down `OscilloscopePanel` (535 lines) and `TriggerScriptPanel` (515 lines) into smaller, focused sub-components
   - `OscilloscopePanel` → `OscilloscopeControls`, `OscilloscopeChannelBar`, `OscilloscopeMeasurements`
   - `TriggerScriptPanel` → `TriggerScriptList`, `TriggerScriptEditor`, `TriggerPlaybackControls`
   - Files: `client/src/components/OscilloscopePanel.tsx`, `client/src/components/triggers/TriggerScriptPanel.tsx`
 
-- [ ] **Fix type casting**: Replace `as unknown as` patterns with proper type guards in `useOscilloscopeSocket.ts:141`
+- [x] **Fix type casting**: Replace `as unknown as` patterns with proper type guards in `useOscilloscopeSocket.ts:141`
   - Create type guard functions like `isOscilloscopeState()` instead of bypassing TypeScript checks
   - File: `client/src/hooks/useOscilloscopeSocket.ts`
+  - **Completed**: The hook now uses the properly typed `OscilloscopeSessionState` from the Zustand store, eliminating the need for type casting.
 
 ### Medium Priority
 

@@ -1,13 +1,22 @@
 /**
  * useDeviceSocket - React hook for device state via WebSocket
  *
- * Replaces useDevice with a dumb mirror of server state.
- * No local state management, just mirrors what the server pushes.
+ * Thin wrapper around the Zustand deviceStore.
+ * Provides a convenient hook interface for components that manage a single device.
+ *
+ * State management is delegated to the Zustand store - no duplicate local state.
+ * Actions are accessed via getState() to avoid unnecessary subscriptions.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { getWebSocketManager, ConnectionState } from '../websocket';
-import type { DeviceSessionState, ServerMessage, HistoryData } from '../../../shared/types';
+import { useEffect, useCallback } from 'react';
+import type { ConnectionState } from '../websocket';
+import type { DeviceSessionState } from '../../../shared/types';
+import {
+  useDeviceStore,
+  selectDeviceState,
+  selectIsSubscribed,
+  selectDeviceError,
+} from '../stores';
 
 export interface UseDeviceSocketResult {
   state: DeviceSessionState | null;
@@ -23,162 +32,57 @@ export interface UseDeviceSocketResult {
   clearError: () => void;
 }
 
+// Get actions from store without subscribing (actions are stable references)
+const getActions = () => {
+  const store = useDeviceStore.getState();
+  return {
+    connect: store.connect,
+    subscribeDevice: store.subscribeDevice,
+    unsubscribeDevice: store.unsubscribeDevice,
+    setMode: store.setMode,
+    setOutput: store.setOutput,
+    setValue: store.setValue,
+    clearDeviceError: store.clearDeviceError,
+  };
+};
+
 export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
-  const [state, setState] = useState<DeviceSessionState | null>(null);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Get state from Zustand store using selectors (4 subscriptions for reactive state)
+  const state = useDeviceStore(selectDeviceState(deviceId));
+  const connectionState = useDeviceStore((s) => s.connectionState);
+  const isSubscribed = useDeviceStore(selectIsSubscribed(deviceId));
+  const error = useDeviceStore(selectDeviceError(deviceId));
 
-  const wsManager = useRef(getWebSocketManager());
-  const isSubscribedRef = useRef(false);
-
-  // Handle incoming messages
+  // Connect WebSocket on mount
   useEffect(() => {
-    const manager = wsManager.current;
+    getActions().connect();
+  }, []);
 
-    // Set up connection state tracking
-    const unsubscribeState = manager.onStateChange((newState) => {
-      setConnectionState(newState);
-      // Re-subscribe when connection is restored
-      if (newState === 'connected' && isSubscribedRef.current) {
-        manager.send({ type: 'subscribe', deviceId });
-      }
-    });
-
-    // Set initial connection state
-    setConnectionState(manager.getState());
-
-    // Connect the WebSocket
-    manager.connect();
-
-    // Set up message handler
-    const unsubscribeMessage = manager.onMessage((message: ServerMessage) => {
-      // Only handle messages for our device
-      if ('deviceId' in message && message.deviceId !== deviceId) {
-        return;
-      }
-
-      switch (message.type) {
-        case 'subscribed':
-          if (message.deviceId === deviceId) {
-            setState(message.state);
-            setIsSubscribed(true);
-            isSubscribedRef.current = true;
-            setError(null);
-          }
-          break;
-
-        case 'unsubscribed':
-          if (message.deviceId === deviceId) {
-            setIsSubscribed(false);
-            isSubscribedRef.current = false;
-          }
-          break;
-
-        case 'measurement':
-          if (message.deviceId === deviceId) {
-            setState((prev) => {
-              if (!prev) return prev;
-
-              const { timestamp, measurements } = message.update;
-
-              // Update measurements
-              const newMeasurements = { ...prev.measurements, ...measurements };
-
-              // Append to history
-              const newHistory: HistoryData = {
-                timestamps: [...prev.history.timestamps, timestamp],
-                voltage: [...prev.history.voltage, measurements.voltage ?? prev.measurements.voltage],
-                current: [...prev.history.current, measurements.current ?? prev.measurements.current],
-                power: [...prev.history.power, measurements.power ?? prev.measurements.power],
-                resistance: measurements.resistance !== undefined
-                  ? [...(prev.history.resistance ?? []), measurements.resistance]
-                  : prev.history.resistance,
-              };
-
-              return {
-                ...prev,
-                measurements: newMeasurements,
-                history: newHistory,
-                lastUpdated: timestamp,
-              };
-            });
-          }
-          break;
-
-        case 'field':
-          if (message.deviceId === deviceId) {
-            setState((prev) => {
-              if (!prev) return prev;
-
-              const { field, value } = message;
-
-              // Handle known fields
-              switch (field) {
-                case 'mode':
-                  return { ...prev, mode: value as string };
-                case 'outputEnabled':
-                  return { ...prev, outputEnabled: value as boolean };
-                case 'connectionStatus':
-                  return { ...prev, connectionStatus: value as DeviceSessionState['connectionStatus'] };
-                case 'setpoints':
-                  return { ...prev, setpoints: value as Record<string, number> };
-                case 'listRunning':
-                  return { ...prev, listRunning: value as boolean };
-                default:
-                  // For unknown fields, try to update generically
-                  return { ...prev, [field]: value };
-              }
-            });
-          }
-          break;
-
-        case 'error':
-          if (!message.deviceId || message.deviceId === deviceId) {
-            setError(message.message);
-          }
-          break;
-      }
-    });
-
-    // Cleanup
-    return () => {
-      unsubscribeState();
-      unsubscribeMessage();
-
-      // Unsubscribe from device if we were subscribed
-      if (isSubscribedRef.current) {
-        manager.send({ type: 'unsubscribe', deviceId });
-        isSubscribedRef.current = false;
-      }
-    };
-  }, [deviceId]);
-
+  // Stable callbacks that delegate to store actions
+  // Using getActions() inside callbacks to avoid subscribing to action changes
   const subscribe = useCallback(() => {
-    wsManager.current.send({ type: 'subscribe', deviceId });
+    getActions().subscribeDevice(deviceId);
   }, [deviceId]);
 
   const unsubscribe = useCallback(() => {
-    wsManager.current.send({ type: 'unsubscribe', deviceId });
-    setIsSubscribed(false);
-    isSubscribedRef.current = false;
+    getActions().unsubscribeDevice(deviceId);
   }, [deviceId]);
 
   const setMode = useCallback((mode: string) => {
-    wsManager.current.send({ type: 'setMode', deviceId, mode });
+    getActions().setMode(deviceId, mode);
   }, [deviceId]);
 
   const setOutput = useCallback((enabled: boolean) => {
-    wsManager.current.send({ type: 'setOutput', deviceId, enabled });
+    getActions().setOutput(deviceId, enabled);
   }, [deviceId]);
 
   const setValue = useCallback((name: string, value: number, immediate = false) => {
-    wsManager.current.send({ type: 'setValue', deviceId, name, value, immediate });
+    getActions().setValue(deviceId, name, value, immediate);
   }, [deviceId]);
 
   const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+    getActions().clearDeviceError(deviceId);
+  }, [deviceId]);
 
   return {
     state,

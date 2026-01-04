@@ -18,6 +18,7 @@ export {
   selectDeviceHistory,
   selectIsSubscribed,
   selectDeviceError,
+  cleanupDeviceStore,
 } from './deviceStore';
 
 export {
@@ -28,6 +29,7 @@ export {
   selectWaveforms,
   selectMeasurements,
   selectIsStreaming,
+  cleanupOscilloscopeStore,
   type OscilloscopeSessionState,
 } from './oscilloscopeStore';
 
