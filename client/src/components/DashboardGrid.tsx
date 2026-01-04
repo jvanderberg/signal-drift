@@ -41,6 +41,7 @@ function PanelWrapper({ children }: PanelWrapperProps) {
 
 export function DashboardGrid({ children }: DashboardGridProps) {
   const layouts = useLayoutStore(selectLayouts);
+  const isStabilizing = useLayoutStore((state) => state.isStabilizing);
   const updateLayout = useLayoutStore((state) => state.updateLayout);
   const updateSingleItem = useLayoutStore((state) => state.updateSingleItem);
   const saveLayoutDebounced = useLayoutStore((state) => state.saveLayoutDebounced);
@@ -126,6 +127,18 @@ export function DashboardGrid({ children }: DashboardGridProps) {
       })
       .filter(Boolean);
   }, [children]);
+
+  // Don't render grid until layout is loaded and stabilized
+  // This forces react-grid-layout to mount fresh with correct sizes
+  if (isStabilizing) {
+    return (
+      <div className="dashboard-grid">
+        <div className="flex items-center justify-center h-32 text-[var(--color-text-secondary)]">
+          Loading layout...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-grid">
