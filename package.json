@@ -19,6 +19,10 @@
     "dist:mac": "npm run build && npm run build:electron && electron-builder --mac",
     "dist:win": "npm run build && npm run build:electron && electron-builder --win",
     "dist:linux": "npm run build && npm run build:electron && electron-builder --linux",
+    "demo:install": "cd demo && npm install",
+    "demo:dev": "cd demo && npm run dev",
+    "demo:build": "cd demo && npm run build",
+    "demo:preview": "cd demo && npm run preview",
     "postinstall": "electron-builder install-app-deps",
     "prepare": "husky"
   },

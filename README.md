@@ -2,6 +2,8 @@
 
 A web-based control interface for lab equipment including power supplies, electronic loads, and oscilloscopes.
 
+**[Try the Interactive Demo →](https://jvanderberg.github.io/signal-drift/)** — runs entirely in your browser with simulated devices.
+
 ## Supported Devices
 
 - **Rigol DL3021** - Electronic Load (USB-TMC)
