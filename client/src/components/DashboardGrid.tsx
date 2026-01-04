@@ -42,6 +42,7 @@ function PanelWrapper({ children }: PanelWrapperProps) {
 export function DashboardGrid({ children }: DashboardGridProps) {
   const layouts = useLayoutStore(selectLayouts);
   const updateLayout = useLayoutStore((state) => state.updateLayout);
+  const saveLayoutDebounced = useLayoutStore((state) => state.saveLayoutDebounced);
   const currentBreakpoint = useRef<DashboardBreakpoint>('lg');
 
   // Convert our layout format to react-grid-layout format
@@ -83,6 +84,15 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     currentBreakpoint.current = breakpoint as DashboardBreakpoint;
   }, []);
 
+  // Save layout after user interaction (drag or resize)
+  const handleDragStop = useCallback(() => {
+    saveLayoutDebounced();
+  }, [saveLayoutDebounced]);
+
+  const handleResizeStop = useCallback(() => {
+    saveLayoutDebounced();
+  }, [saveLayoutDebounced]);
+
   // Wrap children with panel wrappers and ensure they have keys
   const wrappedChildren = useMemo(() => {
     // Flatten children (handles nested arrays from .map() calls)
@@ -117,6 +127,8 @@ export function DashboardGrid({ children }: DashboardGridProps) {
         containerPadding={[0, 0]}
         onLayoutChange={handleLayoutChange}
         onBreakpointChange={handleBreakpointChange}
+        onDragStop={handleDragStop}
+        onResizeStop={handleResizeStop}
         draggableHandle=".panel-drag-handle"
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
         useCSSTransforms={true}

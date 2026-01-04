@@ -55,6 +55,7 @@ interface LayoutStoreState {
   // Actions
   setLayouts: (layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>) => void;
   updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout) => void;
+  saveLayoutDebounced: () => void;
   addPanel: (key: string) => void;
   removePanel: (key: string) => void;
   hasPanel: (key: string) => boolean;
@@ -179,9 +180,12 @@ export const useLayoutStore = create<LayoutStoreState>()(
           [breakpoint]: items,
         },
       }));
+      // Note: This only updates state. Call saveLayoutDebounced() after user
+      // interaction (drag/resize) to persist changes.
+    },
 
-      // Only save to server if layout has been loaded from server
-      // This prevents onLayoutChange during initial render from overwriting saved layout
+    saveLayoutDebounced: () => {
+      // Only save if layout has been loaded from server
       if (!get().isLoaded) {
         return;
       }

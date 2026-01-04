@@ -168,12 +168,29 @@ describe('layoutStore', () => {
       expect(state.layouts.lg[0].i).toBe('panel-1');
     });
 
-    it('should not save to server before layout is loaded', () => {
+    it('should not trigger save (updateLayout only updates state)', () => {
       const newLayout = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
 
+      act(() => {
+        useLayoutStore.setState({ isLoaded: true });
+        useLayoutStore.getState().updateLayout('lg', newLayout);
+      });
+
+      // Advance time by debounce period
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // updateLayout should not trigger save - use saveLayoutDebounced instead
+      expect(mockState.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'dashboardLayoutSave' }));
+    });
+  });
+
+  describe('saveLayoutDebounced', () => {
+    it('should not save before layout is loaded', () => {
       // isLoaded is false by default
       act(() => {
-        useLayoutStore.getState().updateLayout('lg', newLayout);
+        useLayoutStore.getState().saveLayoutDebounced();
       });
 
       // Advance time by debounce period
@@ -188,10 +205,10 @@ describe('layoutStore', () => {
     it('should debounce save to server', () => {
       const newLayout = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
 
-      // Set isLoaded to true so updateLayout will save
       act(() => {
         useLayoutStore.setState({ isLoaded: true });
         useLayoutStore.getState().updateLayout('lg', newLayout);
+        useLayoutStore.getState().saveLayoutDebounced();
       });
 
       // Should not save immediately
@@ -206,14 +223,10 @@ describe('layoutStore', () => {
       expect(mockState.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'dashboardLayoutSave' }));
     });
 
-    it('should reset debounce timer on multiple updates', () => {
-      const layout1 = [{ i: 'panel-1', x: 0, y: 0, w: 6, h: 8 }];
-      const layout2 = [{ i: 'panel-1', x: 1, y: 0, w: 6, h: 8 }];
-
-      // Set isLoaded to true so updateLayout will save
+    it('should reset debounce timer on multiple calls', () => {
       act(() => {
         useLayoutStore.setState({ isLoaded: true });
-        useLayoutStore.getState().updateLayout('lg', layout1);
+        useLayoutStore.getState().saveLayoutDebounced();
       });
 
       // Advance partial time
@@ -221,12 +234,12 @@ describe('layoutStore', () => {
         vi.advanceTimersByTime(500);
       });
 
-      // Update again
+      // Call again
       act(() => {
-        useLayoutStore.getState().updateLayout('lg', layout2);
+        useLayoutStore.getState().saveLayoutDebounced();
       });
 
-      // Advance remaining time from first update
+      // Advance remaining time from first call
       act(() => {
         vi.advanceTimersByTime(500);
       });
@@ -239,7 +252,7 @@ describe('layoutStore', () => {
         vi.advanceTimersByTime(500);
       });
 
-      // Now should save with the latest layout
+      // Now should save
       expect(mockState.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'dashboardLayoutSave' }));
     });
   });
