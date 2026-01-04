@@ -164,6 +164,15 @@ export const useLayoutStore = create<LayoutStoreState>()(
 
     updateLayout: (breakpoint, layout) => {
       const items = layout.map(layoutItemToDashboardItem);
+      const currentItems = get().layouts[breakpoint];
+
+      // Check if layout actually changed (compare JSON for deep equality)
+      const currentJson = JSON.stringify(currentItems);
+      const newJson = JSON.stringify(items);
+      if (currentJson === newJson) {
+        return; // No change, skip update
+      }
+
       set((state) => ({
         layouts: {
           ...state.layouts,
@@ -259,9 +268,8 @@ export const useLayoutStore = create<LayoutStoreState>()(
             isLoaded: true,
           });
         }
-      } else if (msg.type === 'dashboardLayoutSaved') {
-        // Layout saved successfully - no action needed
       }
+      // dashboardLayoutSaved - no action needed
     },
   }))
 );

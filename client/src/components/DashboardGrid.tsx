@@ -65,9 +65,15 @@ export function DashboardGrid({ children }: DashboardGridProps) {
 
   // Handle layout changes (drag/resize)
   const handleLayoutChange = useCallback(
-    (layout: Layout, _allLayouts: Partial<Record<string, Layout>>) => {
-      // Update the current breakpoint layout
-      updateLayout(currentBreakpoint.current, layout);
+    (_layout: Layout, allLayouts: Partial<Record<string, Layout>>) => {
+      // Update all breakpoints from allLayouts to avoid race condition
+      // with onBreakpointChange
+      for (const bp of Object.keys(allLayouts) as DashboardBreakpoint[]) {
+        const bpLayout = allLayouts[bp];
+        if (bpLayout) {
+          updateLayout(bp, bpLayout);
+        }
+      }
     },
     [updateLayout]
   );
