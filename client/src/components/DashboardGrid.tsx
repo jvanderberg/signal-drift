@@ -5,7 +5,7 @@
  * can be dragged and resized. Layout is persisted to the database.
  */
 
-import { useMemo, useCallback, useRef, ReactNode } from 'react';
+import { useMemo, useCallback, useRef, ReactNode, isValidElement } from 'react';
 import { Responsive, WidthProvider, type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import {
   useLayoutStore,
@@ -41,6 +41,7 @@ function PanelWrapper({ children }: PanelWrapperProps) {
 
 export function DashboardGrid({ children }: DashboardGridProps) {
   const layouts = useLayoutStore(selectLayouts);
+  const isLoading = useLayoutStore((state) => state.isLoading);
   const isStabilizing = useLayoutStore((state) => state.isStabilizing);
   const updateLayout = useLayoutStore((state) => state.updateLayout);
   const updateSingleItem = useLayoutStore((state) => state.updateSingleItem);
@@ -86,20 +87,10 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     currentBreakpoint.current = breakpoint as DashboardBreakpoint;
   }, []);
 
-  // Save layout after user interaction (drag or resize)
-  // Only update the specific item that was changed, not the entire layout
-  const handleDragStop = useCallback(
+  // Handle user interaction completion (drag or resize)
+  // Updates only the specific item that changed and triggers debounced save
+  const handleInteractionStop = useCallback(
     (_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
-      // Update only the dragged item's position
-      updateSingleItem(currentBreakpoint.current, newItem);
-      saveLayoutDebounced();
-    },
-    [updateSingleItem, saveLayoutDebounced]
-  );
-
-  const handleResizeStop = useCallback(
-    (_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
-      // Update only the resized item's size
       updateSingleItem(currentBreakpoint.current, newItem);
       saveLayoutDebounced();
     },
@@ -108,31 +99,24 @@ export function DashboardGrid({ children }: DashboardGridProps) {
 
   // Wrap children with panel wrappers and ensure they have keys
   const wrappedChildren = useMemo(() => {
-    // Flatten children (handles nested arrays from .map() calls)
-    const childArray = Array.isArray(children) ? children.flat(Infinity) : [children];
+    // Flatten children (handles nested arrays from .map() calls, max 2 levels deep)
+    const childArray = Array.isArray(children) ? children.flat(2) : [children];
     return childArray
-      .filter((child) => child != null && child !== false)
-      .map((child) => {
-        // Each child should have a React key for identification
-        const key = (child as React.ReactElement).key;
-        if (!key) {
-          console.warn('DashboardGrid child missing key', child);
-          return null;
-        }
-        return (
-          <div key={key} className="dashboard-panel">
-            <PanelWrapper>{child}</PanelWrapper>
-          </div>
-        );
-      })
-      .filter(Boolean);
+      .filter((child): child is React.ReactElement =>
+        isValidElement(child) && child.key != null
+      )
+      .map((child) => (
+        <div key={child.key} className="dashboard-panel">
+          <PanelWrapper>{child}</PanelWrapper>
+        </div>
+      ));
   }, [children]);
 
   // Don't render grid until layout is loaded and stabilized.
   // react-grid-layout caches its internal layout state on mount. If we mount before
   // the saved layout is loaded, it will use computed defaults. Waiting ensures the
   // grid mounts fresh with correct saved sizes, avoiding a flash of wrong sizes.
-  if (isStabilizing) {
+  if (isLoading || isStabilizing) {
     return (
       <div className="dashboard-grid">
         <div className="flex items-center justify-center h-32 text-[var(--color-text-secondary)]">
@@ -154,8 +138,8 @@ export function DashboardGrid({ children }: DashboardGridProps) {
         containerPadding={[0, 0]}
         onLayoutChange={handleLayoutChange}
         onBreakpointChange={handleBreakpointChange}
-        onDragStop={handleDragStop}
-        onResizeStop={handleResizeStop}
+        onDragStop={handleInteractionStop}
+        onResizeStop={handleInteractionStop}
         draggableHandle=".panel-drag-handle"
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
         useCSSTransforms={true}

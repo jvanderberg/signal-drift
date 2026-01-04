@@ -246,4 +246,8 @@ test.describe('Dashboard Layout', () => {
     expect(afterRefreshBox!.width).toBeGreaterThan(initialWidth);
     expect(afterRefreshBox!.height).toBeGreaterThan(initialHeight);
   });
+
+  // Note: Drag position persistence test is skipped because with compactType="vertical",
+  // a single panel always compacts to the top. Multi-panel drag tests require more complex setup.
+  // The resize persistence test above validates the core persistence mechanism.
 });

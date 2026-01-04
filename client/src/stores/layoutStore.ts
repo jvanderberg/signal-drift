@@ -95,6 +95,23 @@ function layoutItemToDashboardItem(item: LayoutItem): DashboardLayoutItem {
   };
 }
 
+// Shallow equality check for layout item (faster than JSON.stringify)
+function layoutItemsEqual(a: DashboardLayoutItem, b: DashboardLayoutItem): boolean {
+  return a.i === b.i && a.x === b.x && a.y === b.y &&
+    a.w === b.w && a.h === b.h &&
+    a.minW === b.minW && a.minH === b.minH &&
+    a.maxW === b.maxW && a.maxH === b.maxH;
+}
+
+// Check if two layout arrays are equal
+function layoutArraysEqual(a: DashboardLayoutItem[], b: DashboardLayoutItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!layoutItemsEqual(a[i], b[i])) return false;
+  }
+  return true;
+}
+
 // Create an empty layout structure
 function createEmptyLayouts(): Record<DashboardBreakpoint, DashboardLayoutItem[]> {
   return {
@@ -207,7 +224,7 @@ export const useLayoutStore = create<LayoutStoreState>()(
       const mergedItems = [...updatedItems, ...unrenderedPanels];
 
       // Skip update if nothing changed
-      if (JSON.stringify(existingItems) === JSON.stringify(mergedItems)) {
+      if (layoutArraysEqual(existingItems, mergedItems)) {
         return;
       }
 
@@ -228,10 +245,9 @@ export const useLayoutStore = create<LayoutStoreState>()(
         existing.i === item.i ? newItem : existing
       );
 
-      // Verify item was found (updatedItems will be unchanged if not)
-      if (JSON.stringify(currentItems) === JSON.stringify(updatedItems)) {
-        console.warn('[LayoutStore] updateSingleItem: item not found or unchanged', item.i);
-        return;
+      // Verify item was found and changed
+      if (layoutArraysEqual(currentItems, updatedItems)) {
+        return; // Item not found or unchanged
       }
 
       set((state) => ({
