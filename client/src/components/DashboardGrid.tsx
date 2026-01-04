@@ -90,9 +90,11 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   // Handle user interaction completion (drag or resize)
   // Updates only the specific item that changed and triggers debounced save
   const handleInteractionStop = useCallback(
-    (_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
-      updateSingleItem(currentBreakpoint.current, newItem);
-      saveLayoutDebounced();
+    (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+      if (newItem) {
+        updateSingleItem(currentBreakpoint.current, newItem);
+        saveLayoutDebounced();
+      }
     },
     [updateSingleItem, saveLayoutDebounced]
   );
