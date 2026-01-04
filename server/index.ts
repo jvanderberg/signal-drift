@@ -5,6 +5,7 @@
 
 import { createServer } from 'http';
 import { resolve } from 'path';
+import { existsSync } from 'fs';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -91,6 +92,15 @@ app.get('/api/health', (_req, res) => {
 
 // Serve static frontend from client/dist
 const clientDistPath = resolve('client/dist');
+const indexHtmlPath = resolve(clientDistPath, 'index.html');
+
+console.log('Static file serving:');
+console.log(`  Working directory: ${process.cwd()}`);
+console.log(`  clientDistPath: ${clientDistPath}`);
+console.log(`  clientDistPath exists: ${existsSync(clientDistPath)}`);
+console.log(`  indexHtmlPath: ${indexHtmlPath}`);
+console.log(`  indexHtmlPath exists: ${existsSync(indexHtmlPath)}`);
+
 app.use(express.static(clientDistPath));
 
 // SPA fallback - serve index.html for all non-API routes
@@ -98,7 +108,7 @@ app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  res.sendFile(resolve(clientDistPath, 'index.html'));
+  res.sendFile(indexHtmlPath);
 });
 
 // Create HTTP server (needed for WebSocket)
