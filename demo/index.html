@@ -68,16 +68,18 @@
         padding-top: 40px;
       }
 
-      /* Offset fixed elements (hamburger, sidebar) for demo banner */
-      #root button[class*="fixed"][class*="top-"] {
+      /* Offset hamburger menu button for demo banner */
+      button[title="Open menu"] {
         top: 46px !important;
+        z-index: 1001 !important;
       }
-      #root div[class*="fixed"][class*="top-0"][class*="left-0"][class*="h-full"] {
+      button[title="Close menu"] {
+        /* Close button is inside sidebar, no offset needed */
+      }
+      /* Offset sidebar panel for demo banner */
+      #root > div > div[style*="translate"] {
         top: 40px !important;
         height: calc(100% - 40px) !important;
-      }
-      #root div[class*="fixed"][class*="inset-0"] {
-        top: 40px !important;
       }
 
       /* Loading state */
