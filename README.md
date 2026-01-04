@@ -45,6 +45,44 @@ The client dev server binds to all interfaces (`0.0.0.0`). To access from a phon
 
 The WebSocket connection uses the Vite proxy, so only port 5173 needs to be accessible.
 
+### System Installation (Linux / macOS)
+
+Install Signal Drift as a system service that starts at boot:
+
+```bash
+# Clone and install
+git clone https://github.com/jvanderberg/signal-drift.git
+cd signal-drift
+./scripts/install.sh
+```
+
+The script supports:
+- **Linux**: Debian/Ubuntu, Fedora/RHEL, Arch (systemd service)
+- **macOS**: Homebrew required (launchd service)
+
+It will install dependencies, build from source, and install to `/opt/signal-drift`.
+
+After installation, access the web interface at `http://<ip>:3001`.
+
+**Commands:**
+```bash
+# Linux
+journalctl -u signal-drift -f          # View logs
+sudo systemctl restart signal-drift    # Restart
+
+# macOS
+tail -f ~/Library/Logs/signal-drift.log  # View logs
+
+# Both
+./scripts/install.sh                   # Update (re-run to update)
+./scripts/install.sh --uninstall       # Uninstall
+```
+
+**Environment variables:**
+- `SIGNAL_DRIFT_PORT` - Server port (default: 3001)
+- `SIGNAL_DRIFT_INSTALL_DIR` - Install location (default: /opt/signal-drift)
+- `SIGNAL_DRIFT_DATA_DIR` - Data directory (platform default)
+
 ## Usage
 
 ### Device Discovery
