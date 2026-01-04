@@ -45,50 +45,43 @@ The client dev server binds to all interfaces (`0.0.0.0`). To access from a phon
 
 The WebSocket connection uses the Vite proxy, so only port 5173 needs to be accessible.
 
-### Raspberry Pi / Headless Installation
+### System Installation (Linux / macOS)
 
-For running Lab Controller on a Raspberry Pi (or any Debian-based system) as a headless service:
-
-```bash
-# Download and run the install script
-curl -sSL https://raw.githubusercontent.com/your-org/lab-controller/main/scripts/install-raspberry-pi.sh | bash
-```
-
-Or clone the repo first and run locally:
+Install Signal Drift as a system service that starts at boot:
 
 ```bash
-git clone https://github.com/your-org/lab-controller.git
-cd lab-controller
-./scripts/install-raspberry-pi.sh
+# Clone and install
+git clone https://github.com/jvanderberg/signal-drift.git
+cd signal-drift
+./scripts/install.sh
 ```
 
-The script will:
-- Install Node.js and build dependencies
-- Set up udev rules for USB device access
-- Build the application
-- Create and enable a systemd service
+The script supports:
+- **Linux**: Debian/Ubuntu, Fedora/RHEL, Arch (systemd service)
+- **macOS**: Homebrew required (launchd service)
 
-After installation, access the web interface at `http://<pi-ip>:3001`.
+It will install dependencies, build from source, and install to `/opt/signal-drift`.
 
-**Useful commands:**
+After installation, access the web interface at `http://<ip>:3001`.
+
+**Commands:**
 ```bash
-# View logs
-journalctl -u lab-controller -f
+# Linux
+journalctl -u signal-drift -f          # View logs
+sudo systemctl restart signal-drift    # Restart
 
-# Restart the service
-sudo systemctl restart lab-controller
+# macOS
+tail -f ~/Library/Logs/signal-drift.log  # View logs
 
-# Update to latest version
-./scripts/update-raspberry-pi.sh
-
-# Uninstall
-./scripts/install-raspberry-pi.sh --uninstall
+# Both
+./scripts/install.sh                   # Update (re-run to update)
+./scripts/install.sh --uninstall       # Uninstall
 ```
 
-**Environment variables** (set before running the script):
-- `LAB_CONTROLLER_PORT` - Server port (default: 3001)
-- `LAB_CONTROLLER_INSTALL_DIR` - Install location (default: ~/lab-controller)
-- `LAB_CONTROLLER_DATA_DIR` - Data directory (default: /var/lib/lab-controller)
+**Environment variables:**
+- `SIGNAL_DRIFT_PORT` - Server port (default: 3001)
+- `SIGNAL_DRIFT_INSTALL_DIR` - Install location (default: /opt/signal-drift)
+- `SIGNAL_DRIFT_DATA_DIR` - Data directory (platform default)
 
 ## Usage
 
