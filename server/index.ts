@@ -4,8 +4,6 @@
  */
 
 import { createServer } from 'http';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -90,34 +88,15 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Serve static frontend in production
-// In dev: server/index.ts -> ../client/dist -> client/dist
-// In prod: dist/server/index.js -> ../../client/dist -> client/dist
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const isProduction = __dirname.includes('/dist/');
-const clientDistPath = isProduction
-  ? join(__dirname, '../../client/dist')
-  : join(__dirname, '../client/dist');
-
-console.log(`Static files: ${clientDistPath} (isProduction: ${isProduction})`);
-
-// Serve static files from client/dist
-app.use(express.static(clientDistPath));
+// Serve static frontend from client/dist (relative to working directory)
+app.use(express.static('client/dist'));
 
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res, next) => {
-  // Skip API routes
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  const indexPath = join(clientDistPath, 'index.html');
-  res.sendFile(indexPath, (err) => {
-    if (err) {
-      console.error(`Failed to serve ${indexPath}:`, err);
-      next(err);
-    }
-  });
+  res.sendFile('client/dist/index.html', { root: '.' });
 });
 
 // Create HTTP server (needed for WebSocket)
