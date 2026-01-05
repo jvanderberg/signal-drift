@@ -92,7 +92,7 @@ export function TimebaseControls({
   return (
     <div className="inline-flex items-center gap-1 bg-[var(--color-bg-panel)] bg-opacity-80 rounded px-1">
       <button
-        className="w-5 h-5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-5 h-5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] active:scale-90 active:bg-[var(--color-bg-secondary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all duration-100 select-none"
         onClick={handleZoomIn}
         disabled={disabled || !canZoomIn}
         title="Zoom in (faster timebase)"
@@ -103,7 +103,7 @@ export function TimebaseControls({
         {formatTimebase(currentScale)}
       </span>
       <button
-        className="w-5 h-5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-5 h-5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] active:scale-90 active:bg-[var(--color-bg-secondary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all duration-100 select-none"
         onClick={handleZoomOut}
         disabled={disabled || !canZoomOut}
         title="Zoom out (slower timebase)"

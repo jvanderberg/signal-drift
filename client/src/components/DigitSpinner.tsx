@@ -103,7 +103,7 @@ export function DigitSpinner({
     elements.push(
       <div key={index} className="flex flex-col items-center">
         <button
-          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px]"
+          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] hover:text-[var(--color-text-primary)] active:scale-90 active:bg-[var(--color-bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px] cursor-pointer transition-all duration-100 select-none"
           onClick={() => adjustDigit(index, 1)}
           disabled={disabled}
         >
@@ -117,7 +117,7 @@ export function DigitSpinner({
           {digit}
         </div>
         <button
-          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px]"
+          className="px-1.5 py-0.5 text-[10px] leading-none font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:bg-[var(--color-border-dark)] hover:text-[var(--color-text-primary)] active:scale-90 active:bg-[var(--color-bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed min-w-[22px] cursor-pointer transition-all duration-100 select-none"
           onClick={() => adjustDigit(index, -1)}
           disabled={disabled}
         >
