@@ -554,11 +554,12 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       const now = Date.now();
       const needsRefresh = !cached || (now - cached.timestamp) > CACHE_TTL_MS;
 
-      if (needsRefresh) {
-        // Inline preamble cache refresh
-        let writeResult = await transport.write(`:WAV:SOUR ${channel}`);
-        if (!writeResult.ok) return writeResult;
+      // Set waveform source first (needed for both cache refresh and data fetch)
+      let writeResult = await transport.write(`:WAV:SOUR ${channel}`);
+      if (!writeResult.ok) return writeResult;
 
+      if (needsRefresh) {
+        // Refresh preamble cache (SOUR already sent above)
         const preambleResult = await transport.query(':WAV:PRE?');
         if (!preambleResult.ok) return preambleResult;
         const preambleParts = preambleResult.value.split(',').map((s) => parseFloat(s.trim()));
@@ -582,12 +583,8 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
         });
       }
 
-      // Now do the fast path: just SOUR + DATA?
+      // Fast path: SOUR already sent, just need DATA
       const cachedData = preambleCache.get(channel)!;
-
-      // Set waveform source (still need this to select channel)
-      const writeResult = await transport.write(`:WAV:SOUR ${channel}`);
-      if (!writeResult.ok) return writeResult;
 
       // Get waveform data
       if (!transport.queryBinary) {

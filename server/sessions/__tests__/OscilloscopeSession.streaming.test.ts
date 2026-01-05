@@ -181,47 +181,43 @@ describe('OscilloscopeSession Streaming', () => {
     });
   });
 
-  describe('Minimum interval enforcement', () => {
-    it('should enforce minimum 200ms interval for single channel', async () => {
+  describe('Interval behavior', () => {
+    it('should use requested interval directly (no minimum enforcement)', async () => {
       const session = createOscilloscopeSession(mockDriver);
 
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
-      // Request 100ms interval (below minimum)
-      await session.startStreaming(['CHAN1'], 100);
+      // Request 50ms interval
+      await session.startStreaming(['CHAN1'], 50);
       expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
 
-      // At 100ms, should NOT have fetched again (minimum is 200ms)
-      await vi.advanceTimersByTimeAsync(100);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
-
-      // At 200ms, should have fetched
-      await vi.advanceTimersByTimeAsync(100);
+      // At 50ms, should have fetched again
+      await vi.advanceTimersByTimeAsync(50);
       expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+
+      // At 100ms, should have fetched again
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(3);
 
       session.stopSession();
     });
 
-    it('should enforce minimum 350ms interval for dual channel', async () => {
+    it('should use requested interval for dual channel (no minimum)', async () => {
       const session = createOscilloscopeSession(mockDriver);
 
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
-      // Request 200ms interval for dual channel (below 350ms minimum)
-      await session.startStreaming(['CHAN1', 'CHAN2'], 200);
+      // Request 100ms interval for dual channel
+      await session.startStreaming(['CHAN1', 'CHAN2'], 100);
       // Initial fetch for both channels
       expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
 
-      // At 200ms, should NOT have fetched again
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
-
-      // At 350ms, should have fetched again (both channels)
-      await vi.advanceTimersByTimeAsync(150);
+      // At 100ms, should have fetched again (both channels)
+      await vi.advanceTimersByTimeAsync(100);
       expect(mockDriver.getWaveform).toHaveBeenCalledTimes(4);
 
       session.stopSession();

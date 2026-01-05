@@ -165,7 +165,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   useEffect(() => {
     if (isSubscribed && !hasAutoStarted && enabledChannels.length > 0) {
       setHasAutoStarted(true);
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(enabledChannels, 100, selectedMeasurements);
     }
   }, [isSubscribed, hasAutoStarted, enabledChannels, selectedMeasurements, startStreaming]);
 
@@ -214,7 +214,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
   const handleStreamingToggle = (enabled: boolean) => {
     if (enabled) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(enabledChannels, 100, selectedMeasurements);
     } else {
       stopStreaming();
     }
@@ -229,7 +229,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
     // Restart streaming with updated channels if currently streaming
     if (isStreaming && newChannels.length > 0) {
-      startStreaming(newChannels, newChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(newChannels, 100, selectedMeasurements);
     } else if (isStreaming && newChannels.length === 0) {
       stopStreaming();
     }
@@ -243,7 +243,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
     // Restart streaming with updated measurements
     if (isStreaming && enabledChannels.length > 0) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, newMeasurements);
+      startStreaming(enabledChannels, 100, newMeasurements);
     }
   };
 
@@ -301,7 +301,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                   scopeRunning={status?.running ?? false}
                   channels={channels}
                   enabledChannels={enabledChannels}
-                  intervalMs={enabledChannels.length > 1 ? 350 : 200}
+                  intervalMs={100}
                   onStreamingToggle={handleStreamingToggle}
                   onChannelToggle={handleChannelToggle}
                 />

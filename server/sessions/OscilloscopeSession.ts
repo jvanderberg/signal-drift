@@ -363,7 +363,7 @@ export function createOscilloscopeSession(
           console.log(`[OscilloscopeSession] Auto-starting streaming for: ${enabledChannels.join(', ')}`);
           streamingChannels = enabledChannels;
           streamingMeasurements = [...DEFAULT_STREAMING_MEASUREMENTS];
-          streamingIntervalMs = enabledChannels.length > 1 ? 350 : 200;
+          streamingIntervalMs = 100;
           // Stop polling, start streaming loop
           if (pollTimer) {
             clearTimeout(pollTimer);
@@ -420,8 +420,9 @@ export function createOscilloscopeSession(
   function runStreamingLoop(): void {
     if (streamingChannels.length === 0) return;
 
-    const minInterval = streamingChannels.length > 1 ? 350 : 200;
-    const safeInterval = Math.max(streamingIntervalMs, minInterval);
+    // With optimized getWaveformFast (2 commands per channel vs 8), we can stream faster
+    // Use the requested interval directly - no artificial minimum needed
+    const safeInterval = streamingIntervalMs;
 
     // Capture current generation to detect if streaming was restarted
     const myGeneration = streamingGeneration;
