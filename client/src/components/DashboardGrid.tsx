@@ -146,7 +146,7 @@ export function DashboardGrid({ children }: DashboardGridProps) {
         resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
         useCSSTransforms={true}
         compactType={null}
-        preventCollision={false}
+        preventCollision={true}
       >
         {wrappedChildren}
       </ResponsiveGridLayout>
