@@ -36,9 +36,9 @@ export const ROW_HEIGHT = 30;
 
 // Default panel dimensions (in grid units)
 const DEFAULT_PANEL_WIDTH = 6;
-const DEFAULT_PANEL_HEIGHT = 16;
+const DEFAULT_PANEL_HEIGHT = 11;
 const DEFAULT_PANEL_MIN_WIDTH = 4;
-const DEFAULT_PANEL_MIN_HEIGHT = 10;
+const DEFAULT_PANEL_MIN_HEIGHT = 5;
 
 // Debounce delay for saving layouts (ms)
 // Balances responsiveness with avoiding excessive server writes during rapid adjustments

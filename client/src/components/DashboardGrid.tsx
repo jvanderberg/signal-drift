@@ -16,7 +16,7 @@ import {
 } from '../stores';
 import type { DashboardBreakpoint } from '../../../shared/types';
 
-// Import react-grid-layout styles
+// Base styles from library, custom overrides in index.css
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
