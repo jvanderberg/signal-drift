@@ -39,7 +39,7 @@ export interface DeviceSession {
   setOutput(enabled: boolean): Promise<Result<void, Error>>;
   setValue(name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
   reconnect(newDriver: DeviceDriver): Promise<void>;
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 const DEFAULT_CONFIG: Required<DeviceSessionConfig> = {
@@ -451,7 +451,7 @@ export function createDeviceSession(
     }
   }
 
-  function stop(): void {
+  async function stop(): Promise<void> {
     isRunning = false;
     if (pollTimer) {
       clearTimeout(pollTimer);
@@ -462,6 +462,15 @@ export function createDeviceSession(
       clearTimeout(pending.timer);
     }
     pendingValues.clear();
+
+    // Wait for any in-flight poll to complete (with timeout)
+    if (pollInProgress) {
+      const STOP_TIMEOUT = 3000;
+      await Promise.race([
+        pollInProgress,
+        new Promise<void>(resolve => setTimeout(resolve, STOP_TIMEOUT)),
+      ]);
+    }
   }
 
   function getState(): DeviceSessionState {
