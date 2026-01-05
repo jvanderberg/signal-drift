@@ -10,80 +10,124 @@ A web-based control interface for lab equipment including power supplies, electr
 - **Matrix WPS300S** - Power Supply (Serial/USB)
 - **Rigol DHO800/900 Series** - Oscilloscopes (USB-TMC)
 
-## Quick Start
+## Installation
 
-### Prerequisites
+There are three ways to run Signal Drift depending on your needs:
 
+| Method | Best For | Devices Connect To |
+|--------|----------|-------------------|
+| [Local Usage](#local-usage) | Personal use on your workstation | Your computer |
+| [Server Installation](#server-installation) | Always-on access from any device | The server |
+| [Development](#development) | Contributing or modifying code | Your computer |
+
+---
+
+### Local Usage
+
+Run Signal Drift on your local machine with USB-connected lab equipment.
+
+**Prerequisites:**
 - Node.js 18+
-- Connected lab equipment via USB
+- Lab equipment connected via USB
 
-### Installation
-
+**Setup:**
 ```bash
+git clone https://github.com/jvanderberg/signal-drift.git
+cd signal-drift
 npm install
-cd client && npm install && cd ..
+npm run build:client
 ```
 
-### Running
-
-Start the server and client in separate terminals:
-
+**Run:**
 ```bash
-# Terminal 1: Start the backend server
-npm run dev
-
-# Terminal 2: Start the frontend dev server
-npm run dev:client
+npm start
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:3001 in your browser. Your connected devices will appear automatically.
 
-### Accessing from Other Devices
-
-The client dev server binds to all interfaces (`0.0.0.0`). To access from a phone or another computer on your network:
-
+**Accessing from other devices on your network:**
 1. Find your computer's IP address (e.g., `192.168.1.100`)
-2. Open `http://192.168.1.100:5173` on the other device
+2. Open `http://192.168.1.100:3001` on the other device
+3. Ensure port 3001 is accessible through your firewall
 
-The WebSocket connection uses the Vite proxy, so only port 5173 needs to be accessible.
+---
 
-### System Installation (Linux / macOS)
+### Server Installation
 
-Install Signal Drift as a system service that starts at boot:
+Install Signal Drift as a system service on a dedicated machine (e.g., Raspberry Pi, lab PC). The service starts at boot and is accessible from any device on your network.
 
+**Supported platforms:**
+- **Linux**: Debian/Ubuntu, Fedora/RHEL, Arch (systemd service)
+- **macOS**: Requires Homebrew (launchd service)
+
+**Install:**
 ```bash
-# Clone and install
 git clone https://github.com/jvanderberg/signal-drift.git
 cd signal-drift
 ./scripts/install.sh
 ```
 
-The script supports:
-- **Linux**: Debian/Ubuntu, Fedora/RHEL, Arch (systemd service)
-- **macOS**: Homebrew required (launchd service)
+The script installs dependencies, builds from source, and installs to `/opt/signal-drift`.
 
-It will install dependencies, build from source, and install to `/opt/signal-drift`.
+**Access:** Open `http://<server-ip>:3001` from any device on your network.
 
-After installation, access the web interface at `http://<ip>:3001`.
-
-**Commands:**
+**Managing the service:**
 ```bash
 # Linux
 journalctl -u signal-drift -f          # View logs
 sudo systemctl restart signal-drift    # Restart
+sudo systemctl status signal-drift     # Check status
 
 # macOS
 tail -f ~/Library/Logs/signal-drift.log  # View logs
 
-# Both
-./scripts/install.sh                   # Update (re-run to update)
+# Update or uninstall (both platforms)
+./scripts/install.sh                   # Re-run to update
 ./scripts/install.sh --uninstall       # Uninstall
 ```
 
-**Environment variables:**
+**Configuration (environment variables):**
 - `SIGNAL_DRIFT_PORT` - Server port (default: 3001)
 - `SIGNAL_DRIFT_INSTALL_DIR` - Install location (default: /opt/signal-drift)
 - `SIGNAL_DRIFT_DATA_DIR` - Data directory (platform default)
+
+---
+
+### Development
+
+For contributing or modifying Signal Drift. Uses hot-reloading for rapid iteration.
+
+**Prerequisites:**
+- Node.js 18+
+- Lab equipment via USB (or use simulated devices)
+
+**Setup:**
+```bash
+git clone https://github.com/jvanderberg/signal-drift.git
+cd signal-drift
+npm install
+cd client && npm install && cd ..
+```
+
+**Run (two terminals):**
+```bash
+# Terminal 1: Backend server with hot reload
+npm run dev
+
+# Terminal 2: Frontend dev server with HMR
+npm run dev:client
+```
+
+Open http://localhost:5173 in your browser. The Vite dev server proxies API requests to the backend.
+
+**Without hardware (simulated devices):**
+```bash
+USE_SIMULATED_DEVICES=true npm run dev
+```
+
+See [Development](#development-1) below for testing, building, and project structure.
+
+---
 
 ## Usage
 
@@ -210,7 +254,7 @@ All communication uses WebSocket (no REST API for real-time operations):
 
 ## Development
 
-### Running Tests
+### Testing
 
 ```bash
 npm test              # Watch mode
@@ -219,17 +263,16 @@ npm run test:e2e      # End-to-end tests (requires running server)
 npm run test:e2e:demo # Demo-specific e2e tests
 ```
 
-### Building the Demo
-
-Build a standalone demo with simulated devices for GitHub Pages:
+### Building
 
 ```bash
-npm run demo          # Build demo to demo/dist/
+npm run build:client  # Build production client
+npm run demo          # Build demo for GitHub Pages (demo/dist/)
 ```
 
 The demo runs entirely in the browser with a simulated WebSocket server.
 
-### Project Structure
+### Code Conventions
 
 - `shared/types.ts` - Single source of truth for API types
 - Factory functions over classes for drivers and sessions
@@ -282,8 +325,8 @@ sudo usermod -aG dialout $USER
 - Kill conflicting processes or change the port via `PORT=3002 npm run dev`
 
 **Firewall issues:**
-- For remote access, ensure port 5173 (Vite) is accessible
-- The WebSocket proxies through Vite, so only 5173 needs to be open
+- For local/server installation: ensure port 3001 is accessible
+- For development mode: ensure port 5173 (Vite dev server) is accessible
 
 **Connection keeps dropping:**
 - Check network stability
@@ -356,10 +399,4 @@ sudo usermod -aG dialout $USER
 
 ### Using Simulated Devices
 
-For development without hardware:
-
-```bash
-USE_SIMULATED_DEVICES=true npm run dev
-```
-
-This creates virtual PSU and Load devices that respond to commands and generate realistic measurements. See `.env.example` for simulation parameters.
+Run without physical hardware using `USE_SIMULATED_DEVICES=true npm run dev` (see [Development](#development) setup). This creates virtual PSU and Load devices that respond to commands and generate realistic measurements. See `.env.example` for additional simulation parameters.
