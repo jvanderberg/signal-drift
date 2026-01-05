@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Draggable, resizable dashboard layout** - Panels can be repositioned and resized with mouse drag
+  - Collision prevention to avoid overlapping panels
+  - Persistent layout saved to server database
+  - Responsive breakpoints for different screen sizes
+- **SQLite persistence layer** - Server-side database for durable storage
+  - Sequences, trigger scripts, device aliases, and dashboard layout
+  - Settings export/import support
+- **Demo build script** (`npm run demo`) - Build standalone browser demo for GitHub Pages
+- **E2E tests for demo** - Playwright tests for interactive demo features
+- **Integration tests for React components** - Testing Library tests with mocked WebSocket
+- **Raspberry Pi installation script** - Automated setup for embedded deployment
 - Documentation completeness review with improvement recommendations
 - Environment variable documentation (`.env.example`)
 - WebSocket API reference (`docs/API.md`)
@@ -17,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated client state management from hooks to Zustand stores
 - Added Zustand documentation to DESIGN.md
+- Improved +/- adjustment button hover and click feedback with `active:scale` effects
+- Resize handles only appear on individual handle hover (not entire panel)
+- Reduced default panel height from 16 to 11 rows, minimum from 10 to 5 rows
+
+### Fixed
+- Widget overlap during drag/resize by enabling collision prevention
+- Trigger widget sync after UI refresh - running script state now restored
+- Demo dashboard widget addition - WebSocket message handlers were missing
+- Integration test failures - TypeScript configuration and test selector fixes
+- Resize handle cursor flickering - CSS specificity improvements
 
 ## [1.0.0] - 2024-01-03
 

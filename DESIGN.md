@@ -3,7 +3,7 @@
 ## Architecture Overview
 
 ```
-lab-controller/
+signal-drift/
 ├── shared/              # Shared types (single source of truth)
 │   └── types.ts         # Device, WebSocket message types, sequence types
 ├── server/
@@ -17,12 +17,17 @@ lab-controller/
 │   ├── sequences/
 │   │   ├── SequenceController.ts   # Timer-based execution engine
 │   │   ├── SequenceManager.ts      # Library + playback management
-│   │   ├── SequenceStore.ts        # JSON persistence
 │   │   └── WaveformGenerator.ts    # Waveform -> steps conversion
 │   ├── triggers/
 │   │   ├── TriggerEngine.ts        # Condition evaluation & action execution
-│   │   ├── TriggerScriptManager.ts # Script lifecycle management
-│   │   └── TriggerScriptStore.ts   # JSON persistence
+│   │   └── TriggerScriptManager.ts # Script lifecycle management
+│   ├── db/                          # SQLite persistence layer
+│   │   ├── database.ts              # Database connection and migrations
+│   │   ├── SequenceStoreSqlite.ts   # Sequence persistence
+│   │   ├── TriggerScriptStoreSqlite.ts # Trigger script persistence
+│   │   ├── DeviceAliasStore.ts      # Custom device names
+│   │   ├── DashboardLayoutStore.ts  # Dashboard panel positions
+│   │   └── SettingsManager.ts       # Export/import settings
 │   ├── websocket/
 │   │   └── WebSocketHandler.ts # WebSocket connection & message routing
 │   └── devices/
@@ -40,9 +45,14 @@ lab-controller/
 │   ├── src/
 │   │   ├── types.ts     # Re-exports shared + client-only types
 │   │   ├── websocket.ts # WebSocket connection manager (singleton)
+│   │   ├── stores/                      # Zustand state stores
+│   │   │   ├── deviceStore.ts           # PSU/Load state management
+│   │   │   ├── oscilloscopeStore.ts     # Oscilloscope state management
+│   │   │   ├── layoutStore.ts           # Dashboard layout state
+│   │   │   └── uiStore.ts               # UI preferences
 │   │   ├── hooks/
-│   │   │   ├── useDeviceSocket.ts       # Device state via WebSocket (PSU/Load)
-│   │   │   ├── useOscilloscopeSocket.ts # Oscilloscope state via WebSocket
+│   │   │   ├── useDeviceSocket.ts       # Thin wrapper over deviceStore
+│   │   │   ├── useOscilloscopeSocket.ts # Thin wrapper over oscilloscopeStore
 │   │   │   ├── useDeviceList.ts         # Device discovery via WebSocket
 │   │   │   └── useSequencer.ts          # Sequence library and playback
 │   │   └── components/
@@ -55,6 +65,9 @@ lab-controller/
 │   │       ├── sequencer/               # Sequence editor and playback UI
 │   │       └── triggers/                # Trigger script editor and runner
 │   └── vite.config.ts
+├── demo/                # Standalone browser demo
+│   ├── simulation/      # Simulated WebSocket server
+│   └── vite.config.ts   # Demo build configuration
 └── electron/            # Future
 ```
 
@@ -573,7 +586,8 @@ client/src/stores/
 ├── index.ts              # Re-exports all stores and selectors
 ├── deviceStore.ts        # PSU/Load device state and WebSocket handling
 ├── oscilloscopeStore.ts  # Oscilloscope state and waveform data
-└── uiStore.ts            # UI state (device names, panel layout, preferences)
+├── layoutStore.ts        # Dashboard panel positions and sizes
+└── uiStore.ts            # UI state (device names, preferences)
 ```
 
 **deviceStore** - Manages power supply and electronic load state:
@@ -590,8 +604,13 @@ client/src/stores/
 
 **uiStore** - Manages UI-only state:
 - Custom device names (user-assigned labels)
-- Panel visibility and layout preferences
+- Panel visibility preferences
 - Persisted to localStorage
+
+**layoutStore** - Manages dashboard layout:
+- Panel positions and sizes for all breakpoints
+- Debounced persistence to server database
+- Stabilization period to prevent layout overwrites on load
 
 ### Key Patterns
 
@@ -948,6 +967,153 @@ const {
   pause,             // Pause execution
   resume,            // Resume execution
 } = useTriggerScript();
+```
+
+## Dashboard Layout Architecture
+
+The dashboard uses a draggable, resizable grid layout powered by `react-grid-layout`. Panel positions are persisted to the server database and restored on page load.
+
+### Key Design Principles
+
+1. **Responsive Breakpoints** - Different layouts for lg (1200px+), md (996px+), sm (768px+), xs (480px+)
+2. **Collision Prevention** - Panels cannot overlap; dragging auto-shifts other panels
+3. **Debounced Persistence** - Layout saves are debounced (1 second) to avoid excessive writes during drag
+4. **Stabilization Period** - After loading, a 500ms stabilization period prevents react-grid-layout's initial render from overwriting saved positions
+
+### Components
+
+**layoutStore** (`client/src/stores/layoutStore.ts`) - Zustand store managing layout state:
+- Stores layouts for all breakpoints
+- Handles WebSocket communication for persistence
+- Debounces save operations
+- Ignores automatic layout changes during stabilization
+
+**DashboardLayoutStore** (`server/db/DashboardLayoutStore.ts`) - Server-side persistence:
+- Uses the meta table for simple key-value storage
+- Single layout per server instance
+- JSON serialization for layout data
+
+### Layout Data Structure
+
+```typescript
+interface DashboardLayoutData {
+  layouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>;
+}
+
+interface DashboardLayoutItem {
+  i: string;      // Panel key (e.g., "device-12345")
+  x: number;      // Grid column position
+  y: number;      // Grid row position
+  w: number;      // Width in grid units
+  h: number;      // Height in grid units
+  minW?: number;  // Minimum width
+  minH?: number;  // Minimum height
+}
+```
+
+### WebSocket Messages
+
+Client -> Server:
+- `dashboardLayoutGet` - Request current layout
+- `dashboardLayoutSave { layout }` - Save layout
+- `dashboardLayoutClear` - Reset to default
+
+Server -> Client:
+- `dashboardLayout { layout }` - Current layout (or null for default)
+- `dashboardLayoutSaved` - Confirm save
+
+### Resize Handle Behavior
+
+- Handles only appear when hovering over the specific handle (not entire panel)
+- CSS overrides prevent cursor flickering during resize
+- Blue hover effect provides visual feedback
+
+## SQLite Persistence Architecture
+
+The server uses SQLite for persistent storage of user data. This provides durability across restarts and enables future features like settings export/import.
+
+### Database Location
+
+Default data directory by platform:
+- **Linux**: `~/.local/share/signal-drift/`
+- **macOS**: `~/Library/Application Support/signal-drift/`
+- **Windows**: `%APPDATA%/signal-drift/`
+
+Override with `SIGNAL_DRIFT_DATA_DIR` environment variable.
+
+### Schema
+
+```sql
+-- Sequences (AWG waveforms)
+CREATE TABLE sequences (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  definition TEXT NOT NULL,  -- JSON
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Trigger scripts
+CREATE TABLE trigger_scripts (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  script TEXT NOT NULL,      -- JSON
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Device aliases (custom names)
+CREATE TABLE device_aliases (
+  device_id TEXT PRIMARY KEY,
+  alias TEXT NOT NULL
+);
+
+-- Generic key-value storage (dashboard layout, etc.)
+CREATE TABLE meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+```
+
+### Store Pattern
+
+Each store follows the factory function pattern:
+
+```typescript
+interface SequenceStore {
+  list(): Result<SequenceDefinition[], Error>;
+  get(id: string): Result<SequenceDefinition | null, Error>;
+  save(definition: SequenceDefinition): Result<void, Error>;
+  delete(id: string): Result<void, Error>;
+}
+
+function createSequenceStoreSqlite(database: Database): SequenceStore {
+  return {
+    list() { ... },
+    get(id) { ... },
+    save(definition) { ... },
+    delete(id) { ... },
+  };
+}
+```
+
+### Migration Strategy
+
+The database schema is created on first run. Future migrations will use a version table to track applied migrations and run any pending ones on startup.
+
+### Settings Export/Import
+
+The `SettingsManager` supports exporting all user data to JSON and importing it back:
+
+```typescript
+interface SettingsExportData {
+  version: number;
+  exportedAt: string;
+  sequences: SequenceDefinition[];
+  triggerScripts: TriggerScript[];
+  deviceAliases: DeviceAlias[];
+  dashboardLayout: DashboardLayoutData | null;
+}
 ```
 
 ## Common Pitfalls

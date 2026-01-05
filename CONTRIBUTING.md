@@ -91,7 +91,21 @@ export function createMyDevice(transport: Transport): DeviceDriver {
 export class MyDevice implements DeviceDriver { ... }
 ```
 
-### 4. Use ScpiParser for Response Parsing
+### 5. Button Hover and Click Feedback
+
+All interactive elements must have visible hover and click states:
+
+```jsx
+// Good - visible hover and click feedback
+className="px-2 py-1 bg-gray-700 hover:bg-gray-600 active:scale-95 transition-all cursor-pointer select-none"
+
+// Bad - barely visible feedback
+className="px-2 py-1 bg-gray-700 hover:opacity-90"
+```
+
+Use `active:scale-95` or `active:scale-90` for satisfying click press effects.
+
+### 6. Use ScpiParser for Response Parsing
 
 All SCPI response parsing goes through `ScpiParser`:
 
@@ -484,7 +498,9 @@ interface Transport {
 
 ### Run All Tests
 ```bash
-npm run test:run
+npm run test:run        # Unit tests
+npm run test:e2e        # End-to-end tests (requires running server)
+npm run test:e2e:demo   # Demo-specific e2e tests
 ```
 
 ### Run Specific Test File
@@ -501,6 +517,32 @@ npx tsc --noEmit
 ```bash
 npm run dev  # Start server with connected devices
 npx vitest run server/websocket/__tests__/integration.test.ts
+```
+
+### React Component Integration Tests
+
+Integration tests for React components use `@testing-library/react` with mocked WebSocket:
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MockWebSocketManager } from '../test-utils';
+
+describe('MyComponent', () => {
+  let mockWs: MockWebSocketManager;
+
+  beforeEach(() => {
+    mockWs = new MockWebSocketManager();
+  });
+
+  it('should handle WebSocket messages', async () => {
+    render(<MyComponent />);
+
+    // Simulate server message
+    mockWs.simulateMessage({ type: 'deviceList', devices: [] });
+
+    await screen.findByText('No devices');
+  });
+});
 ```
 
 ---
