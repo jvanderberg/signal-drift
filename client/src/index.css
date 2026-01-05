@@ -48,83 +48,86 @@
 /* React Grid Layout resize handles - invisible with cursor change and hover indicator */
 .react-grid-item > .react-resizable-handle {
   position: absolute;
-  background: transparent;
+  background: transparent none !important;
+  background-image: none !important;
   z-index: 100;
   transition: background-color 0.15s ease;
+  /* Reset any transforms from the library that affect the icon */
+  transform: none !important;
 }
 
 /* Show visual indicator on hover for all handles */
 .react-grid-item > .react-resizable-handle:hover {
-  background-color: var(--color-accent-load);
+  background-color: var(--color-accent-load) !important;
   opacity: 0.5;
 }
 
 /* Corner handles - larger hit areas (32px) */
-.react-resizable-handle-se {
+.react-grid-item > .react-resizable-handle-se {
   bottom: 0;
   right: 0;
   width: 32px;
   height: 32px;
-  cursor: se-resize;
+  cursor: se-resize !important;
   border-bottom-right-radius: 8px;
 }
 
-.react-resizable-handle-sw {
+.react-grid-item > .react-resizable-handle-sw {
   bottom: 0;
   left: 0;
   width: 32px;
   height: 32px;
-  cursor: sw-resize;
+  cursor: sw-resize !important;
   border-bottom-left-radius: 8px;
 }
 
-.react-resizable-handle-ne {
+.react-grid-item > .react-resizable-handle-ne {
   top: 0;
   right: 0;
   width: 32px;
   height: 32px;
-  cursor: ne-resize;
+  cursor: ne-resize !important;
   border-top-right-radius: 8px;
 }
 
-.react-resizable-handle-nw {
+.react-grid-item > .react-resizable-handle-nw {
   top: 0;
   left: 0;
   width: 32px;
   height: 32px;
-  cursor: nw-resize;
+  cursor: nw-resize !important;
   border-top-left-radius: 8px;
 }
 
 /* Edge handles - span the full edge with larger hit areas (16px) */
-.react-resizable-handle-e {
+.react-grid-item > .react-resizable-handle-e {
   right: 0;
   top: 32px;
   bottom: 32px;
   width: 16px;
-  cursor: ew-resize;
+  cursor: ew-resize !important;
 }
 
-.react-resizable-handle-w {
+.react-grid-item > .react-resizable-handle-w {
   left: 0;
   top: 32px;
   bottom: 32px;
   width: 16px;
-  cursor: ew-resize;
+  cursor: ew-resize !important;
 }
 
-.react-resizable-handle-n {
+.react-grid-item > .react-resizable-handle-n {
   top: 0;
   left: 32px;
   right: 32px;
   height: 16px;
-  cursor: ns-resize;
+  cursor: ns-resize !important;
 }
 
-.react-resizable-handle-s {
+.react-grid-item > .react-resizable-handle-s {
   bottom: 0;
   left: 32px;
   right: 32px;
   height: 16px;
-  cursor: ns-resize;
+  cursor: ns-resize !important;
 }
