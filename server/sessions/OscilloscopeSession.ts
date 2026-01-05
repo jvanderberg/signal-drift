@@ -458,7 +458,10 @@ export function createOscilloscopeSession(
             return;
           }
 
-          const waveformResult = await driver.getWaveform(channel);
+          // Use fast waveform acquisition if available (reduces round trips from 8 to 2)
+          const waveformResult = driver.getWaveformFast
+            ? await driver.getWaveformFast(channel)
+            : await driver.getWaveform(channel);
           if (waveformResult.ok) {
             const waveform = waveformResult.value;
             // Double-check generation before broadcasting

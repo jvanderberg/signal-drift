@@ -47,6 +47,16 @@ const TRIGGER_STATUS_MAP: Record<string, TriggerStatus> = {
   STOP: 'stopped',
 };
 
+// Cache structure for preamble data (used for fast waveform acquisition)
+interface PreambleCache {
+  xIncrement: number;
+  xOrigin: number;
+  yIncrement: number;
+  yOrigin: number;
+  yReference: number;
+  timestamp: number;
+}
+
 export function createRigolOscilloscope(transport: Transport): OscilloscopeDriver {
   const info: OscilloscopeInfo = {
     id: '',
@@ -54,6 +64,12 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     manufacturer: 'Rigol',
     model: '',
   };
+
+  // Preamble cache per channel for fast waveform acquisition
+  // This caches PRE/YOR/YREF values which only change when timebase/scale changes
+  const preambleCache = new Map<string, PreambleCache>();
+  let waveformFormatInitialized = false;
+  const CACHE_TTL_MS = 5000; // Refresh cache every 5 seconds as fallback
 
   const capabilities: OscilloscopeCapabilities = {
     channels: 4,           // Default, updated after probe
@@ -284,10 +300,14 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     },
 
     async setChannelScale(channel: string, scale: number): Promise<Result<void, Error>> {
+      // Invalidate preamble cache for this channel - Y scaling changed
+      preambleCache.delete(channel);
       return transport.write(`:${channel}:SCAL ${scale}`);
     },
 
     async setChannelOffset(channel: string, offset: number): Promise<Result<void, Error>> {
+      // Invalidate preamble cache for this channel - Y offset changed
+      preambleCache.delete(channel);
       return transport.write(`:${channel}:OFFS ${offset}`);
     },
 
@@ -304,10 +324,14 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     },
 
     async setTimebaseScale(scale: number): Promise<Result<void, Error>> {
+      // Invalidate preamble cache for all channels - X scaling changed
+      preambleCache.clear();
       return transport.write(`:TIM:SCAL ${scale}`);
     },
 
     async setTimebaseOffset(offset: number): Promise<Result<void, Error>> {
+      // Invalidate preamble cache for all channels - X offset changed
+      preambleCache.clear();
       return transport.write(`:TIM:OFFS ${offset}`);
     },
 
@@ -456,6 +480,121 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
 
       // Not TMC format, return raw (minus any header bytes if present)
       return Ok(rawDataResult.value);
+    },
+
+    // ========================================
+    // Optimized waveform acquisition methods
+    // ========================================
+
+    async initializeWaveformFormat(): Promise<Result<void, Error>> {
+      // Set waveform format once when streaming starts
+      // This avoids sending MODE and FORM commands on every waveform fetch
+      let writeResult = await transport.write(':WAV:MODE NORM');
+      if (!writeResult.ok) return writeResult;
+
+      writeResult = await transport.write(':WAV:FORM BYTE');
+      if (!writeResult.ok) return writeResult;
+
+      waveformFormatInitialized = true;
+      return Ok(undefined);
+    },
+
+    async refreshPreambleCache(channel: string): Promise<Result<void, Error>> {
+      // Set waveform source
+      let writeResult = await transport.write(`:WAV:SOUR ${channel}`);
+      if (!writeResult.ok) return writeResult;
+
+      // Get preamble for scaling
+      const preambleResult = await transport.query(':WAV:PRE?');
+      if (!preambleResult.ok) return preambleResult;
+      const preambleParts = preambleResult.value.split(',').map((s) => parseFloat(s.trim()));
+      const [, , , , xIncrement, xOrigin, , yIncrement] = preambleParts;
+
+      // Query yOrigin and yReference
+      const yOrResult = await transport.query(':WAV:YOR?');
+      if (!yOrResult.ok) return yOrResult;
+      const yOrigin = ScpiParser.parseNumberOr(yOrResult.value, 0);
+
+      const yRefResult = await transport.query(':WAV:YREF?');
+      if (!yRefResult.ok) return yRefResult;
+      const yReference = ScpiParser.parseNumberOr(yRefResult.value, 0);
+
+      preambleCache.set(channel, {
+        xIncrement,
+        xOrigin,
+        yIncrement,
+        yOrigin,
+        yReference,
+        timestamp: Date.now(),
+      });
+
+      return Ok(undefined);
+    },
+
+    invalidatePreambleCache(channel?: string): void {
+      if (channel) {
+        preambleCache.delete(channel);
+      } else {
+        preambleCache.clear();
+      }
+    },
+
+    async getWaveformFast(channel: string): Promise<Result<WaveformData, Error>> {
+      // Ensure format is initialized
+      if (!waveformFormatInitialized) {
+        const initResult = await this.initializeWaveformFormat();
+        if (!initResult.ok) return initResult;
+      }
+
+      // Check if we need to refresh the preamble cache
+      const cached = preambleCache.get(channel);
+      const now = Date.now();
+      const needsRefresh = !cached || (now - cached.timestamp) > CACHE_TTL_MS;
+
+      if (needsRefresh) {
+        const refreshResult = await this.refreshPreambleCache(channel);
+        if (!refreshResult.ok) return refreshResult;
+      }
+
+      // Now do the fast path: just SOUR + DATA?
+      const cachedData = preambleCache.get(channel)!;
+
+      // Set waveform source (still need this to select channel)
+      const writeResult = await transport.write(`:WAV:SOUR ${channel}`);
+      if (!writeResult.ok) return writeResult;
+
+      // Get waveform data
+      if (!transport.queryBinary) {
+        return Err(new Error('Transport does not support binary queries'));
+      }
+
+      const rawDataResult = await transport.queryBinary(':WAV:DATA?');
+      if (!rawDataResult.ok) return rawDataResult;
+
+      // Parse TMC block format
+      const blockResult = ScpiParser.parseDefiniteLengthBlock(rawDataResult.value);
+      if (!blockResult.ok) {
+        return Err(new Error(blockResult.error));
+      }
+      const waveformBytes = blockResult.value;
+
+      // Convert bytes to voltage values using cached preamble data
+      const points: number[] = [];
+      for (let i = 0; i < waveformBytes.length; i++) {
+        const rawValue = waveformBytes[i];
+        const voltage = (rawValue - cachedData.yOrigin - cachedData.yReference) * cachedData.yIncrement;
+        points.push(voltage);
+      }
+
+      return Ok({
+        channel,
+        points,
+        xIncrement: cachedData.xIncrement,
+        xOrigin: cachedData.xOrigin,
+        yIncrement: cachedData.yIncrement,
+        yOrigin: cachedData.yOrigin,
+        yReference: cachedData.yReference,
+      });
     },
   };
 }

@@ -138,6 +138,12 @@ export interface OscilloscopeDriver {
 
   // Screenshot (download utility, not for primary UI)
   getScreenshot(): Promise<Result<Buffer, Error>>;
+
+  // Optimized waveform acquisition (optional - reduces round trips from 8 to 2 per channel)
+  initializeWaveformFormat?(): Promise<Result<void, Error>>;
+  refreshPreambleCache?(channel: string): Promise<Result<void, Error>>;
+  invalidatePreambleCache?(channel?: string): void;
+  getWaveformFast?(channel: string): Promise<Result<WaveformData, Error>>;
 }
 
 export type OscilloscopeDriverFactory = (transport: Transport) => OscilloscopeDriver;

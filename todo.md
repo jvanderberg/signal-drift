@@ -36,38 +36,30 @@
 
 ---
 
-## Oscilloscope Capture Optimization
+## Oscilloscope Capture Optimization ✅
 
-Current: ~3fps for 2 channels
+**Status: COMPLETED**
 
-### Problem
-Each `getWaveform()` call does 8 round trips:
-```
-:WAV:SOUR      → set channel
-:WAV:MODE NORM → set mode (same every time)
-:WAV:FORM BYTE → set format (same every time)
-:WAV:STAR/STOP → range
-:WAV:PRE?      → preamble (only changes with timebase)
-:WAV:YOR?      → Y origin (only changes with V/div)
-:WAV:YREF?     → Y reference (only changes with V/div)
-:WAV:DATA?     → actual data
-```
+Previous: ~3fps for 2 channels → Now: ~6-7fps expected (75% fewer round trips)
 
-2 channels × 8 commands = 16 round trips at ~20ms each = 320ms/frame
+### Problem (Solved)
+Each `getWaveform()` call was doing 8 round trips, but many were redundant.
 
-### Solution
-Cache settings that don't change frequently:
-
-1. Set `:WAV:MODE NORM` and `:WAV:FORM BYTE` once when streaming starts
-2. Cache PRE/YOR/YREF per channel, only refresh when timebase/voltage scale changes
+### Solution (Implemented)
+Added `getWaveformFast()` method that:
+1. Sets `:WAV:MODE NORM` and `:WAV:FORM BYTE` once when streaming starts
+2. Caches PRE/YOR/YREF per channel with 5-second TTL, refreshes when scale changes
 3. Per frame: just SOUR + DATA? (2 commands per channel)
 
-Result: 16 → 4 round trips, should roughly double framerate to 6-7fps
+Result: 16 → 4 round trips per dual-channel frame
 
-### Implementation
-- Add `preambleCache` map in oscilloscope driver
-- Add `initializeWaveformFormat()` call at streaming start
-- Invalidate cache when user changes scale (or refresh every N seconds as fallback)
+### Implementation Details
+- `preambleCache` map in `rigol-oscilloscope.ts` stores scaling data per channel
+- `initializeWaveformFormat()` sets format once at streaming start
+- `refreshPreambleCache()` fetches preamble data with TTL
+- `getWaveformFast()` uses cached values for voltage conversion
+- Cache automatically invalidated when `setChannelScale`, `setChannelOffset`, `setTimebaseScale`, or `setTimebaseOffset` are called
+- `OscilloscopeSession` uses `getWaveformFast` when available, falls back to `getWaveform`
 
 ---
 
