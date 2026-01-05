@@ -221,6 +221,8 @@ export function createTriggerScriptManager(
     if (activeEngine) {
       await activeEngine.stop();
       cleanupEngine();
+      // Also stop any sequence that was started by the trigger script
+      await sequenceManager.abort();
     }
   }
 
