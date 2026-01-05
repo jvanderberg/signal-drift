@@ -49,17 +49,23 @@
 }
 
 /* ==========================================================================
-   Resize Handles - Subtle icons that appear on hover
+   Resize Handles - Only show on individual handle hover
    ========================================================================== */
 
-/* Base resize handle - add hover effect */
-.react-resizable-handle {
-  border-radius: 4px;
-  transition: background-color 0.15s ease;
+/* Override library: keep handles hidden even when hovering the panel */
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 0;
 }
 
-/* Show blue background on hover */
-.react-resizable-handle:hover {
+/* Base resize handle styling */
+.react-resizable-handle {
+  border-radius: 4px;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+/* Show this specific handle on hover (higher specificity to override above) */
+.react-grid-item > .react-resizable-handle:hover {
+  opacity: 1;
   background-color: color-mix(in srgb, var(--color-accent-load) 30%, transparent);
 }
 
