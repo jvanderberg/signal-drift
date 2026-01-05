@@ -84,8 +84,11 @@ export function createSerialTransport(config: SerialConfig): Transport {
     async close(): Promise<Result<void, Error>> {
       if (!port) return Ok();
 
-      // Acquire lock to wait for any in-flight operations
-      await withLock(async () => {
+      // Close with timeout to prevent hanging on shutdown
+      // Wait up to 3 seconds for any in-flight operations, then force close
+      const CLOSE_TIMEOUT = 3000;
+
+      const closeOperation = withLock(async () => {
         // Remove all listeners from parser and port before closing
         if (parser) {
           parser.removeAllListeners();
@@ -106,6 +109,30 @@ export function createSerialTransport(config: SerialConfig): Transport {
         disconnected = false;
         disconnectError = null;
       });
+
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          console.warn(`[Serial] Close timeout after ${CLOSE_TIMEOUT}ms, forcing close`);
+          // Force cleanup even if lock wasn't acquired
+          if (parser) parser.removeAllListeners();
+          if (port) {
+            port.removeAllListeners();
+            try {
+              port.close();
+            } catch {
+              // Ignore close errors during forced cleanup
+            }
+          }
+          port = null;
+          parser = null;
+          opened = false;
+          disconnected = false;
+          disconnectError = null;
+          resolve();
+        }, CLOSE_TIMEOUT);
+      });
+
+      await Promise.race([closeOperation, timeoutPromise]);
       return Ok();
     },
 

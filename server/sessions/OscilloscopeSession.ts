@@ -75,7 +75,7 @@ export interface OscilloscopeSession {
 
   // Lifecycle
   reconnect(newDriver: OscilloscopeDriver): Promise<void>;
-  stopSession(): void;
+  stopSession(): Promise<void>;
 }
 
 const DEFAULT_CONFIG: Required<OscilloscopeSessionConfig> = {
@@ -752,7 +752,7 @@ export function createOscilloscopeSession(
       }
     },
 
-    stopSession(): void {
+    async stopSession(): Promise<void> {
       isRunning = false;
       // Increment generation to invalidate any in-flight fetches
       streamingGeneration++;
@@ -764,6 +764,15 @@ export function createOscilloscopeSession(
       if (streamingTimer) {
         clearTimeout(streamingTimer);
         streamingTimer = null;
+      }
+
+      // Wait for any in-flight fetch to complete (with timeout)
+      if (isFetching) {
+        const STOP_TIMEOUT = 3000;
+        const startTime = Date.now();
+        while (isFetching && Date.now() - startTime < STOP_TIMEOUT) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
       }
     },
   };

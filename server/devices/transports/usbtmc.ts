@@ -249,8 +249,11 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
     async close(): Promise<Result<void, Error>> {
       if (!opened && !disconnected) return Ok();
 
-      // Acquire lock to wait for any in-flight operations
-      await withLock(async () => {
+      // Close with timeout to prevent hanging on shutdown
+      // Wait up to 3 seconds for any in-flight operations, then force close
+      const CLOSE_TIMEOUT = 3000;
+
+      const closeOperation = withLock(async () => {
         try {
           if (iface) {
             iface.release(true);
@@ -267,6 +270,28 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
         disconnected = false;
         disconnectError = null;
       });
+
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          console.warn(`[USBTMC] Close timeout after ${CLOSE_TIMEOUT}ms, forcing close`);
+          // Force cleanup even if lock wasn't acquired
+          try {
+            if (iface) iface.release(true);
+            device.close();
+          } catch {
+            // Ignore close errors during forced cleanup
+          }
+          bulkInEndpoint = null;
+          bulkOutEndpoint = null;
+          iface = null;
+          opened = false;
+          disconnected = false;
+          disconnectError = null;
+          resolve();
+        }, CLOSE_TIMEOUT);
+      });
+
+      await Promise.race([closeOperation, timeoutPromise]);
       return Ok();
     },
 

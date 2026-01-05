@@ -277,8 +277,8 @@ async function stop(): Promise<void> {
   // Stop trigger script manager (saves pending changes)
   await triggerScriptManager.shutdown();
 
-  // Stop session polling
-  sessionManager.stop();
+  // Stop session polling and wait for in-flight operations
+  await sessionManager.stop();
 
   // Close all device transports (USB, serial) - critical for clean shutdown
   console.log('Closing device transports...');
