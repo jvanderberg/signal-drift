@@ -150,9 +150,19 @@ To use:
 
 **Note**: Only one sequence can run at a time. If a trigger starts a new sequence, any running sequence is aborted first.
 
+### Dashboard Layout
+
+The dashboard uses a draggable, resizable grid layout:
+
+- **Drag to Reposition** - Click and drag panel headers to move them
+- **Resize Panels** - Drag the corner/edge handles to resize
+- **Collision Prevention** - Panels automatically avoid overlapping
+- **Persistent Layout** - Your layout is saved and restored on refresh
+- **Responsive** - Layout adapts to different screen sizes
+
 ### Multiple Devices
 
-Open multiple devices simultaneously - each gets its own panel. Panels share rows (max 2 per row) and a single device takes full width.
+Open multiple devices simultaneously - each gets its own panel.
 
 ## Architecture
 
@@ -161,19 +171,22 @@ See [DESIGN.md](./DESIGN.md) for detailed architecture documentation.
 ### Key Components
 
 ```
-lab-controller/
+signal-drift/
 ├── server/           # Node.js backend
 │   ├── index.ts      # HTTP + WebSocket server
 │   ├── sessions/     # Device session management
 │   ├── devices/      # Device drivers and transports
 │   ├── sequences/    # Sequence library and execution
 │   ├── triggers/     # Trigger script engine
+│   ├── db/           # SQLite persistence layer
 │   └── websocket/    # WebSocket handler
 ├── client/           # React frontend
 │   ├── src/
 │   │   ├── components/   # UI components
-│   │   ├── hooks/        # WebSocket hooks
+│   │   ├── stores/       # Zustand state stores
+│   │   ├── hooks/        # WebSocket hooks (thin wrappers)
 │   │   └── websocket.ts  # Connection manager
+├── demo/             # Standalone browser demo
 └── shared/           # Shared TypeScript types
 ```
 
@@ -187,6 +200,7 @@ All communication uses WebSocket (no REST API for real-time operations):
 - **Oscilloscope**: `scopeRun`, `scopeStop`, `scopeGetWaveform`, etc.
 - **Sequencer**: `sequenceRun`, `sequenceAbort`, `sequenceLibrary*`
 - **Triggers**: `triggerScriptRun`, `triggerScriptStop`, `triggerScriptLibrary*`
+- **Dashboard**: `dashboardLayoutGet`, `dashboardLayoutSave`, `dashboardLayoutClear`
 
 ### Resilience
 
@@ -201,7 +215,19 @@ All communication uses WebSocket (no REST API for real-time operations):
 ```bash
 npm test              # Watch mode
 npm run test:run      # Single run
+npm run test:e2e      # End-to-end tests (requires running server)
+npm run test:e2e:demo # Demo-specific e2e tests
 ```
+
+### Building the Demo
+
+Build a standalone demo with simulated devices for GitHub Pages:
+
+```bash
+npm run demo          # Build demo to demo/dist/
+```
+
+The demo runs entirely in the browser with a simulated WebSocket server.
 
 ### Project Structure
 
