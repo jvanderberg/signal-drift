@@ -110,11 +110,36 @@ describe('useTriggerScript', () => {
       simulateMessage({
         type: 'triggerScriptLibrary',
         scripts: [sampleScript],
+        activeState: null,
       });
 
       await waitFor(() => {
         expect(result.current.library).toEqual([sampleScript]);
         expect(result.current.isLibraryLoading).toBe(false);
+      });
+    });
+
+    it('should restore active state from library response when a script is running', async () => {
+      const { result } = renderHook(() => useTriggerScript());
+
+      const runningState = {
+        scriptId: 'script-1',
+        executionState: 'running' as const,
+        startedAt: Date.now(),
+        elapsedMs: 5000,
+        triggerStates: [],
+      };
+
+      simulateMessage({
+        type: 'triggerScriptLibrary',
+        scripts: [sampleScript],
+        activeState: runningState,
+      });
+
+      await waitFor(() => {
+        expect(result.current.library).toEqual([sampleScript]);
+        expect(result.current.activeState).toEqual(runningState);
+        expect(result.current.isRunning).toBe(true);
       });
     });
 
@@ -157,6 +182,7 @@ describe('useTriggerScript', () => {
       simulateMessage({
         type: 'triggerScriptLibrary',
         scripts: [sampleScript],
+        activeState: null,
       });
 
       const updatedScript = { ...sampleScript, name: 'Updated Name' };
@@ -195,6 +221,7 @@ describe('useTriggerScript', () => {
       simulateMessage({
         type: 'triggerScriptLibrary',
         scripts: [sampleScript],
+        activeState: null,
       });
 
       simulateMessage({

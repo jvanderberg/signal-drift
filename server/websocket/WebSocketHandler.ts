@@ -620,9 +620,11 @@ export function createWebSocketHandler(
       return;
     }
     const scripts = triggerScriptManager.listLibrary();
+    const activeState = triggerScriptManager.getActiveState() ?? null;
     send(clientState.ws, {
       type: 'triggerScriptLibrary',
       scripts,
+      activeState,
     });
   }
 
@@ -1263,6 +1265,7 @@ export function createWebSocketHandler(
       broadcastToAll({
         type: 'triggerScriptLibrary',
         scripts: triggerScriptManager.listLibrary(),
+        activeState: triggerScriptManager.getActiveState() ?? null,
       });
     }
     if (deviceAliasStore) {

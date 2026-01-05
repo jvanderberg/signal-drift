@@ -374,7 +374,7 @@ export type ServerMessage =
   | { type: 'sequenceAborted'; sequenceId: string }
   | { type: 'sequenceError'; sequenceId: string; error: string }
   // Trigger script responses - library
-  | { type: 'triggerScriptLibrary'; scripts: TriggerScript[] }
+  | { type: 'triggerScriptLibrary'; scripts: TriggerScript[]; activeState: TriggerScriptState | null }
   | { type: 'triggerScriptLibrarySaved'; scriptId: string }
   | { type: 'triggerScriptLibraryDeleted'; scriptId: string }
   // Trigger script responses - execution

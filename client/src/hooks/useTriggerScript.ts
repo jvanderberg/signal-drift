@@ -82,6 +82,10 @@ export function useTriggerScript(): UseTriggerScriptResult {
         case 'triggerScriptLibrary':
           setLibrary(message.scripts);
           setIsLibraryLoading(false);
+          // Restore active state if a trigger script is running on the server
+          if (message.activeState) {
+            setActiveState(message.activeState);
+          }
           break;
 
         case 'triggerScriptLibrarySaved':
