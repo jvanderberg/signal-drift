@@ -442,13 +442,13 @@ describe('TriggerScriptPanel', () => {
 
       render(<TriggerScriptPanel />);
 
-      // Select the script to see its details
+      // When activeState is set, the script is auto-selected, causing the name
+      // to appear in both the list and the detail panel. Use getAllByText.
       await waitFor(() => {
-        expect(screen.getByText('Test Script')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Script').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByText('Test Script'));
-
+      // Script is already auto-selected when activeState.scriptId matches
       // Should show elapsed time
       expect(screen.getByText('5.0s')).toBeInTheDocument();
       expect(screen.getByText('running')).toBeInTheDocument();
@@ -560,12 +560,13 @@ describe('TriggerScriptPanel', () => {
 
       render(<TriggerScriptPanel />);
 
+      // When activeState is set, the script is auto-selected, causing the name
+      // to appear in both the list and the detail panel. Use getAllByText.
       await waitFor(() => {
-        expect(screen.getByText('Test Script')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Script').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByText('Test Script'));
-
+      // Script is already auto-selected when activeState.scriptId matches
       expect(screen.getByText('3 fires')).toBeInTheDocument();
     });
   });
