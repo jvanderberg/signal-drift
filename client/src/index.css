@@ -1,7 +1,11 @@
 @import "tailwindcss";
 @import "../../shared/styles.css";
 
-/* Dashboard Grid Layout */
+/* ==========================================================================
+   Dashboard Grid - Custom Styles
+   (Overrides default react-grid-layout styles imported in DashboardGrid.tsx)
+   ========================================================================== */
+
 .dashboard-grid {
   min-height: 100%;
 }
@@ -30,101 +34,37 @@
   cursor: grabbing;
 }
 
-/* React Grid Layout placeholder (during drag) */
-.react-grid-placeholder {
-  background-color: var(--color-accent-load);
+/* Placeholder shown during drag/resize */
+.react-grid-item.react-grid-placeholder {
+  background: var(--color-accent-load);
   opacity: 0.2;
   border-radius: 8px;
-  transition: all 200ms ease;
 }
 
-/* React Grid Layout item when dragging */
+/* Panel appearance when dragging */
 .react-grid-item.react-draggable-dragging {
   z-index: 100;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   opacity: 0.9;
 }
 
-/* React Grid Layout resize handles - invisible with cursor change and hover indicator */
-.react-grid-item > .react-resizable-handle {
-  position: absolute;
-  background: transparent;
-  z-index: 100;
+/* ==========================================================================
+   Resize Handles - Subtle icons that appear on hover
+   ========================================================================== */
+
+/* Base resize handle - add hover effect */
+.react-resizable-handle {
+  border-radius: 4px;
   transition: background-color 0.15s ease;
 }
 
-/* Show visual indicator on hover for all handles */
-.react-grid-item > .react-resizable-handle:hover {
-  background-color: var(--color-accent-load);
-  opacity: 0.5;
+/* Show blue background on hover */
+.react-resizable-handle:hover {
+  background-color: color-mix(in srgb, var(--color-accent-load) 30%, transparent);
 }
 
-/* Corner handles - larger hit areas (32px) */
-.react-resizable-handle-se {
-  bottom: 0;
-  right: 0;
-  width: 32px;
-  height: 32px;
-  cursor: se-resize;
-  border-bottom-right-radius: 8px;
-}
-
-.react-resizable-handle-sw {
-  bottom: 0;
-  left: 0;
-  width: 32px;
-  height: 32px;
-  cursor: sw-resize;
-  border-bottom-left-radius: 8px;
-}
-
-.react-resizable-handle-ne {
-  top: 0;
-  right: 0;
-  width: 32px;
-  height: 32px;
-  cursor: ne-resize;
-  border-top-right-radius: 8px;
-}
-
-.react-resizable-handle-nw {
-  top: 0;
-  left: 0;
-  width: 32px;
-  height: 32px;
-  cursor: nw-resize;
-  border-top-left-radius: 8px;
-}
-
-/* Edge handles - span the full edge with larger hit areas (16px) */
-.react-resizable-handle-e {
-  right: 0;
-  top: 32px;
-  bottom: 32px;
-  width: 16px;
-  cursor: ew-resize;
-}
-
-.react-resizable-handle-w {
-  left: 0;
-  top: 32px;
-  bottom: 32px;
-  width: 16px;
-  cursor: ew-resize;
-}
-
-.react-resizable-handle-n {
-  top: 0;
-  left: 32px;
-  right: 32px;
-  height: 16px;
-  cursor: ns-resize;
-}
-
-.react-resizable-handle-s {
-  bottom: 0;
-  left: 32px;
-  right: 32px;
-  height: 16px;
-  cursor: ns-resize;
+/* Override default icon color on hover */
+.react-resizable-handle:hover::after {
+  border-right-color: var(--color-accent-load);
+  border-bottom-color: var(--color-accent-load);
 }
