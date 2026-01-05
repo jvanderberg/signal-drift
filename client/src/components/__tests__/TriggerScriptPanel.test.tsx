@@ -444,10 +444,11 @@ describe('TriggerScriptPanel', () => {
 
       // Select the script to see its details
       await waitFor(() => {
-        expect(screen.getByText('Test Script')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Script').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByText('Test Script'));
+      // Click on the first instance (in the script list)
+      fireEvent.click(screen.getAllByText('Test Script')[0]);
 
       // Should show elapsed time
       expect(screen.getByText('5.0s')).toBeInTheDocument();
@@ -561,10 +562,11 @@ describe('TriggerScriptPanel', () => {
       render(<TriggerScriptPanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Script')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Script').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByText('Test Script'));
+      // Click on the first instance (in the script list)
+      fireEvent.click(screen.getAllByText('Test Script')[0]);
 
       expect(screen.getByText('3 fires')).toBeInTheDocument();
     });
