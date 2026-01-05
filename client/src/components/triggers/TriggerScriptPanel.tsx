@@ -67,6 +67,17 @@ export function TriggerScriptPanel({ onClose }: TriggerScriptPanelProps) {
     }
   }, [library.length, isLibraryLoading, mode]);
 
+  // Auto-select the running script when activeState is restored (e.g., after page refresh)
+  useEffect(() => {
+    if (activeState && activeState.scriptId && !selectedScriptId) {
+      // Only auto-select if the script exists in the library
+      const runningScript = library.find((s) => s.id === activeState.scriptId);
+      if (runningScript) {
+        setSelectedScriptId(activeState.scriptId);
+      }
+    }
+  }, [activeState, library, selectedScriptId]);
+
   // Get selected script
   const selectedScript = useMemo(() => {
     return library.find((s) => s.id === selectedScriptId) ?? null;
