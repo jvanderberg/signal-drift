@@ -466,10 +466,15 @@ export function createOscilloscopeSession(
             return;
           }
 
+          const fetchStart = Date.now();
           // Use fast waveform acquisition if available (reduces round trips from 8 to 2)
           const waveformResult = driver.getWaveformFast
             ? await driver.getWaveformFast(channel)
             : await driver.getWaveform(channel);
+          const fetchTime = Date.now() - fetchStart;
+          if (fetchTime > 100) {
+            console.log(`[OscilloscopeSession] ${channel} waveform fetch took ${fetchTime}ms`);
+          }
           if (waveformResult.ok) {
             const waveform = waveformResult.value;
             // Double-check generation before broadcasting
@@ -547,12 +552,14 @@ export function createOscilloscopeSession(
           }
         }
 
-        // Interleave status polling during streaming (fast, ~500ms)
+        // Interleave status polling during streaming
         if (now - lastStatusPoll >= STATUS_POLL_INTERVAL && myGeneration === streamingGeneration) {
           lastStatusPoll = now;
 
           // Fetch status
+          const statusStart = Date.now();
           const statusResult = await driver.getStatus();
+          console.log(`[OscilloscopeSession] Status poll took ${Date.now() - statusStart}ms`);
           if (statusResult.ok) {
             status = statusResult.value;
             lastUpdated = Date.now();
