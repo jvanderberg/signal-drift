@@ -540,10 +540,13 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
     },
 
     async getWaveformFast(channel: string): Promise<Result<WaveformData, Error>> {
-      // Ensure format is initialized
+      // Ensure format is initialized (inline to avoid optional method call via 'this')
       if (!waveformFormatInitialized) {
-        const initResult = await this.initializeWaveformFormat();
-        if (!initResult.ok) return initResult;
+        let writeResult = await transport.write(':WAV:MODE NORM');
+        if (!writeResult.ok) return writeResult;
+        writeResult = await transport.write(':WAV:FORM BYTE');
+        if (!writeResult.ok) return writeResult;
+        waveformFormatInitialized = true;
       }
 
       // Check if we need to refresh the preamble cache
@@ -552,8 +555,31 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
       const needsRefresh = !cached || (now - cached.timestamp) > CACHE_TTL_MS;
 
       if (needsRefresh) {
-        const refreshResult = await this.refreshPreambleCache(channel);
-        if (!refreshResult.ok) return refreshResult;
+        // Inline preamble cache refresh
+        let writeResult = await transport.write(`:WAV:SOUR ${channel}`);
+        if (!writeResult.ok) return writeResult;
+
+        const preambleResult = await transport.query(':WAV:PRE?');
+        if (!preambleResult.ok) return preambleResult;
+        const preambleParts = preambleResult.value.split(',').map((s) => parseFloat(s.trim()));
+        const [, , , , xIncrement, xOrigin, , yIncrement] = preambleParts;
+
+        const yOrResult = await transport.query(':WAV:YOR?');
+        if (!yOrResult.ok) return yOrResult;
+        const yOrigin = ScpiParser.parseNumberOr(yOrResult.value, 0);
+
+        const yRefResult = await transport.query(':WAV:YREF?');
+        if (!yRefResult.ok) return yRefResult;
+        const yReference = ScpiParser.parseNumberOr(yRefResult.value, 0);
+
+        preambleCache.set(channel, {
+          xIncrement,
+          xOrigin,
+          yIncrement,
+          yOrigin,
+          yReference,
+          timestamp: Date.now(),
+        });
       }
 
       // Now do the fast path: just SOUR + DATA?
