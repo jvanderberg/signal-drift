@@ -93,6 +93,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     measurements,
     screenshot,
     isStreaming,
+    streamingFps,
     subscribe,
     unsubscribe,
     run,
@@ -301,7 +302,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                   scopeRunning={status?.running ?? false}
                   channels={channels}
                   enabledChannels={enabledChannels}
-                  intervalMs={100}
+                  actualFps={streamingFps}
                   onStreamingToggle={handleStreamingToggle}
                   onChannelToggle={handleChannelToggle}
                 />

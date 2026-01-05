@@ -109,6 +109,13 @@ export function createOscilloscopeSession(
   const STATUS_POLL_INTERVAL = 500;  // Poll status every 500ms during streaming
   let autoStreamingStarted = false;  // Track if we've auto-started streaming
 
+  // FPS tracking
+  let lastFrameTime = 0;
+  let frameCount = 0;
+  let currentFps = 0;
+  let lastFpsBroadcast = 0;
+  const FPS_UPDATE_INTERVAL = 500;  // Update FPS display every 500ms
+
   // Default measurements to calculate from waveform data
   const DEFAULT_STREAMING_MEASUREMENTS = ['VPP', 'FREQ', 'VAVG'];
 
@@ -520,8 +527,27 @@ export function createOscilloscopeSession(
           }
         }
 
-        // Interleave status polling during streaming (fast, ~500ms)
+        // Track FPS - count frames and calculate actual rate
         const now = Date.now();
+        frameCount++;
+        if (now - lastFpsBroadcast >= FPS_UPDATE_INTERVAL) {
+          const elapsed = now - lastFpsBroadcast;
+          currentFps = Math.round((frameCount * 1000) / elapsed);
+          frameCount = 0;
+          lastFpsBroadcast = now;
+
+          // Broadcast actual FPS to clients
+          if (myGeneration === streamingGeneration) {
+            broadcast({
+              type: 'field',
+              deviceId: driver.info.id,
+              field: 'streamingFps',
+              value: currentFps,
+            });
+          }
+        }
+
+        // Interleave status polling during streaming (fast, ~500ms)
         if (now - lastStatusPoll >= STATUS_POLL_INTERVAL && myGeneration === streamingGeneration) {
           lastStatusPoll = now;
 

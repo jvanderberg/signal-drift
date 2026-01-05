@@ -21,7 +21,7 @@ export interface StreamingControlsProps {
   scopeRunning?: boolean;
   channels?: string[];
   enabledChannels?: string[];
-  intervalMs?: number;
+  actualFps?: number | null;  // Actual measured FPS from server
   onStreamingToggle?: (enabled: boolean) => void;
   onChannelToggle?: (channel: string, enabled: boolean) => void;
 }
@@ -31,7 +31,7 @@ export function StreamingControls({
   scopeRunning = false,
   channels = [],
   enabledChannels = [],
-  intervalMs,
+  actualFps,
   onStreamingToggle,
   onChannelToggle,
 }: StreamingControlsProps) {
@@ -43,8 +43,6 @@ export function StreamingControls({
     const isEnabled = enabledChannels.includes(channel);
     onChannelToggle?.(channel, !isEnabled);
   };
-
-  const fps = intervalMs ? Math.round(1000 / intervalMs) : null;
 
   return (
     <div
@@ -94,9 +92,9 @@ export function StreamingControls({
         <span className={`text-sm ${isStreaming ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]'}`}>
           {isStreaming ? 'Live' : 'Stopped'}
         </span>
-        {isStreaming && fps && (
+        {isStreaming && actualFps != null && (
           <span className="text-xs text-[var(--color-text-muted)]">
-            {intervalMs}ms / {fps} fps
+            {actualFps} fps
           </span>
         )}
       </div>

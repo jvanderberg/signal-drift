@@ -62,6 +62,7 @@ interface OscilloscopeState {
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;
   isStreaming: boolean;
+  streamingFps: number | null;  // Actual measured FPS from server
 }
 
 // Store state
@@ -127,6 +128,7 @@ const defaultOscilloscopeState: OscilloscopeState = {
   measurements: [],
   screenshot: null,
   isStreaming: false,
+  streamingFps: null,
 };
 
 // Default empty arrays for selectors (stable references to prevent re-renders)
@@ -151,6 +153,9 @@ export const selectMeasurements = (deviceId: string) => (state: OscilloscopeStor
 
 export const selectIsStreaming = (deviceId: string) => (state: OscilloscopeStoreState) =>
   state.oscilloscopeStates[deviceId]?.isStreaming ?? false;
+
+export const selectStreamingFps = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.streamingFps ?? null;
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
@@ -361,7 +366,23 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
             case 'field':
               set((state) => {
                 const oscState = state.oscilloscopeStates[deviceId];
-                if (!oscState?.sessionState) return state;
+                if (!oscState) return state;
+
+                // Handle streamingFps separately - it's a UI state, not session state
+                if (message.field === 'streamingFps') {
+                  return {
+                    oscilloscopeStates: {
+                      ...state.oscilloscopeStates,
+                      [deviceId]: {
+                        ...oscState,
+                        streamingFps: message.value as number,
+                      },
+                    },
+                  };
+                }
+
+                // Other fields require sessionState
+                if (!oscState.sessionState) return state;
 
                 const prev = oscState.sessionState;
                 let updated: OscilloscopeSessionState;
