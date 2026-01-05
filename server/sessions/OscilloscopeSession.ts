@@ -106,7 +106,7 @@ export function createOscilloscopeSession(
   let isFetching = false;  // Guard against concurrent fetches
   let streamingGeneration = 0;  // Increment when streaming restarts to cancel stale fetches
   let lastStatusPoll = 0;  // Track when we last polled status
-  const STATUS_POLL_INTERVAL = 500;  // Poll status every 500ms during streaming
+  const STATUS_POLL_INTERVAL = 5000;  // Poll status every 5s during streaming (getStatus is slow - 36 queries)
   let autoStreamingStarted = false;  // Track if we've auto-started streaming
 
   // FPS tracking
