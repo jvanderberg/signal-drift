@@ -14,6 +14,7 @@
     "test:run": "npm run typecheck && vitest run && cd client && npm run test:run",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:e2e:demo": "playwright test --config=playwright.demo.config.ts",
     "electron:dev": "concurrently -k \"npm run dev\" \"npm run dev:client\" \"wait-on tcp:3001 tcp:5173 && electron .\"",
     "electron:build": "npm run build && npm run build:electron && electron-builder",
     "dist:mac": "npm run build && npm run build:electron && electron-builder --mac",

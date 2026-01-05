@@ -24,6 +24,7 @@ import type {
   TriggerScriptState,
   TriggerState,
   DeviceAlias,
+  DashboardLayoutData,
 } from '../../shared/types';
 import { createVirtualConnection, type VirtualConnection } from './virtual-connection';
 import { createPsuSimulator, type PsuSimulator } from './psu-simulator';
@@ -129,10 +130,11 @@ export function createDemoServer(): DemoServer {
   const subscriptions = new Set<string>();
   const sessions = new Map<string, DeviceSession>();
 
-  // In-memory storage for sequences, trigger scripts, and device aliases
+  // In-memory storage for sequences, trigger scripts, device aliases, and dashboard layout
   const sequenceLibrary = new Map<string, SequenceDefinition>();
   const triggerScriptLibrary = new Map<string, TriggerScript>();
   const deviceAliases = new Map<string, DeviceAlias>();
+  let dashboardLayout: DashboardLayoutData | null = null;
 
   // Running sequence state
   let runningSequence: {
@@ -686,6 +688,21 @@ export function createDemoServer(): DemoServer {
         broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
         break;
       }
+
+      // Dashboard layout operations
+      case 'dashboardLayoutGet':
+        broadcast({ type: 'dashboardLayout', layout: dashboardLayout });
+        break;
+
+      case 'dashboardLayoutSave':
+        dashboardLayout = message.layout;
+        broadcast({ type: 'dashboardLayoutSaved' });
+        break;
+
+      case 'dashboardLayoutClear':
+        dashboardLayout = null;
+        broadcast({ type: 'dashboardLayout', layout: null });
+        break;
 
       default:
         // Ignore unsupported messages in demo mode
