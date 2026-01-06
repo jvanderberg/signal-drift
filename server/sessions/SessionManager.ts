@@ -72,7 +72,7 @@ export interface SessionManager {
   oscilloscopeStartStreaming(deviceId: string, channels: string[], intervalMs: number, measurements?: string[]): Promise<Result<void, Error>>;
   oscilloscopeStopStreaming(deviceId: string): Promise<Result<void, Error>>;
 
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 const DEFAULT_SCAN_INTERVAL = 10000; // 10 seconds
@@ -418,7 +418,7 @@ export function createSessionManager(
     return Ok();
   }
 
-  function stop(): void {
+  async function stop(): Promise<void> {
     isRunning = false;
 
     if (scanTimer) {
@@ -426,14 +426,13 @@ export function createSessionManager(
       scanTimer = null;
     }
 
-    for (const session of sessions.values()) {
-      session.stop();
-    }
-    sessions.clear();
+    // Stop all sessions in parallel and wait for in-flight operations
+    const deviceStops = [...sessions.values()].map(session => session.stop());
+    const scopeStops = [...oscilloscopeSessions.values()].map(session => session.stopSession());
 
-    for (const session of oscilloscopeSessions.values()) {
-      session.stopSession();
-    }
+    await Promise.all([...deviceStops, ...scopeStops]);
+
+    sessions.clear();
     oscilloscopeSessions.clear();
   }
 

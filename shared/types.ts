@@ -360,7 +360,7 @@ export type ServerMessage =
   | { type: 'field'; deviceId: string; field: string; value: unknown }
   | { type: 'error'; deviceId?: string; code: string; message: string }
   // Oscilloscope responses
-  | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData }
+  | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData; fps?: number }
   | { type: 'scopeMeasurement'; deviceId: string; channel: string; measurementType: string; value: number | null }
   | { type: 'scopeScreenshot'; deviceId: string; data: string }  // Base64-encoded PNG
   // Sequence responses - library

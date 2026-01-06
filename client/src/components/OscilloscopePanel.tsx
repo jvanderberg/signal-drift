@@ -93,6 +93,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     measurements,
     screenshot,
     isStreaming,
+    fps,
     subscribe,
     unsubscribe,
     run,
@@ -165,7 +166,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   useEffect(() => {
     if (isSubscribed && !hasAutoStarted && enabledChannels.length > 0) {
       setHasAutoStarted(true);
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, selectedMeasurements);
     }
   }, [isSubscribed, hasAutoStarted, enabledChannels, selectedMeasurements, startStreaming]);
 
@@ -214,7 +215,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
   const handleStreamingToggle = (enabled: boolean) => {
     if (enabled) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, selectedMeasurements);
     } else {
       stopStreaming();
     }
@@ -229,7 +230,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
     // Restart streaming with updated channels if currently streaming
     if (isStreaming && newChannels.length > 0) {
-      startStreaming(newChannels, newChannels.length > 1 ? 350 : 200, selectedMeasurements);
+      startStreaming(newChannels, newChannels.length > 1 ? 100 : 50, selectedMeasurements);
     } else if (isStreaming && newChannels.length === 0) {
       stopStreaming();
     }
@@ -243,7 +244,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
     // Restart streaming with updated measurements
     if (isStreaming && enabledChannels.length > 0) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 350 : 200, newMeasurements);
+      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, newMeasurements);
     }
   };
 
@@ -280,7 +281,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   );
 
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
       <EditableDeviceHeader
         info={device.info}
@@ -301,7 +302,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                   scopeRunning={status?.running ?? false}
                   channels={channels}
                   enabledChannels={enabledChannels}
-                  intervalMs={enabledChannels.length > 1 ? 350 : 200}
+                  fps={fps}
                   onStreamingToggle={handleStreamingToggle}
                   onChannelToggle={handleChannelToggle}
                 />
@@ -354,7 +355,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
           {/* Waveform Display with integrated trigger drag */}
           <div
             ref={waveformContainerRef}
-            className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 relative"
+            className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 relative flex-1 min-h-0 flex flex-col"
           >
             <WaveformDisplay
               waveforms={displayWaveforms}
@@ -362,7 +363,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
               triggerLevel={triggerLevel}
               onTriggerLevelChange={handleTriggerLevelChange}
               showGrid={true}
-              height={isExpanded ? expandedHeight : 300}
+              height={isExpanded ? expandedHeight : undefined}
             />
 
             {/* Timebase controls - top center overlay */}

@@ -157,7 +157,7 @@ describe('OscilloscopeSession Streaming', () => {
       session.stopSession();
     });
 
-    it('should continue fetching at interval', async () => {
+    it('should continue fetching as fast as possible', async () => {
       const session = createOscilloscopeSession(mockDriver);
       const callback = vi.fn();
       session.subscribe('client-1', callback);
@@ -167,84 +167,88 @@ describe('OscilloscopeSession Streaming', () => {
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
       await session.startStreaming(['CHAN1'], 200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
+      const initialCalls = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(initialCalls).toBeGreaterThanOrEqual(1);
 
-      // Advance time to trigger next fetch
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+      // Streaming now runs as fast as possible with setTimeout(0)
+      // Advance a small amount of time to allow more fetches
+      await vi.advanceTimersByTimeAsync(1);
+      const afterFirstAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterFirstAdvance).toBeGreaterThan(initialCalls);
 
-      // Advance again
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(3);
+      // Each timer tick triggers more fetches
+      await vi.advanceTimersByTimeAsync(1);
+      const afterSecondAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterSecondAdvance).toBeGreaterThan(afterFirstAdvance);
 
       session.stopSession();
     });
   });
 
-  describe('Minimum interval enforcement', () => {
-    it('should enforce minimum 200ms interval for single channel', async () => {
+  describe('Fast streaming mode', () => {
+    it('should fetch as fast as possible regardless of requested interval', async () => {
       const session = createOscilloscopeSession(mockDriver);
 
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
-      // Request 100ms interval (below minimum)
+      // Request any interval - streaming now ignores it and runs as fast as possible
       await session.startStreaming(['CHAN1'], 100);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
+      const initialCalls = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(initialCalls).toBeGreaterThanOrEqual(1);
 
-      // At 100ms, should NOT have fetched again (minimum is 200ms)
-      await vi.advanceTimersByTimeAsync(100);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
+      // Streaming uses setTimeout(0), so each timer tick triggers fetches
+      await vi.advanceTimersByTimeAsync(1);
+      const afterFirstAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterFirstAdvance).toBeGreaterThan(initialCalls);
 
-      // At 200ms, should have fetched
-      await vi.advanceTimersByTimeAsync(100);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      const afterSecondAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterSecondAdvance).toBeGreaterThan(afterFirstAdvance);
 
       session.stopSession();
     });
 
-    it('should enforce minimum 350ms interval for dual channel', async () => {
+    it('should fetch both channels per iteration for dual channel', async () => {
       const session = createOscilloscopeSession(mockDriver);
 
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
-      // Request 200ms interval for dual channel (below 350ms minimum)
+      // Start dual channel streaming
       await session.startStreaming(['CHAN1', 'CHAN2'], 200);
-      // Initial fetch for both channels
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+      // Initial fetch includes both channels
+      expect(mockDriver.getWaveform).toHaveBeenCalledWith('CHAN1');
+      expect(mockDriver.getWaveform).toHaveBeenCalledWith('CHAN2');
+      const initialCalls = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(initialCalls).toBeGreaterThanOrEqual(2);
 
-      // At 200ms, should NOT have fetched again
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
-
-      // At 350ms, should have fetched again (both channels)
-      await vi.advanceTimersByTimeAsync(150);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(4);
+      // Next iteration fetches both channels again
+      await vi.advanceTimersByTimeAsync(1);
+      const afterAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterAdvance).toBeGreaterThan(initialCalls);
 
       session.stopSession();
     });
 
-    it('should allow intervals above minimum', async () => {
+    it('should run at maximum speed with setTimeout(0)', async () => {
       const session = createOscilloscopeSession(mockDriver);
 
       // Wait for initial poll
       await vi.advanceTimersByTimeAsync(0);
       (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
 
-      // Request 500ms interval for single channel
+      // Request any interval - all are treated the same (runs at max speed)
       await session.startStreaming(['CHAN1'], 500);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
+      const initialCalls = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(initialCalls).toBeGreaterThanOrEqual(1);
 
-      // At 200ms, should NOT have fetched
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
-
-      // At 500ms, should have fetched
-      await vi.advanceTimersByTimeAsync(300);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+      // Multiple timer ticks = multiple fetches (fast streaming)
+      await vi.advanceTimersByTimeAsync(5);
+      const afterAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(afterAdvance).toBeGreaterThan(initialCalls);
 
       session.stopSession();
     });
@@ -294,15 +298,17 @@ describe('OscilloscopeSession Streaming', () => {
 
       // Start first streaming
       await session.startStreaming(['CHAN1'], 200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(1);
+      expect(mockDriver.getWaveform).toHaveBeenCalledWith('CHAN1');
 
       // Start second streaming (should stop first)
       await session.startStreaming(['CHAN2'], 200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2); // One more for CHAN2
+      expect(mockDriver.getWaveform).toHaveBeenCalledWith('CHAN2');
+      const callsAfterRestart = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
 
-      // Advance time - should only get CHAN2
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(3);
+      // Advance time - should only get CHAN2 (streaming runs at max speed)
+      await vi.advanceTimersByTimeAsync(1);
+      const callsAfterAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(callsAfterAdvance).toBeGreaterThan(callsAfterRestart);
       expect(mockDriver.getWaveform).toHaveBeenLastCalledWith('CHAN2');
 
       session.stopSession();
@@ -343,10 +349,13 @@ describe('OscilloscopeSession Streaming', () => {
         .mockResolvedValue(Ok(mockWaveform));
 
       await session.startStreaming(['CHAN1'], 200);
+      const callsAfterStart = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(callsAfterStart).toBeGreaterThanOrEqual(1);
 
-      // Advance time - should continue fetching despite error
-      await vi.advanceTimersByTimeAsync(200);
-      expect(mockDriver.getWaveform).toHaveBeenCalledTimes(2);
+      // Advance time - should continue fetching despite error (streaming runs at max speed)
+      await vi.advanceTimersByTimeAsync(1);
+      const callsAfterAdvance = (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(callsAfterAdvance).toBeGreaterThan(callsAfterStart);
 
       session.stopSession();
     });

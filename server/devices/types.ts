@@ -136,6 +136,10 @@ export interface OscilloscopeDriver {
   // Waveform acquisition (slow, on-demand)
   getWaveform(channel: string, start?: number, count?: number): Promise<Result<WaveformData, Error>>;
 
+  // Fast waveform acquisition with cached scaling parameters (for streaming)
+  // Pass previous WaveformData to reuse scaling params and skip slow preamble queries
+  getWaveformFast?(channel: string, cached?: WaveformData): Promise<Result<WaveformData, Error>>;
+
   // Screenshot (download utility, not for primary UI)
   getScreenshot(): Promise<Result<Buffer, Error>>;
 }
