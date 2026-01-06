@@ -27,6 +27,11 @@ class MockWebSocket extends EventEmitter {
     this.emit('close');
   }
 
+  terminate(): void {
+    this.readyState = 3; // CLOSED
+    this.emit('close');
+  }
+
   // Simulate receiving a message
   receiveMessage(msg: ClientMessage): void {
     this.emit('message', JSON.stringify(msg));
