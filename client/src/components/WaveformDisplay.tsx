@@ -403,8 +403,10 @@ export function WaveformDisplay({
       <svg
         ref={svgRef}
         data-testid="waveform-svg"
-        width={width}
-        height={height}
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
         className="rounded"
         style={{ backgroundColor: 'var(--color-waveform-bg)' }}
       >

@@ -172,22 +172,30 @@ describe('WaveformDisplay', () => {
   });
 
   describe('Sizing', () => {
-    it('should use provided height', () => {
+    it('should use provided height in viewBox', () => {
       const waveform = createWaveform({});
       render(<WaveformDisplay waveform={waveform} height={400} />);
 
       const svg = screen.getByTestId('waveform-svg');
-      expect(svg.getAttribute('height')).toBe('400');
+      // SVG uses 100% dimensions with viewBox for responsive sizing
+      expect(svg.getAttribute('width')).toBe('100%');
+      expect(svg.getAttribute('height')).toBe('100%');
+      // viewBox should contain the provided height
+      const viewBox = svg.getAttribute('viewBox') ?? '';
+      const viewBoxHeight = parseInt(viewBox.split(' ')[3] ?? '0');
+      expect(viewBoxHeight).toBe(400);
     });
 
-    it('should have sensible default height', () => {
+    it('should have sensible default height in viewBox', () => {
       const waveform = createWaveform({});
       render(<WaveformDisplay waveform={waveform} />);
 
       const svg = screen.getByTestId('waveform-svg');
-      const height = parseInt(svg.getAttribute('height') ?? '0');
+      // SVG uses viewBox for coordinate system
+      const viewBox = svg.getAttribute('viewBox') ?? '';
+      const viewBoxHeight = parseInt(viewBox.split(' ')[3] ?? '0');
 
-      expect(height).toBeGreaterThan(100);
+      expect(viewBoxHeight).toBeGreaterThan(100);
     });
 
     it('should have responsive width via container', () => {
