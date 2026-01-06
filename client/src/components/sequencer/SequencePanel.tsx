@@ -14,6 +14,7 @@ import { useDeviceList } from '../../hooks/useDeviceList';
 import { SequenceChart } from './SequenceChart';
 import { SequenceEditor } from './SequenceEditor';
 import type { RepeatMode, SequenceDefinition } from '../../types';
+import { isDeviceCapabilities } from '../../types';
 
 type PanelMode = 'run' | 'edit';
 
@@ -80,9 +81,8 @@ export function SequencePanel({ onClose }: SequencePanelProps) {
   // Filter parameters by sequence unit
   const availableParameters = useMemo(() => {
     if (!selectedDevice || !selectedSequence) return [];
-    const outputs = selectedDevice.capabilities?.outputs;
-    if (!Array.isArray(outputs)) return [];
-    return outputs.filter((o) => o.unit === selectedSequence.unit);
+    if (!isDeviceCapabilities(selectedDevice.capabilities)) return [];
+    return selectedDevice.capabilities.outputs.filter((o) => o.unit === selectedSequence.unit);
   }, [selectedDevice, selectedSequence]);
 
   // Reset parameter when device or sequence changes
@@ -99,11 +99,11 @@ export function SequencePanel({ onClose }: SequencePanelProps) {
 
   // Filter devices that have matching parameters for selected sequence
   // Note: devices array may include oscilloscopes which have OscilloscopeCapabilities
-  // (no outputs field) due to server-side `as any` cast in SessionManager.getDeviceSummaries()
+  // (no outputs field) - use type guard to filter to standard devices only
   const compatibleDevices = useMemo(() => {
     if (!selectedSequence) return devices;
     return devices.filter((d) =>
-      Array.isArray(d.capabilities?.outputs) &&
+      isDeviceCapabilities(d.capabilities) &&
       d.capabilities.outputs.some((o) => o.unit === selectedSequence.unit)
     );
   }, [devices, selectedSequence]);

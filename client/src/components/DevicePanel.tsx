@@ -29,7 +29,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { DeviceSummary } from '../types';
+import type { DeviceSummary, DeviceCapabilities } from '../types';
+import { isDeviceCapabilities } from '../types';
 import { useDeviceSocket } from '../hooks/useDeviceSocket';
 import { StatusReadings } from './StatusReadings';
 import { OutputControl } from './OutputControl';
@@ -67,6 +68,19 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   } = useDeviceSocket(device.id);
 
   const [historyWindow, setHistoryWindow] = useState(2);
+
+  // Type guard: DevicePanel only works with standard devices (PSU/Load), not oscilloscopes
+  const capabilities: DeviceCapabilities | null = isDeviceCapabilities(device.capabilities)
+    ? device.capabilities
+    : null;
+
+  if (!capabilities) {
+    return (
+      <div className="p-4 text-red-500">
+        Error: DevicePanel does not support oscilloscope devices
+      </div>
+    );
+  }
 
   // Auto-subscribe on mount
   useEffect(() => {
@@ -114,7 +128,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   // Get current output descriptor based on mode
   const getCurrentOutput = () => {
     if (!state) return null;
-    return device.capabilities.outputs.find(
+    return capabilities.outputs.find(
       o => !o.modes || o.modes.includes(state.mode)
     );
   };
@@ -167,7 +181,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
               <div className="min-w-0 h-[280px] lg:flex-1">
                 <LiveChart
                   history={history}
-                  capabilities={device.capabilities}
+                  capabilities={capabilities}
                   status={status}
                   historyWindow={historyWindow}
                   onHistoryWindowChange={handleHistoryWindowChange}
@@ -175,14 +189,14 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
               </div>
               {/* Status readings - beside chart on large screens only */}
               <div className="hidden lg:block lg:w-48 shrink-0">
-                <StatusReadings status={status} capabilities={device.capabilities} />
+                <StatusReadings status={status} capabilities={capabilities} />
               </div>
             </div>
           </div>
 
           {/* Status readings - compact row on small screens only */}
           <div className="lg:hidden bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
-            <StatusReadings status={status} capabilities={device.capabilities} />
+            <StatusReadings status={status} capabilities={capabilities} />
           </div>
 
           {/* Output + Setpoint Controls */}
@@ -198,10 +212,10 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
               <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
 
               {/* Setpoint controls - layout based on device class */}
-              {device.capabilities.deviceClass === 'psu' ? (
+              {capabilities.deviceClass === 'psu' ? (
                 // PSU: Show all outputs (voltage + current) side by side
                 <div className="flex items-center gap-4 flex-wrap">
-                  {device.capabilities.outputs.map(output => {
+                  {capabilities.outputs.map(output => {
                     const setpointValue = status.setpoints[output.name] ?? 0;
                     return (
                       <DigitSpinner
@@ -219,9 +233,9 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
               ) : (
                 // Load: Mode selector + single active setpoint
                 <div className="flex items-center gap-3 flex-wrap">
-                  {device.capabilities.modesSettable && (
+                  {capabilities.modesSettable && (
                     <ModeSelector
-                      modes={device.capabilities.modes}
+                      modes={capabilities.modes}
                       currentMode={status.mode}
                       onChange={handleModeChange}
                     />

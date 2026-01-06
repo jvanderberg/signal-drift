@@ -158,7 +158,7 @@ export interface ListStep {
 export interface Device {
   id: string;
   info: DeviceInfo;
-  capabilities: DeviceCapabilities;
+  capabilities: DeviceCapabilities | OscilloscopeCapabilities;
   connected: boolean;
 }
 
@@ -234,6 +234,13 @@ export interface OscilloscopeCapabilities {
   maxMemoryDepth: number;              // points
   supportedMeasurements: string[];     // ['VPP', 'VAVG', 'FREQ', ...]
   hasAWG: boolean;                     // Built-in arbitrary waveform generator
+}
+
+/** Type guard to check if capabilities are for a standard device (PSU/Load) vs oscilloscope */
+export function isDeviceCapabilities(
+  caps: DeviceCapabilities | OscilloscopeCapabilities
+): caps is DeviceCapabilities {
+  return 'outputs' in caps && Array.isArray(caps.outputs);
 }
 
 // ============ WebSocket Types ============

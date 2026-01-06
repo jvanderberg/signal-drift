@@ -19,6 +19,7 @@ import type {
   DeviceSummary,
   SequenceDefinition,
 } from '../../types';
+import { isDeviceCapabilities } from '../../types';
 
 interface TriggerEditorProps {
   trigger: Trigger;
@@ -110,7 +111,10 @@ export function TriggerEditor({
   const conditionDevice = condition.type === 'value'
     ? devices.find((d) => d.id === condition.deviceId)
     : null;
-  const conditionParams = conditionDevice?.capabilities.measurements ?? [];
+  const conditionCaps = conditionDevice && isDeviceCapabilities(conditionDevice.capabilities)
+    ? conditionDevice.capabilities
+    : null;
+  const conditionParams = conditionCaps?.measurements ?? [];
 
   // Get deviceId from actions that have it (setValue, setOutput, startSequence)
   const getActionDeviceId = (): string | undefined => {
@@ -123,7 +127,10 @@ export function TriggerEditor({
   // Get available parameters for the action device
   const actionDeviceId = getActionDeviceId();
   const actionDevice = actionDeviceId ? devices.find((d) => d.id === actionDeviceId) : null;
-  const actionParams = actionDevice?.capabilities.outputs ?? [];
+  const actionCaps = actionDevice && isDeviceCapabilities(actionDevice.capabilities)
+    ? actionDevice.capabilities
+    : null;
+  const actionParams = actionCaps?.outputs ?? [];
 
   // Update condition
   const updateCondition = (updates: Partial<TriggerCondition>) => {
@@ -141,6 +148,13 @@ export function TriggerEditor({
     });
   };
 
+  // Get first standard device with capabilities (not oscilloscope)
+  const getFirstStandardDevice = () => {
+    const device = devices.find((d) => isDeviceCapabilities(d.capabilities));
+    if (!device || !isDeviceCapabilities(device.capabilities)) return null;
+    return { device, caps: device.capabilities };
+  };
+
   // Change condition type
   const setConditionType = (type: 'value' | 'time') => {
     if (type === 'time') {
@@ -149,13 +163,13 @@ export function TriggerEditor({
         condition: { type: 'time', seconds: 5 },
       });
     } else {
-      const firstDevice = devices[0];
+      const first = getFirstStandardDevice();
       onChange({
         ...trigger,
         condition: {
           type: 'value',
-          deviceId: firstDevice?.id ?? '',
-          parameter: firstDevice?.capabilities.measurements[0]?.name ?? '',
+          deviceId: first?.device.id ?? '',
+          parameter: first?.caps.measurements[0]?.name ?? '',
           operator: '>',
           value: 0,
         },
@@ -165,7 +179,7 @@ export function TriggerEditor({
 
   // Change action type
   const setActionType = (type: TriggerAction['type']) => {
-    const firstDevice = devices[0];
+    const first = getFirstStandardDevice();
     const firstSequence = sequences[0];
 
     switch (type) {
@@ -174,8 +188,8 @@ export function TriggerEditor({
           ...trigger,
           action: {
             type: 'setValue',
-            deviceId: firstDevice?.id ?? '',
-            parameter: firstDevice?.capabilities.outputs[0]?.name ?? '',
+            deviceId: first?.device.id ?? '',
+            parameter: first?.caps.outputs[0]?.name ?? '',
             value: 0,
           },
         });
@@ -185,7 +199,7 @@ export function TriggerEditor({
           ...trigger,
           action: {
             type: 'setOutput',
-            deviceId: firstDevice?.id ?? '',
+            deviceId: first?.device.id ?? '',
             enabled: true,
           },
         });
@@ -195,8 +209,8 @@ export function TriggerEditor({
           ...trigger,
           action: {
             type: 'setMode',
-            deviceId: firstDevice?.id ?? '',
-            mode: firstDevice?.capabilities.modes[0] ?? '',
+            deviceId: first?.device.id ?? '',
+            mode: first?.caps.modes[0] ?? '',
           },
         });
         break;
@@ -206,8 +220,8 @@ export function TriggerEditor({
           action: {
             type: 'startSequence',
             sequenceId: firstSequence?.id ?? '',
-            deviceId: firstDevice?.id ?? '',
-            parameter: firstDevice?.capabilities.outputs[0]?.name ?? '',
+            deviceId: first?.device.id ?? '',
+            parameter: first?.caps.outputs[0]?.name ?? '',
             repeatMode: 'once',
           },
         });
@@ -560,18 +574,23 @@ export function TriggerEditor({
                   value={action.deviceId}
                   onChange={(e) => {
                     const newDevice = devices.find((d) => d.id === e.target.value);
+                    const newCaps = newDevice && isDeviceCapabilities(newDevice.capabilities)
+                      ? newDevice.capabilities
+                      : null;
                     updateAction({
                       deviceId: e.target.value,
-                      mode: newDevice?.capabilities.modes[0] ?? '',
+                      mode: newCaps?.modes[0] ?? '',
                     });
                   }}
                 >
                   <option value="">Device...</option>
-                  {devices.filter((d) => d.capabilities.modesSettable).map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {getDeviceName(d.id)}
-                    </option>
-                  ))}
+                  {devices
+                    .filter((d) => isDeviceCapabilities(d.capabilities) && d.capabilities.modesSettable)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {getDeviceName(d.id)}
+                      </option>
+                    ))}
                 </select>
 
                 <span className="text-xs">mode</span>
@@ -581,13 +600,15 @@ export function TriggerEditor({
                   value={action.mode}
                   onChange={(e) => updateAction({ mode: e.target.value })}
                 >
-                  {(devices.find((d) => d.id === action.deviceId)?.capabilities.modes ?? []).map(
-                    (m) => (
+                  {(() => {
+                    const device = devices.find((d) => d.id === action.deviceId);
+                    const caps = device && isDeviceCapabilities(device.capabilities) ? device.capabilities : null;
+                    return (caps?.modes ?? []).map((m: string) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
-                    )
-                  )}
+                    ));
+                  })()}
                 </select>
               </div>
             )}
