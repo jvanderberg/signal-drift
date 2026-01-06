@@ -276,21 +276,21 @@ describe('OscilloscopePanel Integration', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('Capture Screenshot')).toBeInTheDocument();
+        expect(screen.getByText('Download Screenshot')).toBeInTheDocument();
       });
 
       mockSend.mockClear();
-      fireEvent.click(screen.getByText('Capture Screenshot'));
+      fireEvent.click(screen.getByText('Download Screenshot'));
 
       expect(mockSend).toHaveBeenCalledWith({ type: 'scopeGetScreenshot', deviceId: 'scope-1' });
 
       // Should show loading state
       await waitFor(() => {
-        expect(screen.getByText('Loading...')).toBeInTheDocument();
+        expect(screen.getByText('Capturing...')).toBeInTheDocument();
       });
     });
 
-    it('should display screenshot when received', async () => {
+    it('should clear loading state when screenshot received', async () => {
       const device = createMockOscilloscopeSummary({ id: 'scope-1' });
 
       render(
@@ -312,22 +312,26 @@ describe('OscilloscopePanel Integration', () => {
 
       // Request screenshot
       await waitFor(() => {
-        expect(screen.getByText('Capture Screenshot')).toBeInTheDocument();
+        expect(screen.getByText('Download Screenshot')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Capture Screenshot'));
+      fireEvent.click(screen.getByText('Download Screenshot'));
 
-      // Simulate screenshot response
+      // Should show loading state
+      await waitFor(() => {
+        expect(screen.getByText('Capturing...')).toBeInTheDocument();
+      });
+
+      // Simulate screenshot response - this triggers download
       simulateMessage({
         type: 'scopeScreenshot',
         deviceId: 'scope-1',
         data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
       });
 
+      // Verify loading state is cleared (button shows "Download Screenshot" again)
       await waitFor(() => {
-        const img = screen.getByAltText('Oscilloscope screenshot');
-        expect(img).toBeInTheDocument();
-        expect(img).toHaveAttribute('src', expect.stringContaining('data:image/png;base64,'));
+        expect(screen.getByText('Download Screenshot')).toBeInTheDocument();
       });
     });
   });

@@ -155,6 +155,13 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   useEffect(() => {
     if (screenshot) {
       setIsLoadingScreenshot(false);
+      // Trigger download of the screenshot
+      const link = document.createElement('a');
+      link.href = `data:image/png;base64,${screenshot}`;
+      link.download = `oscilloscope-screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   }, [screenshot]);
 
@@ -493,24 +500,13 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
 
               {/* Screenshot */}
               <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <button
-                    className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
-                    onClick={handleGetScreenshot}
-                    disabled={isLoadingScreenshot}
-                  >
-                    {isLoadingScreenshot ? 'Loading...' : 'Capture Screenshot'}
-                  </button>
-                </div>
-                {screenshot && (
-                  <div className="border border-[var(--color-border-dark)] rounded overflow-hidden">
-                    <img
-                      src={`data:image/png;base64,${screenshot}`}
-                      alt="Oscilloscope screenshot"
-                      className="w-full h-auto"
-                    />
-                  </div>
-                )}
+                <button
+                  className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-primary)] hover:opacity-90 disabled:opacity-50"
+                  onClick={handleGetScreenshot}
+                  disabled={isLoadingScreenshot}
+                >
+                  {isLoadingScreenshot ? 'Capturing...' : 'Download Screenshot'}
+                </button>
               </div>
             </>
           )}
