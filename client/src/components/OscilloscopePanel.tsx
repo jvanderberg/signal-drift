@@ -16,7 +16,7 @@
  * - isStreaming reflects actual server streaming state
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { DeviceSummary } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
 import { EditableDeviceHeader } from './EditableDeviceHeader';

@@ -70,7 +70,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 // Mock localStorage
 const localStorageMock = {
-  getItem: vi.fn(() => null),
+  getItem: vi.fn((_key: string): string | null => null),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
