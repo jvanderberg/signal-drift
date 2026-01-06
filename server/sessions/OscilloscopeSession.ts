@@ -765,14 +765,50 @@ export function createOscilloscopeSession(
     // Control commands
     async run(): Promise<void> {
       await driver.run();
+      // Immediately poll and broadcast status so UI updates instantly
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async stop(): Promise<void> {
       await driver.stop();
+      // Immediately poll and broadcast status so UI updates instantly
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async single(): Promise<void> {
       await driver.single();
+      // Immediately poll and broadcast status so UI updates instantly
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async autoSetup(): Promise<void> {
