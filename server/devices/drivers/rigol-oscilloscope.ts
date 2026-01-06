@@ -488,7 +488,9 @@ export function createRigolOscilloscope(transport: Transport): OscilloscopeDrive
         return Err(new Error('Transport does not support binary queries'));
       }
 
-      const rawDataResult = await transport.queryBinary(':DISP:DATA? ON,OFF,PNG');
+      // Screenshot capture can take 2-4+ seconds on Rigol scopes, use longer timeout
+      const SCREENSHOT_TIMEOUT_MS = 10000;
+      const rawDataResult = await transport.queryBinary(':DISP:DATA? ON,OFF,PNG', SCREENSHOT_TIMEOUT_MS);
       if (!rawDataResult.ok) return rawDataResult;
 
       // The screenshot data may or may not be in TMC block format depending on model
