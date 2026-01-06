@@ -265,7 +265,7 @@ export function TriggerScriptPanel({ onClose }: TriggerScriptPanelProps) {
     return (
       <div className="h-[470px] bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3 flex-shrink-0">
+        <div className="flex items-center justify-between mb-3 flex-shrink-0 panel-drag-handle">
           <h2 className="text-sm font-medium">
             {editingScript ? 'Edit Trigger Script' : 'New Trigger Script'}
           </h2>
@@ -282,6 +282,15 @@ export function TriggerScriptPanel({ onClose }: TriggerScriptPanelProps) {
             >
               Cancel
             </button>
+            {onClose && (
+              <button
+                className="w-6 h-6 flex items-center justify-center text-sm font-medium rounded bg-[var(--color-border-light)] text-[var(--color-text-secondary)] hover:opacity-90 ml-1"
+                onClick={onClose}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            )}
           </div>
         </div>
 
