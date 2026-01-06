@@ -33,7 +33,7 @@ interface PanelWrapperProps {
 
 function PanelWrapper({ children }: PanelWrapperProps) {
   return (
-    <div className="h-full w-full overflow-hidden">
+    <div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
       {children}
     </div>
   );
@@ -108,7 +108,7 @@ export function DashboardGrid({ children }: DashboardGridProps) {
         isValidElement(child) && child.key != null
       )
       .map((child) => (
-        <div key={child.key} className="dashboard-panel">
+        <div key={child.key} className="dashboard-panel h-full">
           <PanelWrapper>{child}</PanelWrapper>
         </div>
       ));

@@ -61,13 +61,14 @@ export function WaveformDisplay({
   waveforms: waveformsProp,
   triggerLevel,
   onTriggerLevelChange,
-  height = 300,
+  height: heightProp,
   showGrid = true,
   padding = { top: 20, right: 60, bottom: 30, left: 60 },
 }: WaveformDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(600);
+  const [observedHeight, setObservedHeight] = useState(300);
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -86,14 +87,17 @@ export function WaveformDisplay({
     }
   }, [triggerLevel, isDragging]);
 
-  // Responsive width via ResizeObserver
+  // Responsive width and height via ResizeObserver
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // Set initial width
+    // Set initial dimensions
     if (container.clientWidth > 0) {
       setWidth(container.clientWidth);
+    }
+    if (container.clientHeight > 0) {
+      setObservedHeight(container.clientHeight);
     }
 
     // Use ResizeObserver if available (not in test environments)
@@ -102,8 +106,12 @@ export function WaveformDisplay({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const newWidth = entry.contentRect.width;
+        const newHeight = entry.contentRect.height;
         if (newWidth > 0) {
           setWidth(newWidth);
+        }
+        if (newHeight > 0) {
+          setObservedHeight(newHeight);
         }
       }
     });
@@ -112,6 +120,9 @@ export function WaveformDisplay({
 
     return () => observer.disconnect();
   }, []);
+
+  // Use prop height if provided, otherwise use observed container height
+  const height = heightProp ?? observedHeight;
 
   // Normalize to array of waveforms
   const waveforms = useMemo(() => {
@@ -387,7 +398,7 @@ export function WaveformDisplay({
     <div
       ref={containerRef}
       data-testid="waveform-display"
-      className="waveform-display w-full"
+      className="waveform-display w-full flex-1 min-h-0"
     >
       <svg
         ref={svgRef}

@@ -62,6 +62,7 @@ interface OscilloscopeState {
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;
   isStreaming: boolean;
+  fps: number;  // Actual FPS reported by server
 }
 
 // Store state
@@ -127,6 +128,7 @@ const defaultOscilloscopeState: OscilloscopeState = {
   measurements: [],
   screenshot: null,
   isStreaming: false,
+  fps: 0,
 };
 
 // Default empty arrays for selectors (stable references to prevent re-renders)
@@ -409,6 +411,7 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                       ...oscState,
                       waveform: message.waveform,
                       waveforms,
+                      fps: message.fps ?? oscState.fps,
                     },
                   },
                 };

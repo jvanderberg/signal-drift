@@ -132,10 +132,10 @@ describe('StreamingControls', () => {
     });
   });
 
-  describe('Interval display', () => {
-    it('should show current streaming interval', () => {
-      render(<StreamingControls isStreaming intervalMs={200} />);
-      expect(screen.getByText(/200\s*ms|5\s*fps/i)).toBeInTheDocument();
+  describe('FPS display', () => {
+    it('should show current streaming FPS', () => {
+      render(<StreamingControls isStreaming fps={10} />);
+      expect(screen.getByText(/10\s*fps/i)).toBeInTheDocument();
     });
   });
 });

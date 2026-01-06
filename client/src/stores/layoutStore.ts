@@ -36,9 +36,9 @@ export const ROW_HEIGHT = 30;
 
 // Default panel dimensions (in grid units)
 const DEFAULT_PANEL_WIDTH = 6;
-const DEFAULT_PANEL_HEIGHT = 11;
+const DEFAULT_PANEL_HEIGHT = 20;  // ~600px - gives room for oscilloscope waveform
 const DEFAULT_PANEL_MIN_WIDTH = 4;
-const DEFAULT_PANEL_MIN_HEIGHT = 5;
+const DEFAULT_PANEL_MIN_HEIGHT = 8;
 
 // Debounce delay for saving layouts (ms)
 // Balances responsiveness with avoiding excessive server writes during rapid adjustments

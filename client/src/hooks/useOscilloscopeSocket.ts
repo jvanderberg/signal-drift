@@ -32,6 +32,7 @@ export interface UseOscilloscopeSocketResult {
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;  // base64 PNG
   isStreaming: boolean;
+  fps: number;  // Actual FPS from server
 
   // Actions
   subscribe: () => void;
@@ -114,6 +115,7 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   const measurements = oscState.measurements;
   const screenshot = oscState.screenshot;
   const isStreaming = oscState.isStreaming;
+  const fps = oscState.fps;
 
   // Initialize WebSocket on mount
   useEffect(() => {
@@ -232,6 +234,7 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     measurements,
     screenshot,
     isStreaming,
+    fps,
     subscribe,
     unsubscribe,
     run,
