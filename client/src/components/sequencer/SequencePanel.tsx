@@ -179,6 +179,7 @@ export function SequencePanel({ onClose }: SequencePanelProps) {
         sequence={editingSequence}
         onSave={handleEditorSave}
         onCancel={handleEditorCancel}
+        onClose={onClose}
       />
     );
   }
