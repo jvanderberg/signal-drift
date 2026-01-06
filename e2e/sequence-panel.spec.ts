@@ -8,12 +8,12 @@
 import { test, expect, Page } from '@playwright/test';
 
 /**
- * Helper: Wait for the demo app to load and worker to connect
+ * Helper: Wait for the app to load and connect to WebSocket
  */
-async function waitForDemoReady(page: Page): Promise<void> {
+async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle');
   await expect(page.getByText('Lab Controller')).toBeVisible({ timeout: 15000 });
-  // Wait for worker to be connected and devices to load
+  // Wait for devices to load
   await page.waitForTimeout(1000);
 }
 
@@ -33,10 +33,26 @@ async function waitForPanelInGrid(page: Page, timeout = 10000): Promise<void> {
   await expect(page.locator('.dashboard-panel').first()).toBeVisible({ timeout: 5000 });
 }
 
+/**
+ * Helper: Clear layout state from server (ensures clean test state)
+ */
+async function clearLayoutFromServer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const layoutStore = (window as { __LAYOUT_STORE__?: { getState: () => { clearLayoutFromServer: () => void } } }).__LAYOUT_STORE__;
+    if (layoutStore) {
+      layoutStore.getState().clearLayoutFromServer();
+    }
+  });
+  await page.waitForTimeout(1000);
+}
+
 test.describe('SequencePanel', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await waitForDemoReady(page);
+    await waitForAppReady(page);
+    // Clear layout state from server for clean test
+    await clearLayoutFromServer(page);
+    await page.waitForTimeout(500);
   });
 
   test('should load Sequencer panel without crashing', async ({ page }) => {
@@ -49,7 +65,8 @@ test.describe('SequencePanel', () => {
     await waitForPanelInGrid(page);
 
     // The panel should remain visible (no crash)
-    await expect(page.locator('.dashboard-panel')).toBeVisible();
+    // Use .first() to avoid strict mode violation if multiple panels exist
+    await expect(page.locator('.dashboard-panel').first()).toBeVisible();
 
     // Verify no React error boundary triggered
     const pageContent = await page.content();
