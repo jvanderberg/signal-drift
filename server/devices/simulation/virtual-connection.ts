@@ -91,6 +91,13 @@ export interface VirtualConnectionConfig {
    * Default: 22µH
    */
   boostInductance?: number;
+
+  /**
+   * Enable boost converter simulation.
+   * When false, load connects directly to PSU (legacy behavior).
+   * Default: true
+   */
+  boostEnabled?: boolean;
 }
 
 /**
@@ -164,6 +171,7 @@ const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   boostEfficiency: 0.90,            // 90% efficiency
   boostOutputCapacitance: 100,      // 100µF
   boostInductance: 22,              // 22µH
+  boostEnabled: true,               // Use boost converter by default
 };
 
 export function createVirtualConnection(
@@ -371,10 +379,89 @@ export function createVirtualConnection(
   }
 
   /**
-   * Legacy calculateCircuit for backward compatibility.
+   * Calculate direct circuit state (no boost converter).
+   * Original behavior: PSU → Load directly.
+   */
+  function calculateDirectCircuit(): { voltage: number; current: number } {
+    // If PSU output is disabled, no voltage or current
+    if (!state.psuOutputEnabled) {
+      return { voltage: 0, current: 0 };
+    }
+
+    // If load input is disabled, PSU outputs voltage but no current flows
+    if (!state.loadInputEnabled) {
+      return { voltage: state.psuVoltage, current: 0 };
+    }
+
+    const psuVoltage = state.psuVoltage;
+    const psuCurrentLimit = state.psuCurrentLimit;
+    const outputImpedance = resolvedConfig.psuOutputImpedance;
+
+    let demandedCurrent: number;
+
+    switch (state.loadMode) {
+      case 'CC':
+        demandedCurrent = state.loadSetpoint;
+        break;
+
+      case 'CV': {
+        const voltageDelta = psuVoltage - state.loadSetpoint;
+        if (voltageDelta > 0 && state.loadSetpoint > 0) {
+          demandedCurrent = resolvedConfig.loadCvGain * voltageDelta;
+        } else {
+          demandedCurrent = 0;
+        }
+        break;
+      }
+
+      case 'CR':
+        if (state.loadSetpoint > 0) {
+          demandedCurrent = psuVoltage / (state.loadSetpoint + outputImpedance);
+        } else {
+          demandedCurrent = 0;
+        }
+        break;
+
+      case 'CP':
+        if (psuVoltage > 0 && state.loadSetpoint > 0) {
+          let current = state.loadSetpoint / psuVoltage;
+          const voltageWithDroop = psuVoltage - current * outputImpedance;
+          if (voltageWithDroop > 0) {
+            current = state.loadSetpoint / voltageWithDroop;
+          }
+          demandedCurrent = current;
+        } else {
+          demandedCurrent = 0;
+        }
+        break;
+
+      default:
+        demandedCurrent = 0;
+    }
+
+    const actualCurrent = Math.min(Math.max(0, demandedCurrent), psuCurrentLimit);
+    let actualVoltage = psuVoltage - actualCurrent * outputImpedance;
+
+    if (demandedCurrent > psuCurrentLimit) {
+      const excessRatio = (demandedCurrent - psuCurrentLimit) / psuCurrentLimit;
+      const ccDroop = Math.min(excessRatio * 0.1, 0.5);
+      actualVoltage *= (1 - ccDroop);
+    }
+
+    return {
+      voltage: Math.max(0, actualVoltage),
+      current: Math.max(0, actualCurrent),
+    };
+  }
+
+  /**
+   * Calculate circuit based on boost enabled setting.
    * Returns PSU-side measurements.
    */
   function calculateCircuit(): { voltage: number; current: number } {
+    if (!resolvedConfig.boostEnabled) {
+      return calculateDirectCircuit();
+    }
     const boost = calculateBoostCircuit();
     return {
       voltage: boost.psuVoltage,
@@ -438,28 +525,60 @@ export function createVirtualConnection(
     },
 
     getLoadVoltage(): number {
+      if (!resolvedConfig.boostEnabled) {
+        const { voltage } = calculateDirectCircuit();
+        return addJitter(voltage);
+      }
       const boost = calculateBoostCircuit();
       return addJitter(boost.boostOutputVoltage);
     },
 
     getLoadCurrent(): number {
+      if (!resolvedConfig.boostEnabled) {
+        const { current } = calculateDirectCircuit();
+        return addJitter(current);
+      }
       const boost = calculateBoostCircuit();
       return addJitter(boost.loadCurrent);
     },
 
     getLoadPower(): number {
+      if (!resolvedConfig.boostEnabled) {
+        const { voltage, current } = calculateDirectCircuit();
+        return addJitter(voltage * current);
+      }
       const boost = calculateBoostCircuit();
       // Jitter applied to the product, not individual values
       return addJitter(boost.boostOutputVoltage * boost.loadCurrent);
     },
 
     getLoadResistance(): number {
+      if (!resolvedConfig.boostEnabled) {
+        const { voltage, current } = calculateDirectCircuit();
+        if (current < 0.0001) return 0;
+        return addJitter(voltage / current);
+      }
       const boost = calculateBoostCircuit();
       if (boost.loadCurrent < 0.0001) return 0; // No meaningful resistance when no current
       return addJitter(boost.boostOutputVoltage / boost.loadCurrent);
     },
 
     getBoostConverterState(): BoostConverterState {
+      if (!resolvedConfig.boostEnabled) {
+        // Return inactive state when boost is disabled
+        const { voltage, current } = calculateDirectCircuit();
+        return {
+          inputVoltage: voltage,
+          outputVoltage: voltage,  // Same as input when no boost
+          dutyCycle: 0,
+          inputCurrent: current,
+          outputCurrent: current,
+          switchingFrequency: 0,
+          active: false,
+          outputRipple: 0,
+          inductorRipple: 0,
+        };
+      }
       const boost = calculateBoostCircuit();
       return {
         inputVoltage: boost.psuVoltage,

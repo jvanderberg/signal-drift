@@ -6,8 +6,12 @@ describe('LoadSimulator', () => {
   let conn: VirtualConnection;
   let load: LoadSimulator;
 
-  // Config for deterministic tests - disable all noise sources
-  const deterministicConfig = { measurementStabilityPPM: 0, measurementNoiseFloorMv: 0 };
+  // Config for deterministic tests - disable all noise sources and boost converter
+  const deterministicConfig = {
+    measurementStabilityPPM: 0,
+    measurementNoiseFloorMv: 0,
+    boostEnabled: false,  // Direct PSU-load connection
+  };
 
   beforeEach(() => {
     conn = createVirtualConnection(deterministicConfig);

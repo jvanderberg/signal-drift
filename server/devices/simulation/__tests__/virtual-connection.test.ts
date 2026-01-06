@@ -4,8 +4,13 @@ import { createVirtualConnection, type VirtualConnection } from '../virtual-conn
 describe('VirtualConnection', () => {
   let conn: VirtualConnection;
 
-  // Config for deterministic tests - disable all noise sources
-  const deterministicConfig = { measurementStabilityPPM: 0, measurementNoiseFloorMv: 0 };
+  // Config for deterministic tests - disable all noise sources and boost converter
+  // The boost converter is tested separately; these tests verify the direct PSU-load behavior
+  const deterministicConfig = {
+    measurementStabilityPPM: 0,
+    measurementNoiseFloorMv: 0,
+    boostEnabled: false,  // Direct PSU-load connection (legacy behavior)
+  };
 
   beforeEach(() => {
     // Use deterministic config for most tests
@@ -124,7 +129,7 @@ describe('VirtualConnection', () => {
 
     it('should sink proportional current based on voltage difference', () => {
       // Default gain is 10 A/V
-      conn = createVirtualConnection({ ...deterministicConfig, loadCvGain: 10 });
+      conn = createVirtualConnection({ ...deterministicConfig, loadCvGain: 10, boostEnabled: false });
       conn.setPsuVoltage(12.0);
       conn.setPsuCurrentLimit(50.0); // High limit to not interfere
       conn.setPsuOutputEnabled(true);
@@ -212,6 +217,7 @@ describe('VirtualConnection', () => {
         measurementStabilityPPM: 0,
         measurementNoiseFloorMv: 0,
         psuOutputImpedance: 0.1, // 0.1 ohm output impedance
+        boostEnabled: false,
       });
       conn.setPsuVoltage(12.0);
       conn.setPsuCurrentLimit(10.0);
@@ -271,7 +277,7 @@ describe('VirtualConnection', () => {
 
   describe('Measurement Jitter', () => {
     it('should add jitter when measurementStabilityPPM > 0', () => {
-      const jitterConn = createVirtualConnection({ measurementStabilityPPM: 1000 }); // 0.1%
+      const jitterConn = createVirtualConnection({ measurementStabilityPPM: 1000, boostEnabled: false }); // 0.1%
       jitterConn.setPsuVoltage(12.0);
       jitterConn.setPsuOutputEnabled(true);
       jitterConn.setLoadInputEnabled(false);
@@ -296,7 +302,7 @@ describe('VirtualConnection', () => {
     it('should produce visible jitter at display resolution (3 decimal places) with default config', () => {
       // Real hardware wanders by 0.001-0.002V at typical voltages
       // Default config should produce visible jitter when rounded to 3 decimals
-      const jitterConn = createVirtualConnection(); // Use defaults
+      const jitterConn = createVirtualConnection({ boostEnabled: false }); // Use defaults but disable boost
       jitterConn.setPsuVoltage(4.0);
       jitterConn.setPsuOutputEnabled(true);
       jitterConn.setLoadInputEnabled(false);
@@ -315,7 +321,7 @@ describe('VirtualConnection', () => {
 
     it('should produce 1-2mV variation at typical voltages (2-12V range)', () => {
       // User requirement: real hardware wanders by 0.001-0.002V
-      const jitterConn = createVirtualConnection(); // Use defaults
+      const jitterConn = createVirtualConnection({ boostEnabled: false }); // Use defaults but disable boost
       jitterConn.setPsuVoltage(2.0);
       jitterConn.setPsuOutputEnabled(true);
       jitterConn.setLoadInputEnabled(false);
@@ -336,7 +342,7 @@ describe('VirtualConnection', () => {
     });
 
     it('should not add jitter to 0 values', () => {
-      const jitterConn = createVirtualConnection({ measurementStabilityPPM: 1000 });
+      const jitterConn = createVirtualConnection({ measurementStabilityPPM: 1000, boostEnabled: false });
       // PSU disabled, voltage is 0
       for (let i = 0; i < 10; i++) {
         expect(jitterConn.getPsuVoltage()).toBe(0);
@@ -347,6 +353,7 @@ describe('VirtualConnection', () => {
       const noJitterConn = createVirtualConnection({
         measurementStabilityPPM: 0,
         measurementNoiseFloorMv: 0,
+        boostEnabled: false,
       });
       noJitterConn.setPsuVoltage(12.0);
       noJitterConn.setPsuOutputEnabled(true);
@@ -367,6 +374,7 @@ describe('VirtualConnection', () => {
       const customConn = createVirtualConnection({
         measurementStabilityPPM: 200,
         psuOutputImpedance: 0.1,
+        boostEnabled: false,
       });
       const config = customConn.getConfig();
       expect(config.measurementStabilityPPM).toBe(200);
