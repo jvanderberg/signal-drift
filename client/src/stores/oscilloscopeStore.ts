@@ -13,8 +13,7 @@ import type {
   OscilloscopeStatus,
   WaveformData,
   OscilloscopeMeasurement,
-  OscilloscopeCapabilities,
-  DeviceInfo,
+  OscilloscopeSessionState,
 } from '../../../shared/types';
 
 // Infer measurement unit from type
@@ -42,15 +41,8 @@ function isOscilloscopeState(state: unknown): state is OscilloscopeSessionState 
   );
 }
 
-// Per-oscilloscope session state (matches server structure)
-export interface OscilloscopeSessionState {
-  info: DeviceInfo;
-  capabilities: OscilloscopeCapabilities;
-  connectionStatus: 'connected' | 'error' | 'disconnected';
-  consecutiveErrors: number;
-  status: OscilloscopeStatus | null;
-  lastUpdated: number;
-}
+// Re-export OscilloscopeSessionState for consumers of this module
+export type { OscilloscopeSessionState } from '../../../shared/types';
 
 // Per-oscilloscope UI/data state
 interface OscilloscopeState {

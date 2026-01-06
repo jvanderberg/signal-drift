@@ -9,7 +9,7 @@
 
 import type { DeviceRegistry } from '../devices/registry.js';
 import type { DeviceDriver, OscilloscopeDriver, WaveformData } from '../devices/types.js';
-import type { DeviceSummary, ServerMessage, Result } from '../../shared/types.js';
+import type { DeviceSummary, OscilloscopeSummary, AnyDeviceSummary, ServerMessage, Result } from '../../shared/types.js';
 import { Ok, Err } from '../../shared/types.js';
 import { createDeviceSession, DeviceSession, DeviceSessionConfig } from './DeviceSession.js';
 import { createOscilloscopeSession, OscilloscopeSession } from './OscilloscopeSession.js';
@@ -28,7 +28,7 @@ export interface SessionManager {
   reconnectOscilloscopeSession(deviceId: string, newDriver: OscilloscopeDriver): void;
   getSession(deviceId: string): DeviceSession | undefined;
   getSessionCount(): number;
-  getDeviceSummaries(): DeviceSummary[];
+  getDeviceSummaries(): AnyDeviceSummary[];
 
   subscribe(deviceId: string, clientId: string, callback: SubscriberCallback): boolean;
   unsubscribe(deviceId: string, clientId: string): void;
@@ -166,29 +166,31 @@ export function createSessionManager(
     return sessions.size + oscilloscopeSessions.size;
   }
 
-  function getDeviceSummaries(): DeviceSummary[] {
-    const summaries: DeviceSummary[] = [];
+  function getDeviceSummaries(): AnyDeviceSummary[] {
+    const summaries: AnyDeviceSummary[] = [];
 
-    // Standard devices
+    // Standard devices (PSU/loads) - return DeviceSummary
     for (const session of sessions.values()) {
       const state = session.getState();
-      summaries.push({
+      const summary: DeviceSummary = {
         id: state.info.id,
         info: state.info,
         capabilities: state.capabilities,
         connectionStatus: state.connectionStatus,
-      });
+      };
+      summaries.push(summary);
     }
 
-    // Oscilloscopes
+    // Oscilloscopes - return OscilloscopeSummary
     for (const session of oscilloscopeSessions.values()) {
       const state = session.getState();
-      summaries.push({
+      const summary: OscilloscopeSummary = {
         id: state.info.id,
         info: state.info,
-        capabilities: state.capabilities as any,  // Different capability shape
+        capabilities: state.capabilities,
         connectionStatus: state.connectionStatus,
-      });
+      };
+      summaries.push(summary);
     }
 
     return summaries;

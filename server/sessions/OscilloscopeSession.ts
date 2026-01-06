@@ -8,27 +8,15 @@
  */
 
 import type { OscilloscopeDriver, OscilloscopeStatus, WaveformData } from '../devices/types.js';
-import type { ConnectionStatus, ServerMessage, Result } from '../../shared/types.js';
+import type { ServerMessage, Result, OscilloscopeSessionState, ConnectionStatus } from '../../shared/types.js';
 
 export interface OscilloscopeSessionConfig {
   statusPollIntervalMs?: number;  // Slow poll for trigger status (default: 500ms)
   maxConsecutiveErrors?: number;
 }
 
-export interface OscilloscopeSessionState {
-  info: {
-    id: string;
-    type: 'oscilloscope';
-    manufacturer: string;
-    model: string;
-    serial?: string;
-  };
-  capabilities: OscilloscopeDriver['capabilities'];
-  connectionStatus: ConnectionStatus;
-  consecutiveErrors: number;
-  status: OscilloscopeStatus | null;
-  lastUpdated: number;
-}
+// Re-export for consumers that import from this module
+export type { OscilloscopeSessionState } from '../../shared/types.js';
 
 type SubscriberCallback = (message: ServerMessage) => void;
 

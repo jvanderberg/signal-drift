@@ -13,7 +13,14 @@ import type {
   DeviceSessionState,
   ServerMessage,
   HistoryData,
+  AnySessionState,
 } from '../../../shared/types';
+import { isDeviceSummary, isDeviceCapabilities } from '../../../shared/types';
+
+/** Type guard to check if session state is for a standard device (PSU/load) */
+function isDeviceSessionState(state: AnySessionState): state is DeviceSessionState {
+  return isDeviceCapabilities(state.capabilities);
+}
 
 // Per-device state
 interface DeviceState {
@@ -224,8 +231,9 @@ export const useDeviceStore = create<DeviceStoreState>()(
         _handleMessage: (message: ServerMessage) => {
           switch (message.type) {
             case 'deviceList':
+              // Filter to only PSU/load devices (oscilloscopes are handled by oscilloscopeStore)
               set({
-                devices: message.devices,
+                devices: message.devices.filter(isDeviceSummary),
                 isLoadingDevices: false,
                 deviceListError: null,
               });
@@ -234,18 +242,16 @@ export const useDeviceStore = create<DeviceStoreState>()(
             case 'subscribed':
               if (message.deviceId) {
                 // Skip oscilloscopes - they're handled by oscilloscopeStore
-                // Oscilloscopes have OscilloscopeCapabilities with 'channels' as a number
-                const caps = message.state?.capabilities;
-                const isOscilloscope = caps && typeof caps === 'object' &&
-                  'channels' in caps && typeof (caps as Record<string, unknown>).channels === 'number';
-                if (isOscilloscope) {
+                // Use type guard to check if this is a device (PSU/load) session state
+                if (!isDeviceSessionState(message.state)) {
                   return;
                 }
+                const deviceState: DeviceSessionState = message.state;
                 set((state) => ({
                   deviceStates: {
                     ...state.deviceStates,
                     [message.deviceId]: {
-                      sessionState: message.state,
+                      sessionState: deviceState,
                       isSubscribed: true,
                       error: null,
                     },

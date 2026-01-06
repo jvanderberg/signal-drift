@@ -412,12 +412,11 @@ export function createWebSocketHandler(
           state: session.getState(),
         });
       } else if (scopeSession) {
-        // OscilloscopeSessionState differs from DeviceSessionState
-        // Client hook (useOscilloscopeSocket) expects the oscilloscope shape
+        // OscilloscopeSessionState is now part of AnySessionState union type
         send(clientState.ws, {
           type: 'subscribed',
           deviceId,
-          state: scopeSession.getState() as unknown as DeviceSessionState,
+          state: scopeSession.getState(),
         });
       }
     } else {

@@ -236,6 +236,19 @@ export interface OscilloscopeCapabilities {
   hasAWG: boolean;                     // Built-in arbitrary waveform generator
 }
 
+/** Union type for any device capabilities (PSU/load vs oscilloscope) */
+export type AnyCapabilities = DeviceCapabilities | OscilloscopeCapabilities;
+
+/** Type guard to check if capabilities is for a standard device (PSU/load) */
+export function isDeviceCapabilities(cap: AnyCapabilities): cap is DeviceCapabilities {
+  return 'deviceClass' in cap && 'modes' in cap && 'outputs' in cap;
+}
+
+/** Type guard to check if capabilities is for an oscilloscope */
+export function isOscilloscopeCapabilities(cap: AnyCapabilities): cap is OscilloscopeCapabilities {
+  return 'channels' in cap && 'bandwidth' in cap && !('deviceClass' in cap);
+}
+
 // ============ WebSocket Types ============
 
 // Device connection status (managed by server proxy)
@@ -273,6 +286,19 @@ export interface DeviceSessionState {
   // Meta
   lastUpdated: number;
 }
+
+// Oscilloscope session state - different shape from DeviceSessionState
+export interface OscilloscopeSessionState {
+  info: DeviceInfo;
+  capabilities: OscilloscopeCapabilities;
+  connectionStatus: ConnectionStatus;
+  consecutiveErrors: number;
+  status: OscilloscopeStatus | null;
+  lastUpdated: number;
+}
+
+/** Union type for any session state (PSU/load vs oscilloscope) */
+export type AnySessionState = DeviceSessionState | OscilloscopeSessionState;
 
 // Incremental measurement update (sent on each poll)
 export interface MeasurementUpdate {
@@ -353,8 +379,8 @@ export type ClientMessage =
 
 // Server -> Client messages
 export type ServerMessage =
-  | { type: 'deviceList'; devices: DeviceSummary[] }                  // Response to getDevices, scan, or auto-discovery
-  | { type: 'subscribed'; deviceId: string; state: DeviceSessionState }
+  | { type: 'deviceList'; devices: AnyDeviceSummary[] }               // Response to getDevices, scan, or auto-discovery
+  | { type: 'subscribed'; deviceId: string; state: AnySessionState }
   | { type: 'unsubscribed'; deviceId: string }
   | { type: 'measurement'; deviceId: string; update: MeasurementUpdate }
   | { type: 'field'; deviceId: string; field: string; value: unknown }
@@ -396,13 +422,35 @@ export type ServerMessage =
   | { type: 'dashboardLayout'; layout: DashboardLayoutData | null }
   | { type: 'dashboardLayoutSaved' };
 
-// Lightweight device info for listing (before subscription)
+// Lightweight device info for listing (before subscription) - PSU/loads
 export interface DeviceSummary {
   id: string;
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
   connectionStatus: ConnectionStatus;
   alias?: string;  // User-friendly name if set
+}
+
+// Lightweight oscilloscope info for listing
+export interface OscilloscopeSummary {
+  id: string;
+  info: DeviceInfo;
+  capabilities: OscilloscopeCapabilities;
+  connectionStatus: ConnectionStatus;
+  alias?: string;
+}
+
+/** Union type for any device summary in device listings */
+export type AnyDeviceSummary = DeviceSummary | OscilloscopeSummary;
+
+/** Type guard to check if a summary is for a standard device (PSU/load) */
+export function isDeviceSummary(summary: AnyDeviceSummary): summary is DeviceSummary {
+  return isDeviceCapabilities(summary.capabilities);
+}
+
+/** Type guard to check if a summary is for an oscilloscope */
+export function isOscilloscopeSummary(summary: AnyDeviceSummary): summary is OscilloscopeSummary {
+  return isOscilloscopeCapabilities(summary.capabilities);
 }
 
 // ============ Sequence / AWG Types ============
