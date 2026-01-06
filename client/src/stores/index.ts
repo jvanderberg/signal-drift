@@ -29,8 +29,11 @@ export {
   selectWaveforms,
   selectMeasurements,
   selectIsStreaming,
+  selectStreamingChannels,
+  selectStreamingFps,
   cleanupOscilloscopeStore,
   type OscilloscopeSessionState,
+  type StreamingState,
 } from './oscilloscopeStore';
 
 export {

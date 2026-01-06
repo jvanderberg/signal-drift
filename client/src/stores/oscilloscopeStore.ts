@@ -1,8 +1,13 @@
 /**
  * Zustand store for oscilloscope state management
  *
- * Centralizes all oscilloscope-related state and WebSocket handling.
- * Replaces useOscilloscopeSocket hook.
+ * REDESIGNED: Server is the source of truth for streaming state.
+ *
+ * Key changes:
+ * 1. isStreaming is derived from server's streaming.isStreaming
+ * 2. No optimistic state updates - wait for server confirmation
+ * 3. Streaming auto-starts on first subscriber (server handles this)
+ * 4. Client just filters which channels/measurements to display
  */
 
 import { create } from 'zustand';
@@ -29,6 +34,13 @@ function getMeasurementUnit(type: string): string {
   return 'V';
 }
 
+// Streaming state from server
+export interface StreamingState {
+  isStreaming: boolean;
+  channels: string[];
+  fps: number;
+}
+
 // Type guard to check if state is oscilloscope-specific
 function isOscilloscopeState(state: unknown): state is OscilloscopeSessionState {
   if (!state || typeof state !== 'object') return false;
@@ -50,6 +62,7 @@ export interface OscilloscopeSessionState {
   consecutiveErrors: number;
   status: OscilloscopeStatus | null;
   lastUpdated: number;
+  streaming: StreamingState;
 }
 
 // Per-oscilloscope UI/data state
@@ -61,8 +74,6 @@ interface OscilloscopeState {
   waveforms: WaveformData[];
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;
-  isStreaming: boolean;
-  fps: number;  // Actual FPS reported by server
 }
 
 // Store state
@@ -106,7 +117,7 @@ interface OscilloscopeStoreState {
   setTriggerEdge: (deviceId: string, edge: 'rising' | 'falling' | 'either') => void;
   setTriggerSweep: (deviceId: string, sweep: 'auto' | 'normal' | 'single') => void;
 
-  // Actions - streaming
+  // Actions - streaming (now mainly for measurement configuration)
   startStreaming: (deviceId: string, channels: string[], intervalMs: number, measurements?: string[]) => void;
   stopStreaming: (deviceId: string) => void;
 
@@ -118,6 +129,13 @@ interface OscilloscopeStoreState {
   _initializeWebSocket: () => void;
 }
 
+// Default streaming state
+const defaultStreamingState: StreamingState = {
+  isStreaming: false,
+  channels: [],
+  fps: 0,
+};
+
 // Default state for new oscilloscope (used by selectors and store)
 const defaultOscilloscopeState: OscilloscopeState = {
   sessionState: null,
@@ -127,13 +145,12 @@ const defaultOscilloscopeState: OscilloscopeState = {
   waveforms: [],
   measurements: [],
   screenshot: null,
-  isStreaming: false,
-  fps: 0,
 };
 
 // Default empty arrays for selectors (stable references to prevent re-renders)
 const emptyWaveforms: WaveformData[] = [];
 const emptyMeasurements: OscilloscopeMeasurement[] = [];
+const emptyChannels: string[] = [];
 
 // Selector helpers - use stable references to prevent infinite re-render loops
 export const selectOscilloscope = (deviceId: string) => (state: OscilloscopeStoreState) =>
@@ -151,8 +168,15 @@ export const selectWaveforms = (deviceId: string) => (state: OscilloscopeStoreSt
 export const selectMeasurements = (deviceId: string) => (state: OscilloscopeStoreState) =>
   state.oscilloscopeStates[deviceId]?.measurements ?? emptyMeasurements;
 
+// Streaming state derived from server
 export const selectIsStreaming = (deviceId: string) => (state: OscilloscopeStoreState) =>
-  state.oscilloscopeStates[deviceId]?.isStreaming ?? false;
+  state.oscilloscopeStates[deviceId]?.sessionState?.streaming?.isStreaming ?? false;
+
+export const selectStreamingChannels = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.sessionState?.streaming?.channels ?? emptyChannels;
+
+export const selectStreamingFps = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.sessionState?.streaming?.fps ?? 0;
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
@@ -220,11 +244,6 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
         },
 
         unsubscribeOscilloscope: (deviceId: string) => {
-          // Stop streaming before unsubscribing to clean up server-side resources
-          const oscState = get().oscilloscopeStates[deviceId];
-          if (oscState?.isStreaming) {
-            wsManager.send({ type: 'scopeStopStreaming', deviceId });
-          }
           wsManager.send({ type: 'unsubscribe', deviceId });
           set((state) => ({
             oscilloscopeStates: {
@@ -232,7 +251,6 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
               [deviceId]: {
                 ...(state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState),
                 isSubscribed: false,
-                isStreaming: false,
               },
             },
           }));
@@ -282,31 +300,15 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
         setTriggerSweep: (deviceId, sweep) =>
           wsManager.send({ type: 'scopeSetTriggerSweep', deviceId, sweep }),
 
-        // Streaming
+        // Streaming - sends request, server broadcasts state change
         startStreaming: (deviceId, channels, intervalMs, measurements) => {
           wsManager.send({ type: 'scopeStartStreaming', deviceId, channels, intervalMs, measurements });
-          set((state) => ({
-            oscilloscopeStates: {
-              ...state.oscilloscopeStates,
-              [deviceId]: {
-                ...(state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState),
-                isStreaming: true,
-              },
-            },
-          }));
+          // No optimistic update - wait for server to broadcast streaming state
         },
 
         stopStreaming: (deviceId) => {
           wsManager.send({ type: 'scopeStopStreaming', deviceId });
-          set((state) => ({
-            oscilloscopeStates: {
-              ...state.oscilloscopeStates,
-              [deviceId]: {
-                ...(state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState),
-                isStreaming: false,
-              },
-            },
-          }));
+          // No optimistic update - wait for server to broadcast streaming state
         },
 
         // Error handling
@@ -334,6 +336,10 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
               // Only handle if this is an oscilloscope (use type guard for safety)
               if (isOscilloscopeState(message.state)) {
                 const oscSessionState = message.state as OscilloscopeSessionState;
+                // Ensure streaming state has defaults
+                if (!oscSessionState.streaming) {
+                  oscSessionState.streaming = { ...defaultStreamingState };
+                }
                 set((state) => ({
                   oscilloscopeStates: {
                     ...state.oscilloscopeStates,
@@ -354,7 +360,6 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                   [deviceId]: {
                     ...(state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState),
                     isSubscribed: false,
-                    isStreaming: false,
                   },
                 },
               }));
@@ -374,6 +379,10 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                     break;
                   case 'oscilloscopeStatus':
                     updated = { ...prev, status: message.value as OscilloscopeStatus };
+                    break;
+                  case 'streaming':
+                    // Server broadcasts streaming state changes
+                    updated = { ...prev, streaming: message.value as StreamingState };
                     break;
                   default:
                     updated = { ...prev, [message.field]: message.value };
@@ -404,14 +413,26 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                   waveforms.push(message.waveform);
                 }
 
+                // Also update fps in streaming state if we have session state
+                let sessionState = oscState.sessionState;
+                if (sessionState && message.fps !== undefined) {
+                  sessionState = {
+                    ...sessionState,
+                    streaming: {
+                      ...sessionState.streaming,
+                      fps: message.fps,
+                    },
+                  };
+                }
+
                 return {
                   oscilloscopeStates: {
                     ...state.oscilloscopeStates,
                     [deviceId]: {
                       ...oscState,
+                      sessionState,
                       waveform: message.waveform,
                       waveforms,
-                      fps: message.fps ?? oscState.fps,
                     },
                   },
                 };

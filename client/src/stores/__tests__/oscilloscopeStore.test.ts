@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import type { ServerMessage, WaveformData, OscilloscopeCapabilities, DeviceSessionState, DeviceCapabilities } from '../../../../shared/types';
-import type { OscilloscopeSessionState } from '../oscilloscopeStore';
+import type { OscilloscopeSessionState, StreamingState } from '../oscilloscopeStore';
 
 // Helper to create valid mock WaveformData
 const createMockWaveform = (channel: string, points: number[] = [0, 0.5, 1, 0.5, 0]): WaveformData => ({
@@ -24,6 +24,14 @@ const createMockOscilloscopeCapabilities = (): OscilloscopeCapabilities => ({
   hasAWG: false,
 });
 
+// Helper to create valid mock StreamingState
+const createMockStreamingState = (overrides?: Partial<StreamingState>): StreamingState => ({
+  isStreaming: false,
+  channels: [],
+  fps: 0,
+  ...overrides,
+});
+
 // Mark unused imports as intentionally available
 void ({} as DeviceCapabilities);
 
@@ -35,6 +43,7 @@ const createMockOscilloscopeSessionState = (overrides?: Partial<OscilloscopeSess
   consecutiveErrors: 0,
   status: null,
   lastUpdated: Date.now(),
+  streaming: createMockStreamingState(),
   ...overrides,
 });
 
@@ -140,15 +149,13 @@ describe('oscilloscopeStore', () => {
       useOscilloscopeStore.setState({
         oscilloscopeStates: {
           'scope-1': {
-            sessionState: null,
+            sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
             isSubscribed: true,
-            isStreaming: true,
             error: null,
             waveform: null,
             waveforms: [],
             measurements: [],
             screenshot: null,
-            fps: 0,
           },
         },
       });
@@ -157,13 +164,10 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.getState().unsubscribeOscilloscope('scope-1');
       });
 
-      // Should stop streaming first
-      expect(mockState.send).toHaveBeenCalledWith({ type: 'scopeStopStreaming', deviceId: 'scope-1' });
       expect(mockState.send).toHaveBeenCalledWith({ type: 'unsubscribe', deviceId: 'scope-1' });
 
       const state = useOscilloscopeStore.getState().oscilloscopeStates['scope-1'];
       expect(state.isSubscribed).toBe(false);
-      expect(state.isStreaming).toBe(false);
     });
   });
 
@@ -304,7 +308,7 @@ describe('oscilloscopeStore', () => {
   });
 
   describe('Streaming', () => {
-    it('startStreaming should send message and set state', () => {
+    it('startStreaming should send message (server broadcasts state)', () => {
       act(() => {
         useOscilloscopeStore.getState().startStreaming('scope-1', ['CH1', 'CH2'], 100, ['FREQ']);
       });
@@ -317,22 +321,21 @@ describe('oscilloscopeStore', () => {
         measurements: ['FREQ'],
       });
 
-      expect(useOscilloscopeStore.getState().oscilloscopeStates['scope-1'].isStreaming).toBe(true);
+      // Note: isStreaming is now derived from server's streaming state broadcast
+      // No optimistic update anymore
     });
 
-    it('stopStreaming should send message and clear state', () => {
+    it('stopStreaming should send message (server broadcasts state)', () => {
       useOscilloscopeStore.setState({
         oscilloscopeStates: {
           'scope-1': {
-            sessionState: null,
+            sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
             isSubscribed: true,
-            isStreaming: true,
             error: null,
             waveform: null,
             waveforms: [],
             measurements: [],
             screenshot: null,
-            fps: 0,
           },
         },
       });
@@ -346,7 +349,7 @@ describe('oscilloscopeStore', () => {
         deviceId: 'scope-1',
       });
 
-      expect(useOscilloscopeStore.getState().oscilloscopeStates['scope-1'].isStreaming).toBe(false);
+      // Note: isStreaming update comes from server's streaming state broadcast
     });
   });
 
@@ -392,15 +395,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
               isSubscribed: true,
-              isStreaming: true,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -427,15 +428,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
               isSubscribed: true,
-              isStreaming: true,
               error: null,
               waveform: existingWaveform,
               waveforms: [existingWaveform],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -462,15 +461,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
               isSubscribed: true,
-              isStreaming: true,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -499,15 +496,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
               isSubscribed: true,
-              isStreaming: true,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [{ channel: 'CH1', type: 'FREQ', value: 500, unit: 'Hz' }],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -531,15 +526,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) }),
               isSubscribed: true,
-              isStreaming: true,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -564,15 +557,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState(),
               isSubscribed: true,
-              isStreaming: false,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -594,15 +585,13 @@ describe('oscilloscopeStore', () => {
         useOscilloscopeStore.setState({
           oscilloscopeStates: {
             'scope-1': {
-              sessionState: null,
+              sessionState: createMockOscilloscopeSessionState(),
               isSubscribed: true,
-              isStreaming: false,
               error: null,
               waveform: null,
               waveforms: [],
               measurements: [],
               screenshot: null,
-              fps: 0,
             },
           },
         });
@@ -619,6 +608,38 @@ describe('oscilloscopeStore', () => {
         expect(useOscilloscopeStore.getState().oscilloscopeStates['scope-1'].error).toBe('Connection timeout');
       });
     });
+
+    describe('streaming field message', () => {
+      it('should update streaming state from server', () => {
+        useOscilloscopeStore.setState({
+          oscilloscopeStates: {
+            'scope-1': {
+              sessionState: createMockOscilloscopeSessionState(),
+              isSubscribed: true,
+              error: null,
+              waveform: null,
+              waveforms: [],
+              measurements: [],
+              screenshot: null,
+            },
+          },
+        });
+
+        act(() => {
+          simulateMessage({
+            type: 'field',
+            deviceId: 'scope-1',
+            field: 'streaming',
+            value: { isStreaming: true, channels: ['CHAN1', 'CHAN2'], fps: 15 },
+          });
+        });
+
+        const state = useOscilloscopeStore.getState().oscilloscopeStates['scope-1'];
+        expect(state.sessionState?.streaming?.isStreaming).toBe(true);
+        expect(state.sessionState?.streaming?.channels).toEqual(['CHAN1', 'CHAN2']);
+        expect(state.sessionState?.streaming?.fps).toBe(15);
+      });
+    });
   });
 
   describe('Selectors', () => {
@@ -626,20 +647,18 @@ describe('oscilloscopeStore', () => {
     let sampleWaveform: WaveformData;
 
     beforeEach(() => {
-      sampleSessionState = createMockOscilloscopeSessionState();
+      sampleSessionState = createMockOscilloscopeSessionState({ streaming: createMockStreamingState({ isStreaming: true }) });
       sampleWaveform = createMockWaveform('CH1', [1, 2, 3]);
       useOscilloscopeStore.setState({
         oscilloscopeStates: {
           'scope-1': {
             sessionState: sampleSessionState,
             isSubscribed: true,
-            isStreaming: true,
             error: null,
             waveform: sampleWaveform,
             waveforms: [sampleWaveform],
             measurements: [{ channel: 'CH1', type: 'FREQ', value: 1000, unit: 'Hz' }],
             screenshot: null,
-            fps: 0,
           },
         },
       });
@@ -669,7 +688,7 @@ describe('oscilloscopeStore', () => {
       expect(selectMeasurements('scope-999')(useOscilloscopeStore.getState())).toEqual([]);
     });
 
-    it('selectIsStreaming should return streaming status', () => {
+    it('selectIsStreaming should return streaming status from sessionState.streaming', () => {
       expect(selectIsStreaming('scope-1')(useOscilloscopeStore.getState())).toBe(true);
       expect(selectIsStreaming('scope-999')(useOscilloscopeStore.getState())).toBe(false);
     });
@@ -680,15 +699,13 @@ describe('oscilloscopeStore', () => {
       useOscilloscopeStore.setState({
         oscilloscopeStates: {
           'scope-1': {
-            sessionState: null,
+            sessionState: createMockOscilloscopeSessionState(),
             isSubscribed: true,
-            isStreaming: false,
             error: 'Some error',
             waveform: null,
             waveforms: [],
             measurements: [],
             screenshot: null,
-            fps: 0,
           },
         },
       });
