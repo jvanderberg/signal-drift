@@ -448,9 +448,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                           )}
                         </button>
 
-                        {/* Channel Settings Popover */}
+                        {/* Channel Settings Popover - opens upward to avoid panel clipping */}
                         {showChannelSettings === ch && chStatus && (
-                          <div className="absolute top-full left-0 mt-1 z-10">
+                          <div className="absolute bottom-full left-0 mb-1 z-20">
                             <ChannelSettings
                               channel={ch}
                               currentScale={chStatus.scale}
