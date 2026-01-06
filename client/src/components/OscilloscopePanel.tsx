@@ -88,7 +88,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     setTriggerEdge,
     setTriggerSweep,
     startStreaming,
-    stopStreaming,
   } = useOscilloscopeSocket(device.id);
 
   const [selectedChannel, setSelectedChannel] = useState('CHAN1');
@@ -162,20 +161,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const handleGetScreenshot = () => {
     setIsLoadingScreenshot(true);
     getScreenshot();
-  };
-
-  const handleStreamingToggle = (enabled: boolean) => {
-    if (enabled) {
-      // Start streaming with current enabled channels
-      const enabledChannels = state?.status?.channels
-        ? Object.entries(state.status.channels)
-            .filter(([_, ch]) => ch.enabled)
-            .map(([name]) => name)
-        : ['CHAN1'];
-      startStreaming(enabledChannels, 100, selectedMeasurements);
-    } else {
-      stopStreaming();
-    }
   };
 
   const handleChannelToggle = (channel: string, enabled: boolean) => {
@@ -257,7 +242,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                   channels={channels}
                   enabledChannels={enabledChannels}
                   fps={fps}
-                  onStreamingToggle={handleStreamingToggle}
                   onChannelToggle={handleChannelToggle}
                 />
               </div>
