@@ -9,13 +9,13 @@ import { create } from 'zustand';
 import { subscribeWithSelector, devtools } from 'zustand/middleware';
 import { getWebSocketManager, ConnectionState } from '../websocket';
 import type {
-  DeviceSummary,
+  StandardDeviceSummary,
   DeviceSessionState,
   ServerMessage,
   HistoryData,
   AnySessionState,
 } from '../../../shared/types';
-import { isDeviceSummary, isDeviceCapabilities } from '../../../shared/types';
+import { isStandardDevice, isDeviceCapabilities } from '../../../shared/types';
 
 /** Type guard to check if session state is for a standard device (PSU/load) */
 function isDeviceSessionState(state: AnySessionState): state is DeviceSessionState {
@@ -34,8 +34,8 @@ interface DeviceStoreState {
   // Connection
   connectionState: ConnectionState;
 
-  // Device list (from scanner)
-  devices: DeviceSummary[];
+  // Device list (from scanner) - filtered to standard devices only
+  devices: StandardDeviceSummary[];
   isLoadingDevices: boolean;
   deviceListError: string | null;
 
@@ -233,7 +233,7 @@ export const useDeviceStore = create<DeviceStoreState>()(
             case 'deviceList':
               // Filter to only PSU/load devices (oscilloscopes are handled by oscilloscopeStore)
               set({
-                devices: message.devices.filter(isDeviceSummary),
+                devices: message.devices.filter(isStandardDevice),
                 isLoadingDevices: false,
                 deviceListError: null,
               });

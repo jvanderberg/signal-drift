@@ -4,11 +4,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getWebSocketManager } from '../websocket';
-import type { DeviceSummary, ServerMessage } from '../../../shared/types';
-import { isDeviceSummary } from '../../../shared/types';
+import type { StandardDeviceSummary, ServerMessage } from '../../../shared/types';
+import { isStandardDevice } from '../../../shared/types';
 
 export interface UseDeviceListResult {
-  devices: DeviceSummary[];
+  devices: StandardDeviceSummary[];
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
@@ -16,7 +16,7 @@ export interface UseDeviceListResult {
 }
 
 export function useDeviceList(): UseDeviceListResult {
-  const [devices, setDevices] = useState<DeviceSummary[]>([]);
+  const [devices, setDevices] = useState<StandardDeviceSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +27,7 @@ export function useDeviceList(): UseDeviceListResult {
     const unsubscribeMessage = wsManager.onMessage((message: ServerMessage) => {
       if (message.type === 'deviceList') {
         // Filter to only PSU/load devices (oscilloscopes handled separately)
-        setDevices(message.devices.filter(isDeviceSummary));
+        setDevices(message.devices.filter(isStandardDevice));
         setIsLoading(false);
         setError(null);
       } else if (message.type === 'error' && !('deviceId' in message && message.deviceId)) {

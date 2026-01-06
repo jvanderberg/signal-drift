@@ -441,15 +441,29 @@ export interface DeviceSummary {
   alias?: string;  // User-friendly name if set
 }
 
+/** Narrowed DeviceSummary with DeviceCapabilities (for PSU/loads after filtering) */
+export interface StandardDeviceSummary extends Omit<DeviceSummary, 'capabilities'> {
+  capabilities: DeviceCapabilities;
+}
+
+/** Narrowed DeviceSummary with OscilloscopeCapabilities (after filtering) */
+export interface OscilloscopeDeviceSummary extends Omit<DeviceSummary, 'capabilities'> {
+  capabilities: OscilloscopeCapabilities;
+}
+
 /** Type guard to check if a summary is for a standard device (PSU/load) */
-export function isDeviceSummary(summary: DeviceSummary): boolean {
+export function isStandardDevice(summary: DeviceSummary): summary is StandardDeviceSummary {
   return isDeviceCapabilities(summary.capabilities);
 }
 
 /** Type guard to check if a summary is for an oscilloscope */
-export function isOscilloscopeSummary(summary: DeviceSummary): boolean {
+export function isOscilloscopeDevice(summary: DeviceSummary): summary is OscilloscopeDeviceSummary {
   return isOscilloscopeCapabilities(summary.capabilities);
 }
+
+// Legacy aliases for backwards compatibility
+export const isDeviceSummary = isStandardDevice;
+export const isOscilloscopeSummary = isOscilloscopeDevice;
 
 // ============ Sequence / AWG Types ============
 
