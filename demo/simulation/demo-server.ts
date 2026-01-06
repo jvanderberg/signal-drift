@@ -562,7 +562,11 @@ export function createDemoServer(): DemoServer {
 
       // Trigger script library operations
       case 'triggerScriptLibraryList':
-        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        broadcast({
+          type: 'triggerScriptLibrary',
+          scripts: Array.from(triggerScriptLibrary.values()),
+          activeState: runningTriggerScript?.state ?? null,
+        });
         break;
 
       case 'triggerScriptLibrarySave': {
@@ -575,7 +579,11 @@ export function createDemoServer(): DemoServer {
         };
         triggerScriptLibrary.set(newScript.id, newScript);
         broadcast({ type: 'triggerScriptLibrarySaved', scriptId: newScript.id });
-        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        broadcast({
+          type: 'triggerScriptLibrary',
+          scripts: Array.from(triggerScriptLibrary.values()),
+          activeState: runningTriggerScript?.state ?? null,
+        });
         break;
       }
 
@@ -585,7 +593,11 @@ export function createDemoServer(): DemoServer {
           const updated = { ...message.script, updatedAt: Date.now() };
           triggerScriptLibrary.set(updated.id, updated);
           broadcast({ type: 'triggerScriptLibrarySaved', scriptId: updated.id });
-          broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+          broadcast({
+            type: 'triggerScriptLibrary',
+            scripts: Array.from(triggerScriptLibrary.values()),
+            activeState: runningTriggerScript?.state ?? null,
+          });
         }
         break;
       }
@@ -593,7 +605,11 @@ export function createDemoServer(): DemoServer {
       case 'triggerScriptLibraryDelete':
         if (triggerScriptLibrary.delete(message.scriptId)) {
           broadcast({ type: 'triggerScriptLibraryDeleted', scriptId: message.scriptId });
-          broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+          broadcast({
+            type: 'triggerScriptLibrary',
+            scripts: Array.from(triggerScriptLibrary.values()),
+            activeState: runningTriggerScript?.state ?? null,
+          });
         }
         break;
 
@@ -684,7 +700,11 @@ export function createDemoServer(): DemoServer {
           result: { sequences: seqCount, triggerScripts: scriptCount, deviceAliases: aliasCount },
         });
         broadcast({ type: 'sequenceLibrary', sequences: Array.from(sequenceLibrary.values()) });
-        broadcast({ type: 'triggerScriptLibrary', scripts: Array.from(triggerScriptLibrary.values()) });
+        broadcast({
+          type: 'triggerScriptLibrary',
+          scripts: Array.from(triggerScriptLibrary.values()),
+          activeState: runningTriggerScript?.state ?? null,
+        });
         broadcast({ type: 'deviceAliases', aliases: Array.from(deviceAliases.values()) });
         break;
       }
