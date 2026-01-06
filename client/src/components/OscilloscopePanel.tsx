@@ -296,6 +296,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
               onTriggerLevelChange={handleTriggerLevelChange}
               showGrid={true}
               height={isExpanded ? expandedHeight : undefined}
+              timebaseScale={status?.timebase?.scale}
             />
 
             {/* Timebase controls - top center overlay */}
