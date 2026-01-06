@@ -1,19 +1,27 @@
 /**
  * Virtual Connection
- * Links PSU and Load electrically for simulation
+ * Links PSU, Boost Converter, and Load electrically for simulation
  *
- * PSU output voltage → Load input voltage
- * Load current draw → PSU current measurement
+ * Topology:
+ *   PSU (3-12V) → Boost Converter → 24V Output → Load
+ *
+ * The boost converter steps up the PSU voltage to 24V (configurable).
+ * An oscilloscope can observe:
+ *   - CH1: PWM gate drive signal
+ *   - CH2: Switching node voltage
+ *   - CH3: Output voltage with ripple
+ *   - CH4: Input current waveform
  *
  * Physics Simulation Notes:
  * - PSU operates as a voltage source with current limiting
+ * - Boost converter uses duty cycle D = 1 - (Vin / Vout)
  * - When load demands more current than PSU limit, PSU enters CC mode
  * - Voltage droop is modeled as gradual (not step function) based on current/limit ratio
  * - Load CV mode uses proportional control to regulate terminal voltage
  * - Measurement jitter simulates real ADC noise and environmental factors
  *
  * Limitations:
- * - No wire resistance or inductance modeling
+ * - Simplified boost converter model (ideal efficiency)
  * - No thermal effects on readings
  * - CV mode uses simplified proportional control (real loads use PID)
  * - No transient response simulation (settling time, overshoot)
@@ -49,6 +57,64 @@ export interface VirtualConnectionConfig {
    * Default: 10 A/V
    */
   loadCvGain?: number;
+
+  /**
+   * Boost converter target output voltage.
+   * Default: 24V
+   */
+  boostTargetVoltage?: number;
+
+  /**
+   * Boost converter switching frequency in Hz.
+   * Typical: 100kHz - 500kHz
+   * Default: 200000 (200kHz)
+   */
+  boostSwitchingFrequency?: number;
+
+  /**
+   * Boost converter efficiency (0-1).
+   * Real converters typically 85-95%.
+   * Default: 0.90 (90%)
+   */
+  boostEfficiency?: number;
+
+  /**
+   * Output capacitance in microfarads.
+   * Affects output voltage ripple.
+   * Default: 100µF
+   */
+  boostOutputCapacitance?: number;
+
+  /**
+   * Inductance in microhenries.
+   * Affects current ripple and switching behavior.
+   * Default: 22µH
+   */
+  boostInductance?: number;
+}
+
+/**
+ * Boost converter state for oscilloscope waveform generation
+ */
+export interface BoostConverterState {
+  /** Input voltage from PSU */
+  inputVoltage: number;
+  /** Output voltage (target is usually 24V) */
+  outputVoltage: number;
+  /** Duty cycle (0-1), calculated as 1 - Vin/Vout */
+  dutyCycle: number;
+  /** Input current (higher than output due to boost action) */
+  inputCurrent: number;
+  /** Output current (load current) */
+  outputCurrent: number;
+  /** Switching frequency in Hz */
+  switchingFrequency: number;
+  /** Whether the converter is active (PSU output enabled and voltage > 0) */
+  active: boolean;
+  /** Output voltage ripple peak-to-peak in volts */
+  outputRipple: number;
+  /** Inductor current ripple peak-to-peak in amps */
+  inductorRipple: number;
 }
 
 export interface VirtualConnection {
@@ -64,10 +130,13 @@ export interface VirtualConnection {
   setLoadMode(mode: 'CC' | 'CV' | 'CR' | 'CP'): void;
   setLoadSetpoint(value: number): void;
   setLoadInputEnabled(enabled: boolean): void;
-  getLoadVoltage(): number;  // Voltage at load terminals (from PSU)
+  getLoadVoltage(): number;  // Voltage at load terminals (boost converter output)
   getLoadCurrent(): number;
   getLoadPower(): number;
   getLoadResistance(): number;
+
+  // Boost converter
+  getBoostConverterState(): BoostConverterState;
 
   // Configuration
   getConfig(): Required<VirtualConnectionConfig>;
@@ -90,6 +159,11 @@ const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   measurementNoiseFloorMv: 1.0,
   psuOutputImpedance: 0.005, // 5mΩ - typical for regulated bench PSU
   loadCvGain: 10,
+  boostTargetVoltage: 24,           // 24V output
+  boostSwitchingFrequency: 200000,  // 200kHz
+  boostEfficiency: 0.90,            // 90% efficiency
+  boostOutputCapacitance: 100,      // 100µF
+  boostInductance: 22,              // 22µH
 };
 
 export function createVirtualConnection(
@@ -146,102 +220,165 @@ export function createVirtualConnection(
   }
 
   /**
-   * Calculate the actual circuit state based on both device settings.
-   * Returns ideal values (without jitter) for consistent physics calculations.
+   * Calculate the boost converter and circuit state.
+   *
+   * Topology: PSU → Boost Converter → Load
+   *
+   * The boost converter steps up PSU voltage (3-12V) to target (24V).
+   * Load is connected to the boost output, not directly to PSU.
    */
-  function calculateCircuit(): { voltage: number; current: number } {
-    // If PSU output is disabled, no voltage or current
-    if (!state.psuOutputEnabled) {
-      return { voltage: 0, current: 0 };
-    }
+  function calculateBoostCircuit(): {
+    psuVoltage: number;      // Voltage at PSU output (into boost)
+    psuCurrent: number;      // Current drawn from PSU
+    boostOutputVoltage: number;  // Voltage at boost output (to load)
+    loadCurrent: number;     // Current drawn by load
+    dutyCycle: number;       // Boost duty cycle
+    outputRipple: number;    // Output voltage ripple Vpp
+    inductorRipple: number;  // Inductor current ripple App
+  } {
+    const targetVout = resolvedConfig.boostTargetVoltage;
+    const efficiency = resolvedConfig.boostEfficiency;
+    const switchFreq = resolvedConfig.boostSwitchingFrequency;
+    const inductance = resolvedConfig.boostInductance * 1e-6; // µH to H
+    const capacitance = resolvedConfig.boostOutputCapacitance * 1e-6; // µF to F
 
-    // If load input is disabled, PSU outputs voltage but no current flows
-    if (!state.loadInputEnabled) {
-      return { voltage: state.psuVoltage, current: 0 };
+    // If PSU output is disabled, everything is off
+    if (!state.psuOutputEnabled) {
+      return {
+        psuVoltage: 0,
+        psuCurrent: 0,
+        boostOutputVoltage: 0,
+        loadCurrent: 0,
+        dutyCycle: 0,
+        outputRipple: 0,
+        inductorRipple: 0,
+      };
     }
 
     const psuVoltage = state.psuVoltage;
-    const psuCurrentLimit = state.psuCurrentLimit;
-    const outputImpedance = resolvedConfig.psuOutputImpedance;
 
-    let demandedCurrent: number;
+    // Boost converter needs minimum input voltage to operate
+    if (psuVoltage < 1.0) {
+      return {
+        psuVoltage: psuVoltage,
+        psuCurrent: 0,
+        boostOutputVoltage: 0,
+        loadCurrent: 0,
+        dutyCycle: 0,
+        outputRipple: 0,
+        inductorRipple: 0,
+      };
+    }
+
+    // Calculate ideal duty cycle: D = 1 - Vin/Vout
+    // Clamp to valid range
+    let dutyCycle = 1 - (psuVoltage / targetVout);
+    dutyCycle = Math.max(0, Math.min(0.9, dutyCycle)); // Max 90% duty cycle for stability
+
+    // Actual boost output voltage (may be limited by duty cycle constraint)
+    let boostOutputVoltage = psuVoltage / (1 - dutyCycle);
+
+    // If load input is disabled, boost runs at no-load (light regulation)
+    if (!state.loadInputEnabled) {
+      return {
+        psuVoltage,
+        psuCurrent: 0.01, // Small quiescent current
+        boostOutputVoltage,
+        loadCurrent: 0,
+        dutyCycle,
+        outputRipple: 0,
+        inductorRipple: 0,
+      };
+    }
+
+    // Calculate load current demand at boost output voltage
+    let loadDemandedCurrent: number;
 
     switch (state.loadMode) {
       case 'CC':
-        // Constant current mode - load tries to draw setpoint current
-        demandedCurrent = state.loadSetpoint;
+        loadDemandedCurrent = state.loadSetpoint;
         break;
 
       case 'CV': {
-        // Constant voltage mode - load regulates to setpoint voltage
-        // Uses proportional control: current = gain * (Vpsu - Vsetpoint)
-        // When Vpsu > Vsetpoint, load sinks current to drop voltage across output impedance
-        const voltageDelta = psuVoltage - state.loadSetpoint;
+        // CV mode: load regulates to setpoint voltage
+        const voltageDelta = boostOutputVoltage - state.loadSetpoint;
         if (voltageDelta > 0 && state.loadSetpoint > 0) {
-          // Load sinks current proportional to voltage difference
-          demandedCurrent = resolvedConfig.loadCvGain * voltageDelta;
+          loadDemandedCurrent = resolvedConfig.loadCvGain * voltageDelta;
         } else {
-          // PSU voltage at or below setpoint - minimal current needed
-          demandedCurrent = 0;
+          loadDemandedCurrent = 0;
         }
         break;
       }
 
       case 'CR':
-        // Constant resistance mode - I = V / R
-        // Use open-circuit voltage for initial estimate, then iterate
         if (state.loadSetpoint > 0) {
-          // V = Vpsu - I*Rout, and I = V/R
-          // Solving: I = Vpsu / (R + Rout)
-          demandedCurrent = psuVoltage / (state.loadSetpoint + outputImpedance);
+          loadDemandedCurrent = boostOutputVoltage / state.loadSetpoint;
         } else {
-          demandedCurrent = 0;
+          loadDemandedCurrent = 0;
         }
         break;
 
       case 'CP':
-        // Constant power mode - P = V * I, so I = P / V
-        // Use iterative approach: start with open-circuit voltage estimate
-        if (psuVoltage > 0 && state.loadSetpoint > 0) {
-          // Initial estimate using PSU voltage
-          let current = state.loadSetpoint / psuVoltage;
-          // Refine once: account for voltage droop
-          const voltageWithDroop = psuVoltage - current * outputImpedance;
-          if (voltageWithDroop > 0) {
-            current = state.loadSetpoint / voltageWithDroop;
-          }
-          demandedCurrent = current;
+        if (boostOutputVoltage > 0 && state.loadSetpoint > 0) {
+          loadDemandedCurrent = state.loadSetpoint / boostOutputVoltage;
         } else {
-          demandedCurrent = 0;
+          loadDemandedCurrent = 0;
         }
         break;
 
       default:
-        demandedCurrent = 0;
+        loadDemandedCurrent = 0;
     }
 
-    // PSU limits the current if demand exceeds limit
-    const actualCurrent = Math.min(Math.max(0, demandedCurrent), psuCurrentLimit);
+    // Calculate required input current from PSU
+    // Pin = Pout / efficiency, and Pin = Vin * Iin, Pout = Vout * Iout
+    // So Iin = (Vout * Iout) / (Vin * efficiency)
+    const psuDemandedCurrent = (boostOutputVoltage * loadDemandedCurrent) / (psuVoltage * efficiency);
 
-    // Calculate voltage droop due to output impedance and current
-    // V_out = V_setpoint - I * R_output
-    // This gives gradual droop instead of step function
-    let actualVoltage = psuVoltage - actualCurrent * outputImpedance;
+    // Apply PSU current limit
+    const psuActualCurrent = Math.min(Math.max(0, psuDemandedCurrent), state.psuCurrentLimit);
 
-    // When in CC mode (current limited), voltage droops more significantly
-    // Model additional droop when approaching current limit
-    if (demandedCurrent > psuCurrentLimit) {
-      // Load wants more current than PSU can provide
-      // Additional voltage collapse proportional to excess demand
-      const excessRatio = (demandedCurrent - psuCurrentLimit) / psuCurrentLimit;
-      // Soft limiting: voltage drops as demand exceeds capacity
-      const ccDroop = Math.min(excessRatio * 0.1, 0.5); // Max 50% additional droop
-      actualVoltage *= (1 - ccDroop);
+    // If PSU is current-limited, reduce the boost output power/voltage
+    let loadActualCurrent = loadDemandedCurrent;
+    let actualBoostVoltage = boostOutputVoltage;
+
+    if (psuDemandedCurrent > state.psuCurrentLimit && psuDemandedCurrent > 0) {
+      // PSU is limiting - scale down the output power
+      const powerRatio = (state.psuCurrentLimit * psuVoltage * efficiency) / (boostOutputVoltage * loadDemandedCurrent);
+      loadActualCurrent = loadDemandedCurrent * powerRatio;
+
+      // Boost output voltage droops when overloaded
+      const droopFactor = Math.max(0.5, powerRatio);
+      actualBoostVoltage = boostOutputVoltage * droopFactor;
     }
+
+    // Calculate ripple characteristics for oscilloscope display
+    // Inductor current ripple: ΔIL = (Vin * D) / (L * f)
+    const inductorRipple = (psuVoltage * dutyCycle) / (inductance * switchFreq);
+
+    // Output voltage ripple: ΔVout ≈ (Iout * D) / (C * f)
+    const outputRipple = (loadActualCurrent * dutyCycle) / (capacitance * switchFreq);
 
     return {
-      voltage: Math.max(0, actualVoltage),
-      current: Math.max(0, actualCurrent),
+      psuVoltage: Math.max(0, psuVoltage - psuActualCurrent * resolvedConfig.psuOutputImpedance),
+      psuCurrent: Math.max(0, psuActualCurrent),
+      boostOutputVoltage: Math.max(0, actualBoostVoltage),
+      loadCurrent: Math.max(0, loadActualCurrent),
+      dutyCycle,
+      outputRipple: Math.min(outputRipple, actualBoostVoltage * 0.1), // Cap ripple at 10% of voltage
+      inductorRipple: Math.min(inductorRipple, psuActualCurrent * 2), // Reasonable limit
+    };
+  }
+
+  /**
+   * Legacy calculateCircuit for backward compatibility.
+   * Returns PSU-side measurements.
+   */
+  function calculateCircuit(): { voltage: number; current: number } {
+    const boost = calculateBoostCircuit();
+    return {
+      voltage: boost.psuVoltage,
+      current: boost.psuCurrent,
     };
   }
 
@@ -301,25 +438,40 @@ export function createVirtualConnection(
     },
 
     getLoadVoltage(): number {
-      const { voltage } = calculateCircuit();
-      return addJitter(voltage);
+      const boost = calculateBoostCircuit();
+      return addJitter(boost.boostOutputVoltage);
     },
 
     getLoadCurrent(): number {
-      const { current } = calculateCircuit();
-      return addJitter(current);
+      const boost = calculateBoostCircuit();
+      return addJitter(boost.loadCurrent);
     },
 
     getLoadPower(): number {
-      const { voltage, current } = calculateCircuit();
+      const boost = calculateBoostCircuit();
       // Jitter applied to the product, not individual values
-      return addJitter(voltage * current);
+      return addJitter(boost.boostOutputVoltage * boost.loadCurrent);
     },
 
     getLoadResistance(): number {
-      const { voltage, current } = calculateCircuit();
-      if (current < 0.0001) return 0; // No meaningful resistance when no current
-      return addJitter(voltage / current);
+      const boost = calculateBoostCircuit();
+      if (boost.loadCurrent < 0.0001) return 0; // No meaningful resistance when no current
+      return addJitter(boost.boostOutputVoltage / boost.loadCurrent);
+    },
+
+    getBoostConverterState(): BoostConverterState {
+      const boost = calculateBoostCircuit();
+      return {
+        inputVoltage: boost.psuVoltage,
+        outputVoltage: boost.boostOutputVoltage,
+        dutyCycle: boost.dutyCycle,
+        inputCurrent: boost.psuCurrent,
+        outputCurrent: boost.loadCurrent,
+        switchingFrequency: resolvedConfig.boostSwitchingFrequency,
+        active: state.psuOutputEnabled && state.psuVoltage >= 1.0,
+        outputRipple: boost.outputRipple,
+        inductorRipple: boost.inductorRipple,
+      };
     },
 
     getConfig(): Required<VirtualConnectionConfig> {
