@@ -397,10 +397,12 @@ export type ServerMessage =
   | { type: 'dashboardLayoutSaved' };
 
 // Lightweight device info for listing (before subscription)
+// Note: capabilities is a union because device list includes both standard devices
+// (PSU/Load with DeviceCapabilities) and oscilloscopes (with OscilloscopeCapabilities)
 export interface DeviceSummary {
   id: string;
   info: DeviceInfo;
-  capabilities: DeviceCapabilities;
+  capabilities: DeviceCapabilities | OscilloscopeCapabilities;
   connectionStatus: ConnectionStatus;
   alias?: string;  // User-friendly name if set
 }

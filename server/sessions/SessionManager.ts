@@ -186,7 +186,7 @@ export function createSessionManager(
       summaries.push({
         id: state.info.id,
         info: state.info,
-        capabilities: state.capabilities as any,  // Different capability shape
+        capabilities: state.capabilities,
         connectionStatus: state.connectionStatus,
       });
     }
