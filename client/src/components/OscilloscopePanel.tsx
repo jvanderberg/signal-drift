@@ -16,7 +16,7 @@
  * - isStreaming reflects actual server streaming state
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DeviceSummary } from '../types';
 import { useOscilloscopeSocket } from '../hooks/useOscilloscopeSocket';
 import { EditableDeviceHeader } from './EditableDeviceHeader';
@@ -110,6 +110,23 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   useEffect(() => {
     localStorage.setItem(`scope-measurements-${device.id}`, JSON.stringify(selectedMeasurements));
   }, [selectedMeasurements, device.id]);
+
+  // Track if we've sent measurements for current streaming session
+  const hasSentMeasurementsRef = useRef(false);
+
+  // When streaming starts, send user's selected measurements to server
+  // This ensures the server calculates the measurements the user wants to see
+  useEffect(() => {
+    if (isStreaming && streamingChannels.length > 0 && !hasSentMeasurementsRef.current) {
+      // Mark as sent to avoid duplicate calls
+      hasSentMeasurementsRef.current = true;
+      // Send user's selected measurements to server
+      startStreaming(streamingChannels, 100, selectedMeasurements);
+    } else if (!isStreaming) {
+      // Reset when streaming stops so we resend on next start
+      hasSentMeasurementsRef.current = false;
+    }
+  }, [isStreaming, streamingChannels, selectedMeasurements, startStreaming]);
 
   // Auto-subscribe on mount
   useEffect(() => {
