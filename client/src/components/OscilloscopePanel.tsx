@@ -1,38 +1,19 @@
 /**
  * OscilloscopePanel - Main control panel for oscilloscope devices
  *
+ * REDESIGNED: Server handles streaming automatically.
+ *
  * This component provides the primary interface for interacting with oscilloscopes:
  * - Real-time waveform display with multi-channel support
  * - Channel configuration (enable, scale, offset, coupling, probe)
  * - Timebase and trigger controls
- * - Automatic waveform streaming
  * - Measurement display (VPP, FREQ, VAVG, etc.)
  * - Screenshot capture
  *
- * @example
- * ```tsx
- * <OscilloscopePanel
- *   device={oscilloscope}
- *   onClose={() => setSelectedDevice(null)}
- *   onError={(msg) => toast.error(msg)}
- *   onSuccess={(msg) => toast.success(msg)}
- * />
- * ```
- *
- * Waveform Display:
- * - SVG-based rendering for crisp display at any size
- * - Supports up to 4 channels with distinct colors
- * - Interactive trigger level adjustment via drag
- * - Grid with 10 horizontal and 8 vertical divisions
- *
  * Streaming:
- * - Auto-starts streaming enabled channels on subscription
- * - Continues streaming regardless of UI state
- * - Measurements calculated locally from waveform data
- *
- * State Management:
- * - Uses useOscilloscopeSocket hook for WebSocket communication
- * - Waveform data stored per-channel for multi-channel display
+ * - Server auto-starts streaming ALL enabled channels on subscription
+ * - UI just filters which channels/measurements to display
+ * - isStreaming reflects actual server streaming state
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -46,17 +27,10 @@ import { TriggerSettings } from './TriggerSettings';
 import { ChannelSettings } from './ChannelSettings';
 import { TimebaseControls } from './TimebaseControls';
 
-/**
- * Props for OscilloscopePanel component
- */
 interface OscilloscopePanelProps {
-  /** Device summary from the scanner (includes id, info, oscilloscope capabilities) */
   device: DeviceSummary;
-  /** Called when user clicks the close button */
   onClose: () => void;
-  /** Called when an error occurs (WebSocket error, device error) */
   onError: (message: string) => void;
-  /** Called on successful actions (connected, screenshot saved, etc.) */
   onSuccess: (message: string) => void;
 }
 
@@ -88,12 +62,14 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     connectionState,
     isSubscribed,
     error,
-    waveform,
     waveforms,
     measurements,
     screenshot,
     isStreaming,
     fps,
+    streamingChannels,
+    displayChannels,
+    toggleDisplayChannel,
     subscribe,
     unsubscribe,
     run,
@@ -102,7 +78,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     autoSetup,
     getScreenshot,
     clearError,
-    setChannelEnabled,
     setChannelScale,
     setChannelOffset,
     setChannelCoupling,
@@ -114,21 +89,18 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     setTriggerEdge,
     setTriggerSweep,
     startStreaming,
-    stopStreaming,
   } = useOscilloscopeSocket(device.id);
 
   const [selectedChannel, setSelectedChannel] = useState('CHAN1');
   const [isLoadingScreenshot, setIsLoadingScreenshot] = useState(false);
   const [showTriggerSettings, setShowTriggerSettings] = useState(false);
   const [showChannelSettings, setShowChannelSettings] = useState<string | null>(null);
-  const [enabledChannels, setEnabledChannels] = useState<string[]>(['CHAN1']);
   const [showMeasurementPicker, setShowMeasurementPicker] = useState(false);
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedHeight, setExpandedHeight] = useState(500);
   const waveformContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load selected measurements from localStorage
+  // Load selected measurements from localStorage (UI filter - not sent to server)
   const [selectedMeasurements, setSelectedMeasurements] = useState<string[]>(() => {
     const saved = localStorage.getItem(`scope-measurements-${device.id}`);
     return saved ? JSON.parse(saved) : ['VPP', 'FREQ', 'VAVG'];
@@ -138,6 +110,23 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   useEffect(() => {
     localStorage.setItem(`scope-measurements-${device.id}`, JSON.stringify(selectedMeasurements));
   }, [selectedMeasurements, device.id]);
+
+  // Track if we've sent measurements for current streaming session
+  const hasSentMeasurementsRef = useRef(false);
+
+  // When streaming starts, send user's selected measurements to server
+  // This ensures the server calculates the measurements the user wants to see
+  useEffect(() => {
+    if (isStreaming && streamingChannels.length > 0 && !hasSentMeasurementsRef.current) {
+      // Mark as sent to avoid duplicate calls
+      hasSentMeasurementsRef.current = true;
+      // Send user's selected measurements to server
+      startStreaming(streamingChannels, 100, selectedMeasurements);
+    } else if (!isStreaming) {
+      // Reset when streaming stops so we resend on next start
+      hasSentMeasurementsRef.current = false;
+    }
+  }, [isStreaming, streamingChannels, selectedMeasurements, startStreaming]);
 
   // Auto-subscribe on mount
   useEffect(() => {
@@ -162,14 +151,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     }
   }, [isSubscribed, onSuccess]);
 
-  // Auto-start streaming once when first subscribed
-  useEffect(() => {
-    if (isSubscribed && !hasAutoStarted && enabledChannels.length > 0) {
-      setHasAutoStarted(true);
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, selectedMeasurements);
-    }
-  }, [isSubscribed, hasAutoStarted, enabledChannels, selectedMeasurements, startStreaming]);
-
   // Reset loading state when screenshot arrives
   useEffect(() => {
     if (screenshot) {
@@ -177,24 +158,11 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     }
   }, [screenshot]);
 
-  // Sync enabled channels from status
-  useEffect(() => {
-    if (state?.status?.channels) {
-      const enabled = Object.entries(state.status.channels)
-        .filter(([_, ch]) => ch.enabled)
-        .map(([name]) => name);
-      if (enabled.length > 0) {
-        setEnabledChannels(enabled);
-      }
-    }
-  }, [state?.status?.channels]);
-
   // Calculate available height when expanded
   useEffect(() => {
     if (!isExpanded) return;
 
     const updateHeight = () => {
-      // Use viewport height minus space for header and margins
       setExpandedHeight(Math.max(400, window.innerHeight - 200));
     };
 
@@ -213,27 +181,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     getScreenshot();
   };
 
-  const handleStreamingToggle = (enabled: boolean) => {
-    if (enabled) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, selectedMeasurements);
-    } else {
-      stopStreaming();
-    }
-  };
-
-  const handleChannelToggle = (channel: string, enabled: boolean) => {
-    setChannelEnabled(channel, enabled);
-    const newChannels = enabled
-      ? [...enabledChannels, channel]
-      : enabledChannels.filter(c => c !== channel);
-    setEnabledChannels(newChannels);
-
-    // Restart streaming with updated channels if currently streaming
-    if (isStreaming && newChannels.length > 0) {
-      startStreaming(newChannels, newChannels.length > 1 ? 100 : 50, selectedMeasurements);
-    } else if (isStreaming && newChannels.length === 0) {
-      stopStreaming();
-    }
+  const handleChannelToggle = (channel: string) => {
+    // Toggle display visibility - instant, client-side only
+    toggleDisplayChannel(channel);
   };
 
   const handleMeasurementToggle = (measurement: string) => {
@@ -242,9 +192,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
       : [...selectedMeasurements, measurement];
     setSelectedMeasurements(newMeasurements);
 
-    // Restart streaming with updated measurements
-    if (isStreaming && enabledChannels.length > 0) {
-      startStreaming(enabledChannels, enabledChannels.length > 1 ? 100 : 50, newMeasurements);
+    // If streaming, update the measurements being calculated
+    if (isStreaming && streamingChannels.length > 0) {
+      startStreaming(streamingChannels, 100, newMeasurements);
     }
   };
 
@@ -270,14 +220,14 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     'VPP', 'VMAX', 'VMIN', 'VAVG', 'VRMS', 'FREQ', 'PER'
   ];
 
-  // Get waveform data for display
-  const displayWaveforms = waveforms.length > 0 ? waveforms : (waveform ? [waveform] : []);
+  // Get waveform data for display - filter to only show user-selected display channels
+  const displayWaveforms = waveforms.filter(w => displayChannels.includes(w.channel));
   const triggerLevel = status?.trigger?.level ?? 0;
   const triggerEdge = status?.trigger?.edge as 'rising' | 'falling' | 'either' ?? 'rising';
 
-  // Filter measurements to only show enabled channels and selected types
+  // Filter measurements to only show display channels and selected types
   const filteredMeasurements = measurements.filter(
-    m => enabledChannels.includes(m.channel) && selectedMeasurements.includes(m.type)
+    m => displayChannels.includes(m.channel) && selectedMeasurements.includes(m.type)
   );
 
   return (
@@ -300,10 +250,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                 <StreamingControls
                   isStreaming={isStreaming}
                   scopeRunning={status?.running ?? false}
-                  channels={channels}
-                  enabledChannels={enabledChannels}
+                  channels={streamingChannels}
+                  enabledChannels={displayChannels}
                   fps={fps}
-                  onStreamingToggle={handleStreamingToggle}
                   onChannelToggle={handleChannelToggle}
                 />
               </div>
@@ -364,6 +313,7 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
               onTriggerLevelChange={handleTriggerLevelChange}
               showGrid={true}
               height={isExpanded ? expandedHeight : undefined}
+              timebaseScale={status?.timebase?.scale}
             />
 
             {/* Timebase controls - top center overlay */}
@@ -516,9 +466,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                           )}
                         </button>
 
-                        {/* Channel Settings Popover */}
+                        {/* Channel Settings Popover - opens upward to avoid panel clipping */}
                         {showChannelSettings === ch && chStatus && (
-                          <div className="absolute top-full left-0 mt-1 z-10">
+                          <div className="absolute bottom-full left-0 mb-1 z-20">
                             <ChannelSettings
                               channel={ch}
                               currentScale={chStatus.scale}
@@ -576,4 +526,3 @@ function formatVoltage(v: number): string {
   if (Math.abs(v) >= 0.001) return `${(v * 1000).toFixed(1)} mV`;
   return `${(v * 1e6).toFixed(0)} uV`;
 }
-

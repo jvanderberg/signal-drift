@@ -1,14 +1,22 @@
 /**
  * OscilloscopeSession - Manages state for a single oscilloscope
  *
- * Unlike DeviceSession (continuous polling), oscilloscopes use:
- * - Slower status polling (trigger status, sample rate)
- * - On-demand waveform/screenshot fetches
- * - On-demand measurement queries
+ * REDESIGNED: "Always-On Streaming Engine"
+ *
+ * The session automatically streams ALL enabled channels whenever there are
+ * subscribers. The streaming state is the single source of truth, broadcast
+ * to all clients so UI stays in sync.
+ *
+ * Key principles:
+ * 1. Server is the source of truth for streaming state
+ * 2. Streaming auto-starts on first subscriber, auto-stops on last unsubscribe
+ * 3. All enabled channels are always streamed (UI filters what to display)
+ * 4. State changes are broadcast so clients stay synchronized
+ * 5. No busy-wait loops - use proper async signaling
  */
 
 import type { OscilloscopeDriver, OscilloscopeStatus, WaveformData } from '../devices/types.js';
-import type { ServerMessage, Result, OscilloscopeSessionState, ConnectionStatus } from '../../shared/types.js';
+import type { ServerMessage, Result, OscilloscopeSessionState, ConnectionStatus, StreamingState } from '../../shared/types.js';
 
 export interface OscilloscopeSessionConfig {
   statusPollIntervalMs?: number;  // Slow poll for trigger status (default: 500ms)
@@ -16,7 +24,7 @@ export interface OscilloscopeSessionConfig {
 }
 
 // Re-export for consumers that import from this module
-export type { OscilloscopeSessionState } from '../../shared/types.js';
+export type { OscilloscopeSessionState, StreamingState } from '../../shared/types.js';
 
 type SubscriberCallback = (message: ServerMessage) => void;
 
@@ -57,7 +65,7 @@ export interface OscilloscopeSession {
   getWaveform(channel: string): Promise<Result<WaveformData, Error>>;
   getScreenshot(): Promise<Result<Buffer, Error>>;
 
-  // Streaming
+  // Streaming control (simplified - mainly for pause/resume during config changes)
   startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void>;
   stopStreaming(): Promise<void>;
 
@@ -86,16 +94,14 @@ export function createOscilloscopeSession(
   const subscribers = new Map<string, SubscriberCallback>();
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
-  let streamingTimer: ReturnType<typeof setInterval> | null = null;
+  let streamingTimer: ReturnType<typeof setTimeout> | null = null;
   let streamingChannels: string[] = [];
-  let streamingMeasurements: string[] = [];  // Measurements to fetch during streaming
-  let streamingIntervalMs = 200;
+  let streamingMeasurements: string[] = [];
   let isRunning = true;
-  let isFetching = false;  // Guard against concurrent fetches
-  let streamingGeneration = 0;  // Increment when streaming restarts to cancel stale fetches
-  let lastStatusPoll = 0;  // Track when we last polled status
-  const STATUS_POLL_INTERVAL = 5000;  // Poll status every 5s during streaming (was 500ms)
-  let autoStreamingStarted = false;  // Track if we've auto-started streaming
+  let isFetching = false;
+  let streamingGeneration = 0;
+  let lastStatusPoll = 0;
+  const STATUS_POLL_INTERVAL = 5000;
 
   // Waveform cache for fast acquisition (skips preamble query)
   const waveformCache = new Map<string, WaveformData>();
@@ -107,17 +113,19 @@ export function createOscilloscopeSession(
 
   // Frequency cache - only recalculate once per second
   const freqCache = new Map<string, { value: number; timestamp: number }>();
-  const FREQ_UPDATE_INTERVAL = 1000; // ms
+  const FREQ_UPDATE_INTERVAL = 1000;
 
   // Default measurements to calculate from waveform data
   const DEFAULT_STREAMING_MEASUREMENTS = ['VPP', 'FREQ', 'VAVG'];
+
+  // Promise-based fetch completion signaling (replaces busy-wait)
+  let fetchCompleteResolve: (() => void) | null = null;
 
   // Fast radix-2 FFT - O(n log n) instead of O(n²)
   function fft(real: number[], imag: number[]): void {
     const n = real.length;
     if (n <= 1) return;
 
-    // Bit-reversal permutation
     let j = 0;
     for (let i = 0; i < n - 1; i++) {
       if (i < j) {
@@ -132,7 +140,6 @@ export function createOscilloscopeSession(
       j += k;
     }
 
-    // Cooley-Tukey butterfly
     for (let len = 2; len <= n; len <<= 1) {
       const halfLen = len >> 1;
       const angle = -2 * Math.PI / len;
@@ -161,16 +168,13 @@ export function createOscilloscopeSession(
     }
   }
 
-  // Find dominant frequency using FFT
   function findFrequency(points: number[], xIncrement: number): number | null {
     const n = points.length;
     if (n < 8) return null;
 
-    // Pad to next power of 2
     let fftSize = 1;
     while (fftSize < n) fftSize <<= 1;
 
-    // Remove DC offset and copy to FFT buffers
     const avg = points.reduce((a, b) => a + b, 0) / n;
     const real = new Array(fftSize).fill(0);
     const imag = new Array(fftSize).fill(0);
@@ -178,13 +182,11 @@ export function createOscilloscopeSession(
       real[i] = points[i] - avg;
     }
 
-    // Run FFT
     fft(real, imag);
 
-    // Find peak magnitude (skip DC and low-freq bins to avoid leakage, check up to Nyquist)
     let maxMag = 0;
     let peakBin = 0;
-    const minBin = 3;  // Skip bins 0-2 to avoid DC leakage
+    const minBin = 3;
     const maxBin = fftSize >> 1;
     for (let k = minBin; k < maxBin; k++) {
       const mag = real[k] * real[k] + imag[k] * imag[k];
@@ -194,16 +196,13 @@ export function createOscilloscopeSession(
       }
     }
 
-    // No significant peak found
     if (peakBin === 0) return null;
 
-    // Convert bin to frequency
     const sampleRate = 1 / xIncrement;
     const freq = (peakBin * sampleRate) / fftSize;
     return freq > 0 && isFinite(freq) ? freq : null;
   }
 
-  // Calculate measurements locally from waveform data (no SCPI round-trip needed)
   function calculateMeasurement(waveform: WaveformData, type: string, channel: string): number | null {
     const points = waveform.points;
     if (!points || points.length === 0) return null;
@@ -230,7 +229,6 @@ export function createOscilloscopeSession(
 
       case 'FREQ':
       case 'PER': {
-        // Throttle frequency calculation to once per second
         const cacheKey = `${channel}-FREQ`;
         const cached = freqCache.get(cacheKey);
         const now = Date.now();
@@ -239,7 +237,6 @@ export function createOscilloscopeSession(
           return type.toUpperCase() === 'FREQ' ? cached.value : 1 / cached.value;
         }
 
-        // Calculate frequency using FFT
         const freq = findFrequency(points, waveform.xIncrement);
         if (freq === null) return null;
 
@@ -247,26 +244,21 @@ export function createOscilloscopeSession(
         return type.toUpperCase() === 'FREQ' ? freq : 1 / freq;
       }
 
-      case 'VAMP': {
-        // Amplitude (similar to VPP but sometimes defined differently)
+      case 'VAMP':
         return Math.max(...points) - Math.min(...points);
-      }
 
       case 'VTOP': {
-        // Top value - estimate using histogram or percentile
         const sorted = [...points].sort((a, b) => b - a);
-        return sorted[Math.floor(sorted.length * 0.1)]; // 90th percentile
+        return sorted[Math.floor(sorted.length * 0.1)];
       }
 
       case 'VBAS': {
-        // Base value - estimate using histogram or percentile
         const sorted = [...points].sort((a, b) => a - b);
-        return sorted[Math.floor(sorted.length * 0.1)]; // 10th percentile
+        return sorted[Math.floor(sorted.length * 0.1)];
       }
 
       case 'PDUT':
       case 'NDUT': {
-        // Duty cycle - % of time above/below midpoint
         const max = Math.max(...points);
         const min = Math.min(...points);
         const mid = (max + min) / 2;
@@ -277,13 +269,11 @@ export function createOscilloscopeSession(
 
       case 'PWID':
       case 'NWID': {
-        // Pulse width - average time above/below midpoint per cycle
         const max = Math.max(...points);
         const min = Math.min(...points);
         const mid = (max + min) / 2;
         const totalTime = waveform.xIncrement * points.length;
 
-        // Count transitions to estimate cycles
         let transitions = 0;
         for (let i = 1; i < points.length; i++) {
           if ((points[i-1] <= mid && points[i] > mid) ||
@@ -301,7 +291,6 @@ export function createOscilloscopeSession(
       }
 
       case 'RISE': {
-        // Rise time - 10% to 90% of amplitude
         const max = Math.max(...points);
         const min = Math.min(...points);
         const amp = max - min;
@@ -309,19 +298,13 @@ export function createOscilloscopeSession(
         const low = min + amp * 0.1;
         const high = min + amp * 0.9;
 
-        // Find first rising edge - look for transition from below low to above high
         for (let i = 1; i < points.length; i++) {
-          // Look for start of rising edge (crossing 10% going up)
           if (points[i-1] <= low && points[i] > low) {
-            // Now find where it crosses 90%
-            // For fast edges, might be same sample or next
             for (let j = i; j < points.length; j++) {
               if (points[j] >= high) {
-                // Interpolate for better accuracy
                 const riseTime = (j - i + 1) * waveform.xIncrement;
-                return Math.max(riseTime, waveform.xIncrement); // At least 1 sample
+                return Math.max(riseTime, waveform.xIncrement);
               }
-              // If signal drops before reaching 90%, abort this edge
               if (points[j] < points[j-1] && points[j] < high * 0.5) break;
             }
           }
@@ -330,7 +313,6 @@ export function createOscilloscopeSession(
       }
 
       case 'FALL': {
-        // Fall time - 90% to 10% of amplitude
         const max = Math.max(...points);
         const min = Math.min(...points);
         const amp = max - min;
@@ -338,17 +320,13 @@ export function createOscilloscopeSession(
         const low = min + amp * 0.1;
         const high = min + amp * 0.9;
 
-        // Find first falling edge - look for transition from above high to below low
         for (let i = 1; i < points.length; i++) {
-          // Look for start of falling edge (crossing 90% going down)
           if (points[i-1] >= high && points[i] < high) {
-            // Now find where it crosses 10%
             for (let j = i; j < points.length; j++) {
               if (points[j] <= low) {
                 const fallTime = (j - i + 1) * waveform.xIncrement;
                 return Math.max(fallTime, waveform.xIncrement);
               }
-              // If signal rises before reaching 10%, abort this edge
               if (points[j] > points[j-1] && points[j] > low * 2 + min) break;
             }
           }
@@ -357,7 +335,6 @@ export function createOscilloscopeSession(
       }
 
       case 'OVER': {
-        // Overshoot - % above top value on rising edge
         const sorted = [...points].sort((a, b) => b - a);
         const top = sorted[Math.floor(sorted.length * 0.1)];
         const base = sorted[Math.floor(sorted.length * 0.9)];
@@ -368,7 +345,6 @@ export function createOscilloscopeSession(
       }
 
       case 'PRES': {
-        // Preshoot - % below base value on rising edge
         const sorted = [...points].sort((a, b) => b - a);
         const top = sorted[Math.floor(sorted.length * 0.1)];
         const base = sorted[Math.floor(sorted.length * 0.9)];
@@ -379,8 +355,16 @@ export function createOscilloscopeSession(
       }
 
       default:
-        return null; // Unknown or requires 2 channels (RDEL, FDEL, RPH, FPH)
+        return null;
     }
+  }
+
+  function getStreamingState(): StreamingState {
+    return {
+      isStreaming: streamingChannels.length > 0,
+      channels: [...streamingChannels],
+      fps: currentFps,
+    };
   }
 
   function broadcast(message: ServerMessage): void {
@@ -390,6 +374,40 @@ export function createOscilloscopeSession(
       } catch (err) {
         console.error('Subscriber callback error:', err);
       }
+    }
+  }
+
+  function broadcastStreamingState(): void {
+    broadcast({
+      type: 'field',
+      deviceId: driver.info.id,
+      field: 'streaming',
+      value: getStreamingState(),
+    });
+  }
+
+  // Wait for current fetch to complete with timeout
+  async function waitForFetchComplete(timeoutMs: number = 3000): Promise<boolean> {
+    if (!isFetching) return true;
+
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        fetchCompleteResolve = null;
+        resolve(false);
+      }, timeoutMs);
+
+      fetchCompleteResolve = () => {
+        clearTimeout(timeout);
+        fetchCompleteResolve = null;
+        resolve(true);
+      };
+    });
+  }
+
+  // Signal that fetch is complete
+  function signalFetchComplete(): void {
+    if (fetchCompleteResolve) {
+      fetchCompleteResolve();
     }
   }
 
@@ -413,7 +431,6 @@ export function createOscilloscopeSession(
         });
       }
 
-      // Broadcast status update
       broadcast({
         type: 'field',
         deviceId: driver.info.id,
@@ -421,25 +438,25 @@ export function createOscilloscopeSession(
         value: status,
       });
 
-      // Auto-start streaming on first successful status poll
-      if (!autoStreamingStarted && status?.channels) {
-        autoStreamingStarted = true;
+      // Auto-start streaming if we have subscribers and enabled channels
+      if (subscribers.size > 0 && streamingChannels.length === 0 && status?.channels) {
         const enabledChannels = Object.entries(status.channels)
           .filter(([_, ch]) => ch.enabled)
           .map(([name]) => name);
 
         if (enabledChannels.length > 0) {
-          console.log(`[OscilloscopeSession] Auto-starting streaming for: ${enabledChannels.join(', ')}`);
+          console.log(`[OscilloscopeSession] Auto-starting streaming for ${enabledChannels.length} channel(s): ${enabledChannels.join(', ')}`);
           streamingChannels = enabledChannels;
           streamingMeasurements = [...DEFAULT_STREAMING_MEASUREMENTS];
-          streamingIntervalMs = enabledChannels.length > 1 ? 350 : 200;
-          // Stop polling, start streaming loop
+
           if (pollTimer) {
             clearTimeout(pollTimer);
             pollTimer = null;
           }
+
+          broadcastStreamingState();
           runStreamingLoop();
-          return; // Don't schedule another poll - streaming handles it
+          return;
         }
       }
     } else {
@@ -482,37 +499,30 @@ export function createOscilloscopeSession(
       consecutiveErrors,
       status,
       lastUpdated,
+      streaming: getStreamingState(),
     };
   }
 
-  // Internal streaming loop - can be called from startStreaming and reconnect
   function runStreamingLoop(): void {
     if (streamingChannels.length === 0) return;
 
-    // Reset FPS tracking
     frameCount = 0;
     fpsWindowStart = Date.now();
     currentFps = 0;
 
-    // Capture current generation to detect if streaming was restarted
     const myGeneration = streamingGeneration;
 
     async function fetchAndBroadcast() {
-
-      // Check if streaming was restarted (stale fetch)
       if (myGeneration !== streamingGeneration) {
         return;
       }
 
-      // Don't fetch if disconnected - reconnect will resume
       if (connectionStatus === 'disconnected') {
         streamingTimer = null;
         return;
       }
 
-      // Prevent concurrent fetches - if one is in progress, skip this iteration
       if (isFetching) {
-        // Schedule retry immediately
         if (streamingChannels.length > 0 && myGeneration === streamingGeneration) {
           streamingTimer = setTimeout(fetchAndBroadcast, 10);
         }
@@ -521,16 +531,14 @@ export function createOscilloscopeSession(
 
       isFetching = true;
       try {
-        // Capture channels at start of fetch to ensure consistency
         const channelsToFetch = [...streamingChannels];
+        let allChannelsSucceeded = true;
 
         for (const channel of channelsToFetch) {
-          // Check if streaming was restarted mid-fetch
           if (myGeneration !== streamingGeneration) {
             return;
           }
 
-          // Use cached preamble for fast fetch, or full fetch if cache empty
           const cached = waveformCache.get(channel);
           const waveformResult = driver.getWaveformFast
             ? await driver.getWaveformFast(channel, cached)
@@ -540,7 +548,6 @@ export function createOscilloscopeSession(
             const waveform = waveformResult.value;
             waveformCache.set(channel, waveform);
 
-            // Track FPS - count frames and calculate every second
             frameCount++;
             const measureStartTime = Date.now();
             const elapsed = measureStartTime - fpsWindowStart;
@@ -550,7 +557,6 @@ export function createOscilloscopeSession(
               fpsWindowStart = measureStartTime;
             }
 
-            // Double-check generation before broadcasting
             if (myGeneration === streamingGeneration) {
               broadcast({
                 type: 'scopeWaveform',
@@ -560,7 +566,6 @@ export function createOscilloscopeSession(
                 fps: currentFps,
               });
 
-              // Calculate measurements locally from waveform data (no SCPI needed!)
               const measurementsToCalc = streamingMeasurements.length > 0
                 ? streamingMeasurements
                 : DEFAULT_STREAMING_MEASUREMENTS;
@@ -578,13 +583,17 @@ export function createOscilloscopeSession(
                 }
               }
             }
-            // Reset error count on success
+
             if (consecutiveErrors > 0) {
               consecutiveErrors = 0;
             }
           } else {
-            // Check for fatal USB errors that indicate disconnection
+            allChannelsSucceeded = false;
             const errorMsg = waveformResult.error?.message || '';
+
+            // Log channel-specific errors
+            console.warn(`[OscilloscopeSession] Waveform fetch failed for ${channel}: ${errorMsg}`);
+
             if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
                 errorMsg.includes('LIBUSB_ERROR_IO') ||
                 errorMsg.includes('LIBUSB_ERROR_PIPE')) {
@@ -598,8 +607,8 @@ export function createOscilloscopeSession(
                   value: 'disconnected',
                 });
                 console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
-                // Don't clear streamingChannels - reconnect will resume
                 streamingTimer = null;
+                broadcastStreamingState();
                 return;
               }
             }
@@ -611,11 +620,28 @@ export function createOscilloscopeSession(
         if (now - lastStatusPoll >= STATUS_POLL_INTERVAL && myGeneration === streamingGeneration) {
           lastStatusPoll = now;
 
-          // Fetch status
           const statusResult = await driver.getStatus();
           if (statusResult.ok) {
             status = statusResult.value;
             lastUpdated = Date.now();
+
+            // Check if enabled channels changed - update streaming channels
+            if (status?.channels) {
+              const newEnabledChannels = Object.entries(status.channels)
+                .filter(([_, ch]) => ch.enabled)
+                .map(([name]) => name);
+
+              const channelsChanged =
+                newEnabledChannels.length !== streamingChannels.length ||
+                !newEnabledChannels.every(ch => streamingChannels.includes(ch));
+
+              if (channelsChanged) {
+                console.log(`[OscilloscopeSession] Enabled channels changed: ${newEnabledChannels.join(', ')}`);
+                streamingChannels = newEnabledChannels;
+                broadcastStreamingState();
+              }
+            }
+
             broadcast({
               type: 'field',
               deviceId: driver.info.id,
@@ -623,21 +649,38 @@ export function createOscilloscopeSession(
               value: status,
             });
           }
-          // Status fetch failed, continue streaming
         }
-
-        // Measurements are now calculated locally from waveform data - no SCPI needed!
       } finally {
         isFetching = false;
+        signalFetchComplete();
       }
 
-      // Schedule next fetch immediately - push as fast as hardware allows
       if (streamingChannels.length > 0 && myGeneration === streamingGeneration) {
         streamingTimer = setTimeout(fetchAndBroadcast, 0);
       }
     }
 
     fetchAndBroadcast();
+  }
+
+  // Pause streaming and wait for current fetch to complete
+  async function pauseStreaming(): Promise<void> {
+    if (streamingChannels.length === 0) return;
+
+    streamingGeneration++;
+    if (streamingTimer) {
+      clearTimeout(streamingTimer);
+      streamingTimer = null;
+    }
+
+    await waitForFetchComplete(3000);
+  }
+
+  // Resume streaming with current channels
+  function resumeStreaming(): void {
+    if (streamingChannels.length > 0) {
+      runStreamingLoop();
+    }
   }
 
   // Start polling
@@ -655,47 +698,56 @@ export function createOscilloscopeSession(
     },
 
     subscribe(clientId: string, callback: SubscriberCallback): void {
+      const hadSubscribers = subscribers.size > 0;
       subscribers.set(clientId, callback);
+
+      // If this is the first subscriber, auto-start streaming if we have status
+      if (!hadSubscribers && status?.channels) {
+        const enabledChannels = Object.entries(status.channels)
+          .filter(([_, ch]) => ch.enabled)
+          .map(([name]) => name);
+
+        if (enabledChannels.length > 0 && streamingChannels.length === 0) {
+          console.log(`[OscilloscopeSession] First subscriber - auto-starting streaming: ${enabledChannels.join(', ')}`);
+          streamingChannels = enabledChannels;
+          streamingMeasurements = [...DEFAULT_STREAMING_MEASUREMENTS];
+
+          if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+          }
+
+          broadcastStreamingState();
+          runStreamingLoop();
+        }
+      }
     },
 
     unsubscribe(clientId: string): void {
       subscribers.delete(clientId);
-    },
 
-    // Control commands
-    async run(): Promise<void> {
-      await driver.run();
-    },
-
-    async stop(): Promise<void> {
-      await driver.stop();
-    },
-
-    async single(): Promise<void> {
-      await driver.single();
-    },
-
-    async autoSetup(): Promise<void> {
-      // Pause streaming - autoSetup changes timebase/scale
-      const wasStreaming = streamingChannels.length > 0;
-      if (wasStreaming) {
+      // If no more subscribers, stop streaming to save resources
+      if (subscribers.size === 0 && streamingChannels.length > 0) {
+        console.log(`[OscilloscopeSession] No more subscribers - stopping streaming`);
         streamingGeneration++;
-        const timeout = Date.now() + 3000;
-        while (isFetching && Date.now() < timeout) {
-          await new Promise(resolve => setTimeout(resolve, 10));
+        streamingChannels = [];
+        if (streamingTimer) {
+          clearTimeout(streamingTimer);
+          streamingTimer = null;
+        }
+
+        // Resume status polling
+        if (isRunning && connectionStatus !== 'disconnected' && !pollTimer) {
+          pollTimer = setTimeout(pollStatus, cfg.statusPollIntervalMs);
         }
       }
+    },
 
-      // Clear caches - autoSetup changes everything
-      waveformCache.clear();
-      freqCache.clear();
-
-      await driver.autoSetup();
-      // Auto setup takes time - wait for scope to settle then refresh status
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+    // Control commands - optimistically update and broadcast (no extra hardware poll)
+    async run(): Promise<void> {
+      await driver.run();
+      if (status) {
+        status = { ...status, running: true };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -704,11 +756,68 @@ export function createOscilloscopeSession(
           value: status,
         });
       }
+    },
 
-      // Resume streaming
-      if (wasStreaming) {
-        runStreamingLoop();
+    async stop(): Promise<void> {
+      await driver.stop();
+      if (status) {
+        status = { ...status, running: false };
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
       }
+    },
+
+    async single(): Promise<void> {
+      await driver.single();
+      if (status) {
+        // Single triggers once then stops, so running becomes false
+        status = { ...status, running: false };
+        lastUpdated = Date.now();
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
+    },
+
+    async autoSetup(): Promise<void> {
+      await pauseStreaming();
+
+      waveformCache.clear();
+      freqCache.clear();
+
+      await driver.autoSetup();
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      const statusResult = await driver.getStatus();
+      if (statusResult.ok) {
+        status = statusResult.value;
+        lastUpdated = Date.now();
+
+        // Update streaming channels based on new enabled channels
+        if (status?.channels) {
+          streamingChannels = Object.entries(status.channels)
+            .filter(([_, ch]) => ch.enabled)
+            .map(([name]) => name);
+        }
+
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
+
+      broadcastStreamingState();
+      resumeStreaming();
     },
 
     async forceTrigger(): Promise<void> {
@@ -718,72 +827,183 @@ export function createOscilloscopeSession(
     // Channel configuration
     async setChannelEnabled(channel: string, enabled: boolean): Promise<void> {
       await driver.setChannelEnabled(channel, enabled);
-    },
 
-    async setChannelScale(channel: string, scale: number): Promise<void> {
-      // Pause streaming to prevent race conditions
-      const wasStreaming = streamingChannels.length > 0;
-      if (wasStreaming) {
-        streamingGeneration++;
-        const timeout = Date.now() + 3000;
-        while (isFetching && Date.now() < timeout) {
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
-      }
-
-      // Clear cache for this channel BEFORE hardware change
+      // Clear cache for this channel
       waveformCache.delete(channel);
       freqCache.delete(`${channel}-FREQ`);
 
-      // Now safe to change hardware setting
+      // Update local status immediately so client doesn't have to wait for poll
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              enabled,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
+
+      // Update streaming channels
+      if (enabled && !streamingChannels.includes(channel)) {
+        streamingChannels.push(channel);
+        broadcastStreamingState();
+      } else if (!enabled && streamingChannels.includes(channel)) {
+        streamingChannels = streamingChannels.filter(ch => ch !== channel);
+        broadcastStreamingState();
+      }
+    },
+
+    async setChannelScale(channel: string, scale: number): Promise<void> {
+      await pauseStreaming();
+
+      waveformCache.delete(channel);
+      freqCache.delete(`${channel}-FREQ`);
+
       await driver.setChannelScale(channel, scale);
 
-      // Resume streaming - cache will rebuild naturally
-      if (wasStreaming) {
-        runStreamingLoop();
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              scale,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
       }
+
+      resumeStreaming();
     },
 
     async setChannelOffset(channel: string, offset: number): Promise<void> {
       await driver.setChannelOffset(channel, offset);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              offset,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelCoupling(channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
       await driver.setChannelCoupling(channel, coupling);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              coupling,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelProbe(channel: string, ratio: number): Promise<void> {
       await driver.setChannelProbe(channel, ratio);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              probe: ratio,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelBwLimit(channel: string, enabled: boolean): Promise<void> {
       await driver.setChannelBwLimit(channel, enabled);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              bwLimit: enabled,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     // Timebase
     async setTimebaseScale(scale: number): Promise<void> {
-      // Pause streaming to prevent race conditions
-      const wasStreaming = streamingChannels.length > 0;
-      if (wasStreaming) {
-        streamingGeneration++;  // Invalidate current streaming loop
-        // Wait for in-flight fetch to complete
-        const timeout = Date.now() + 3000;
-        while (isFetching && Date.now() < timeout) {
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
-      }
+      await pauseStreaming();
 
-      // Clear caches BEFORE hardware change
       waveformCache.clear();
       freqCache.clear();
 
-      // Now safe to change hardware setting
       await driver.setTimebaseScale(scale);
 
-      // Fetch and broadcast new status immediately
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      // Optimistic update and broadcast (no hardware poll)
+      if (status?.timebase) {
+        status = {
+          ...status,
+          timebase: { ...status.timebase, scale },
+        };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -793,34 +1013,23 @@ export function createOscilloscopeSession(
         });
       }
 
-      // Resume streaming - cache will rebuild naturally with fresh fetches
-      if (wasStreaming) {
-        runStreamingLoop();
-      }
+      resumeStreaming();
     },
 
     async setTimebaseOffset(offset: number): Promise<void> {
-      // Pause streaming to prevent race conditions
-      const wasStreaming = streamingChannels.length > 0;
-      if (wasStreaming) {
-        streamingGeneration++;
-        const timeout = Date.now() + 3000;
-        while (isFetching && Date.now() < timeout) {
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
-      }
+      await pauseStreaming();
 
-      // Clear caches BEFORE hardware change
       waveformCache.clear();
       freqCache.clear();
 
-      // Now safe to change hardware setting
       await driver.setTimebaseOffset(offset);
 
-      // Fetch and broadcast new status immediately
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      // Optimistic update and broadcast (no hardware poll)
+      if (status?.timebase) {
+        status = {
+          ...status,
+          timebase: { ...status.timebase, offset },
+        };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -830,20 +1039,30 @@ export function createOscilloscopeSession(
         });
       }
 
-      // Resume streaming
-      if (wasStreaming) {
-        runStreamingLoop();
-      }
+      resumeStreaming();
     },
 
     // Trigger
     async setTriggerSource(source: string): Promise<void> {
       await driver.setTriggerSource(source);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, source },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setTriggerLevel(level: number): Promise<void> {
       await driver.setTriggerLevel(level);
-      // Update local status and broadcast so clients see the change immediately
       if (status?.trigger) {
         status = {
           ...status,
@@ -860,10 +1079,38 @@ export function createOscilloscopeSession(
 
     async setTriggerEdge(edge: string): Promise<void> {
       await driver.setTriggerEdge(edge);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, edge: edge as 'rising' | 'falling' | 'either' },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setTriggerSweep(sweep: string): Promise<void> {
       await driver.setTriggerSweep(sweep);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, sweep: sweep as 'auto' | 'normal' | 'single' },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     // On-demand queries
@@ -876,67 +1123,49 @@ export function createOscilloscopeSession(
     },
 
     async getScreenshot(): Promise<Result<Buffer, Error>> {
-      // Pause streaming during screenshot capture
-      const wasStreaming = streamingChannels.length > 0;
-      if (wasStreaming) {
-        streamingGeneration++;
-        const timeout = Date.now() + 3000;
-        while (isFetching && Date.now() < timeout) {
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
-      }
+      await pauseStreaming();
 
       try {
         const result = await driver.getScreenshot();
         return result;
       } finally {
-        // Resume streaming even if screenshot failed
-        if (wasStreaming) {
-          runStreamingLoop();
-        }
+        resumeStreaming();
       }
     },
 
-    // Streaming
-    async startStreaming(channels: string[], intervalMs: number, measurements?: string[]): Promise<void> {
-      // Increment generation to invalidate any in-flight fetches
+    // Streaming - now simplified, mainly for measurement configuration
+    async startStreaming(channels: string[], _intervalMs: number, measurements?: string[]): Promise<void> {
       streamingGeneration++;
 
-      // Reset isFetching so new generation can start immediately
-      // (old generation will see generation mismatch and exit cleanly)
-      isFetching = false;
-
-      // Stop existing streaming if any
       if (streamingTimer) {
         clearTimeout(streamingTimer);
         streamingTimer = null;
       }
 
-      // Stop separate status polling timer - we'll poll inline during streaming
       if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
       }
 
-      // Reset poll timer so first streaming iteration polls status immediately
       lastStatusPoll = 0;
-
       streamingChannels = [...channels];
       streamingMeasurements = measurements ? [...measurements] : [];
-      streamingIntervalMs = intervalMs;
+
+      broadcastStreamingState();
       runStreamingLoop();
     },
 
     async stopStreaming(): Promise<void> {
-      // Increment generation to invalidate any in-flight fetches
       streamingGeneration++;
       streamingChannels = [];
+
       if (streamingTimer) {
         clearTimeout(streamingTimer);
         streamingTimer = null;
       }
 
-      // Resume status polling when streaming stops
+      broadcastStreamingState();
+
       if (isRunning && connectionStatus !== 'disconnected' && !pollTimer) {
         pollTimer = setTimeout(pollStatus, cfg.statusPollIntervalMs);
       }
@@ -955,11 +1184,10 @@ export function createOscilloscopeSession(
         value: 'connected',
       });
 
-      // Resume streaming if we were streaming before disconnect
       if (streamingChannels.length > 0) {
         console.log(`[OscilloscopeSession] RECONNECTED, resuming streaming: ${driver.info.id}`);
-        // Increment generation to ensure clean start
         streamingGeneration++;
+        broadcastStreamingState();
         runStreamingLoop();
       } else if (!pollTimer && isRunning) {
         pollStatus();
@@ -968,26 +1196,21 @@ export function createOscilloscopeSession(
 
     async stopSession(): Promise<void> {
       isRunning = false;
-      // Increment generation to invalidate any in-flight fetches
       streamingGeneration++;
       streamingChannels = [];
+
       if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
       }
+
       if (streamingTimer) {
         clearTimeout(streamingTimer);
         streamingTimer = null;
       }
 
-      // Wait for any in-flight fetch to complete (with timeout)
-      if (isFetching) {
-        const STOP_TIMEOUT = 3000;
-        const startTime = Date.now();
-        while (isFetching && Date.now() - startTime < STOP_TIMEOUT) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
+      // Wait for any in-flight fetch to complete
+      await waitForFetchComplete(3000);
     },
   };
 }

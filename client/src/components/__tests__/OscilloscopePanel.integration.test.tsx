@@ -70,7 +70,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 // Mock localStorage
 const localStorageMock = {
-  getItem: vi.fn(() => null),
+  getItem: vi.fn((_key: string): string | null => null),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
@@ -201,7 +201,9 @@ describe('OscilloscopePanel Integration', () => {
   });
 
   describe('Streaming Controls', () => {
-    it('should auto-start streaming after subscription', async () => {
+    it('should subscribe to oscilloscope on mount (server auto-starts streaming)', async () => {
+      // With the new architecture, the server auto-starts streaming when a client subscribes
+      // The client just needs to send a 'subscribe' message - no explicit 'startStreaming' needed
       const device = createMockOscilloscopeSummary({ id: 'scope-1' });
 
       render(
@@ -213,22 +215,13 @@ describe('OscilloscopePanel Integration', () => {
         />
       );
 
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(mockSend).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'scopeStartStreaming',
-            deviceId: 'scope-1',
-          })
-        );
-      });
+      // Verify subscribe is sent - server will handle streaming auto-start
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'subscribe',
+          deviceId: 'scope-1',
+        })
+      );
     });
   });
 
@@ -335,6 +328,125 @@ describe('OscilloscopePanel Integration', () => {
         const img = screen.getByAltText('Oscilloscope screenshot');
         expect(img).toBeInTheDocument();
         expect(img).toHaveAttribute('src', expect.stringContaining('data:image/png;base64,'));
+      });
+    });
+  });
+
+  describe('Measurement Selection', () => {
+    it('should send selectedMeasurements to server when streaming starts', async () => {
+      // This test verifies that when user has custom measurements selected
+      // (e.g., VMAX, VMIN from localStorage), they are sent to the server
+      // when streaming starts so that the server calculates the correct measurements
+
+      // Mock localStorage to return custom measurements
+      localStorageMock.getItem.mockImplementation((key: string) => {
+        if (key === 'scope-measurements-scope-1') {
+          return JSON.stringify(['VMAX', 'VMIN', 'VRMS']);
+        }
+        return null;
+      });
+
+      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
+
+      render(
+        <OscilloscopePanel
+          device={device}
+          onClose={mockOnClose}
+          onError={mockOnError}
+          onSuccess={mockOnSuccess}
+        />
+      );
+
+      // Verify subscribe is sent
+      expect(mockSend).toHaveBeenCalledWith({ type: 'subscribe', deviceId: 'scope-1' });
+
+      const sessionState = createOscilloscopeSessionState();
+
+      // Simulate subscription response with streaming state
+      simulateMessage({
+        type: 'subscribed',
+        deviceId: 'scope-1',
+        state: {
+          ...sessionState,
+          streaming: {
+            isStreaming: true,
+            channels: ['CHAN1'],
+            fps: 0,
+          },
+        } as unknown as import('../../../../shared/types').DeviceSessionState,
+      });
+
+      // After receiving the streaming state, the client should send the user's
+      // selected measurements to the server
+      await waitFor(() => {
+        expect(mockSend).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'scopeStartStreaming',
+            deviceId: 'scope-1',
+            measurements: ['VMAX', 'VMIN', 'VRMS'],
+          })
+        );
+      });
+    });
+
+    it('should display measurements when server sends matching measurement data', async () => {
+      // Mock localStorage to return measurements that will be received from server
+      localStorageMock.getItem.mockImplementation((key: string) => {
+        if (key === 'scope-measurements-scope-1') {
+          return JSON.stringify(['VPP', 'FREQ']);
+        }
+        return null;
+      });
+
+      const device = createMockOscilloscopeSummary({ id: 'scope-1' });
+
+      render(
+        <OscilloscopePanel
+          device={device}
+          onClose={mockOnClose}
+          onError={mockOnError}
+          onSuccess={mockOnSuccess}
+        />
+      );
+
+      const sessionState = createOscilloscopeSessionState();
+
+      // Subscribe with streaming enabled
+      simulateMessage({
+        type: 'subscribed',
+        deviceId: 'scope-1',
+        state: {
+          ...sessionState,
+          streaming: {
+            isStreaming: true,
+            channels: ['CHAN1'],
+            fps: 10,
+          },
+        } as unknown as import('../../../../shared/types').DeviceSessionState,
+      });
+
+      // Simulate receiving measurements from server
+      simulateMessage({
+        type: 'scopeMeasurement',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        measurementType: 'VPP',
+        value: 3.14,
+      });
+
+      simulateMessage({
+        type: 'scopeMeasurement',
+        deviceId: 'scope-1',
+        channel: 'CHAN1',
+        measurementType: 'FREQ',
+        value: 1000,
+      });
+
+      // Check that measurements are displayed in the StatsBar
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-bar')).toBeInTheDocument();
+        // VPP should be displayed
+        expect(screen.getByTestId('stat-CHAN1-VPP')).toBeInTheDocument();
       });
     });
   });

@@ -37,6 +37,9 @@ export interface WaveformDisplayProps {
   showGrid?: boolean;
   // Padding for axes
   padding?: { top: number; right: number; bottom: number; left: number };
+  // Oscilloscope scale settings (for accurate axis display)
+  timebaseScale?: number;  // seconds per division (e.g., 5e-6 for 5μs/div)
+  divisions?: { x: number; y: number };  // number of divisions (default: 10x8)
 }
 
 // Format time with appropriate units
@@ -64,6 +67,8 @@ export function WaveformDisplay({
   height: heightProp,
   showGrid = true,
   padding = { top: 20, right: 60, bottom: 30, left: 60 },
+  timebaseScale,
+  divisions = { x: 10, y: 8 },
 }: WaveformDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -135,41 +140,88 @@ export function WaveformDisplay({
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
 
+  // Track previous Y bounds for hysteresis (prevent jitter)
+  const prevYBounds = useRef<{ min: number; max: number } | null>(null);
+
   // Calculate data ranges across all waveforms
-  const { xMin, xMax, yMin, yMax, hasData } = useMemo(() => {
+  const { xMin, xMax, xLabelMax, yMin, yMax, hasData } = useMemo(() => {
     if (waveforms.length === 0) {
-      return { xMin: 0, xMax: 1, yMin: -1, yMax: 1, hasData: false };
+      return { xMin: 0, xMax: 1, xLabelMax: 1, yMin: -1, yMax: 1, hasData: false };
     }
 
     let allPoints: number[] = [];
-    let maxTime = 0;
 
     for (const wf of waveforms) {
       if (wf.points.length === 0) continue;
       allPoints = allPoints.concat(wf.points);
-      const wfTime = wf.points.length * wf.xIncrement;
-      if (wfTime > maxTime) maxTime = wfTime;
     }
 
     if (allPoints.length === 0) {
-      return { xMin: 0, xMax: 1, yMin: -1, yMax: 1, hasData: false };
+      return { xMin: 0, xMax: 1, xLabelMax: 1, yMin: -1, yMax: 1, hasData: false };
     }
 
-    const minVal = Math.min(...allPoints);
-    const maxVal = Math.max(...allPoints);
+    // X-axis scaling: always use waveform data length so data fits the chart
+    let computedXMax = 0;
+    for (const wf of waveforms) {
+      const wfTime = wf.points.length * wf.xIncrement;
+      if (wfTime > computedXMax) computedXMax = wfTime;
+    }
+    computedXMax = computedXMax || 1;
 
-    // Add 10% padding to Y range
-    const range = maxVal - minVal || 1;
-    const yPadding = range * 0.1;
+    // X-axis labels: use timebase scale if provided for accurate gridline labels
+    const computedXLabelMax = (timebaseScale && timebaseScale > 0)
+      ? divisions.x * timebaseScale
+      : computedXMax;
+
+    // Y-axis: Calculate data bounds with quantization to prevent jitter
+    const dataMin = Math.min(...allPoints);
+    const dataMax = Math.max(...allPoints);
+    const dataRange = dataMax - dataMin || 1;
+
+    // Pick a "nice" step size based on data range (1-2-5 sequence)
+    const targetDivisions = divisions.y;
+    const rawStep = dataRange / targetDivisions;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const normalized = rawStep / magnitude;
+    let niceStep: number;
+    if (normalized <= 1.5) niceStep = magnitude;
+    else if (normalized <= 3.5) niceStep = 2 * magnitude;
+    else if (normalized <= 7.5) niceStep = 5 * magnitude;
+    else niceStep = 10 * magnitude;
+
+    let quantizedMin = Math.floor(dataMin / niceStep) * niceStep;
+    let quantizedMax = Math.ceil(dataMax / niceStep) * niceStep;
+
+    // Add padding (half a step on each side)
+    quantizedMin -= niceStep * 0.5;
+    quantizedMax += niceStep * 0.5;
+
+    // Hysteresis: only update if quantized bounds changed
+    // This prevents jitter from tiny data changes that round to the same bounds
+    if (prevYBounds.current) {
+      const prev = prevYBounds.current;
+      const boundsChanged =
+        Math.abs(quantizedMin - prev.min) > niceStep * 0.01 ||
+        Math.abs(quantizedMax - prev.max) > niceStep * 0.01;
+
+      if (!boundsChanged) {
+        // Bounds are essentially the same - keep previous to prevent micro-jitter
+        quantizedMin = prev.min;
+        quantizedMax = prev.max;
+      }
+    }
+
+    prevYBounds.current = { min: quantizedMin, max: quantizedMax };
 
     return {
       xMin: 0,
-      xMax: maxTime || 1,
-      yMin: minVal - yPadding,
-      yMax: maxVal + yPadding,
+      xMax: computedXMax,
+      xLabelMax: computedXLabelMax,
+      yMin: quantizedMin,
+      yMax: quantizedMax,
       hasData: true,
     };
-  }, [waveforms]);
+  }, [waveforms, timebaseScale, divisions.x, divisions.y]);
 
   // Scale functions
   const scaleX = (time: number) => {
@@ -272,10 +324,9 @@ export function WaveformDisplay({
     const yLines: JSX.Element[] = [];
 
     // Vertical grid lines (time divisions)
-    const xDivisions = 10;
-    for (let i = 0; i <= xDivisions; i++) {
-      const x = padding.left + (i / xDivisions) * plotWidth;
-      const isMajor = i === 0 || i === xDivisions;
+    for (let i = 0; i <= divisions.x; i++) {
+      const x = padding.left + (i / divisions.x) * plotWidth;
+      const isMajor = i === 0 || i === divisions.x;
       xLines.push(
         <line
           key={`x-${i}`}
@@ -290,10 +341,9 @@ export function WaveformDisplay({
     }
 
     // Horizontal grid lines (voltage divisions)
-    const yDivisions = 8;
-    for (let i = 0; i <= yDivisions; i++) {
-      const y = padding.top + (i / yDivisions) * plotHeight;
-      const isMajor = i === 0 || i === yDivisions;
+    for (let i = 0; i <= divisions.y; i++) {
+      const y = padding.top + (i / divisions.y) * plotHeight;
+      const isMajor = i === 0 || i === divisions.y;
       yLines.push(
         <line
           key={`y-${i}`}
@@ -313,7 +363,7 @@ export function WaveformDisplay({
         {yLines}
       </g>
     );
-  }, [showGrid, plotWidth, plotHeight, padding]);
+  }, [showGrid, plotWidth, plotHeight, padding, divisions.x, divisions.y]);
 
   // Always use local level - it syncs from prop until user interacts
   const displayTriggerLevel = localTriggerLevel;
@@ -346,7 +396,7 @@ export function WaveformDisplay({
           {formatVoltage(yMin)}
         </text>
 
-        {/* X-axis labels */}
+        {/* X-axis labels - use timebase-derived values for accurate display */}
         <text
           data-testid="x-axis-min"
           x={padding.left}
@@ -355,7 +405,7 @@ export function WaveformDisplay({
           fill="var(--color-waveform-label)"
           fontSize={10}
         >
-          {formatTime(xMin)}
+          {formatTime(0)}
         </text>
         <text
           data-testid="x-axis-max"
@@ -365,11 +415,11 @@ export function WaveformDisplay({
           fill="var(--color-waveform-label)"
           fontSize={10}
         >
-          {formatTime(xMax)}
+          {formatTime(xLabelMax)}
         </text>
       </>
     );
-  }, [xMin, xMax, yMin, yMax, plotWidth, plotHeight, height, padding]);
+  }, [xLabelMax, yMin, yMax, plotWidth, plotHeight, height, padding]);
 
   // Render waveform traces
   const traces = useMemo(() => {

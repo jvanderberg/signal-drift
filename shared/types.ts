@@ -158,7 +158,7 @@ export interface ListStep {
 export interface Device {
   id: string;
   info: DeviceInfo;
-  capabilities: DeviceCapabilities;
+  capabilities: DeviceCapabilities | OscilloscopeCapabilities;
   connected: boolean;
 }
 
@@ -287,6 +287,13 @@ export interface DeviceSessionState {
   lastUpdated: number;
 }
 
+// Streaming state for oscilloscopes
+export interface StreamingState {
+  isStreaming: boolean;
+  channels: string[];
+  fps: number;
+}
+
 // Oscilloscope session state - different shape from DeviceSessionState
 export interface OscilloscopeSessionState {
   info: DeviceInfo;
@@ -295,6 +302,7 @@ export interface OscilloscopeSessionState {
   consecutiveErrors: number;
   status: OscilloscopeStatus | null;
   lastUpdated: number;
+  streaming: StreamingState;
 }
 
 /** Union type for any session state (PSU/load vs oscilloscope) */
@@ -379,7 +387,7 @@ export type ClientMessage =
 
 // Server -> Client messages
 export type ServerMessage =
-  | { type: 'deviceList'; devices: AnyDeviceSummary[] }               // Response to getDevices, scan, or auto-discovery
+  | { type: 'deviceList'; devices: DeviceSummary[] }                  // Response to getDevices, scan, or auto-discovery
   | { type: 'subscribed'; deviceId: string; state: AnySessionState }
   | { type: 'unsubscribed'; deviceId: string }
   | { type: 'measurement'; deviceId: string; update: MeasurementUpdate }
@@ -422,34 +430,24 @@ export type ServerMessage =
   | { type: 'dashboardLayout'; layout: DashboardLayoutData | null }
   | { type: 'dashboardLayoutSaved' };
 
-// Lightweight device info for listing (before subscription) - PSU/loads
+// Lightweight device info for listing (before subscription)
+// Note: capabilities is a union because device list includes both standard devices
+// (PSU/Load with DeviceCapabilities) and oscilloscopes (with OscilloscopeCapabilities)
 export interface DeviceSummary {
   id: string;
   info: DeviceInfo;
-  capabilities: DeviceCapabilities;
+  capabilities: AnyCapabilities;
   connectionStatus: ConnectionStatus;
   alias?: string;  // User-friendly name if set
 }
 
-// Lightweight oscilloscope info for listing
-export interface OscilloscopeSummary {
-  id: string;
-  info: DeviceInfo;
-  capabilities: OscilloscopeCapabilities;
-  connectionStatus: ConnectionStatus;
-  alias?: string;
-}
-
-/** Union type for any device summary in device listings */
-export type AnyDeviceSummary = DeviceSummary | OscilloscopeSummary;
-
 /** Type guard to check if a summary is for a standard device (PSU/load) */
-export function isDeviceSummary(summary: AnyDeviceSummary): summary is DeviceSummary {
+export function isDeviceSummary(summary: DeviceSummary): boolean {
   return isDeviceCapabilities(summary.capabilities);
 }
 
 /** Type guard to check if a summary is for an oscilloscope */
-export function isOscilloscopeSummary(summary: AnyDeviceSummary): summary is OscilloscopeSummary {
+export function isOscilloscopeSummary(summary: DeviceSummary): boolean {
   return isOscilloscopeCapabilities(summary.capabilities);
 }
 
