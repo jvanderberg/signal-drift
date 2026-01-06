@@ -68,6 +68,8 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     isStreaming,
     fps,
     streamingChannels,
+    displayChannels,
+    toggleDisplayChannel,
     subscribe,
     unsubscribe,
     run,
@@ -76,7 +78,6 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     autoSetup,
     getScreenshot,
     clearError,
-    setChannelEnabled,
     setChannelScale,
     setChannelOffset,
     setChannelCoupling,
@@ -163,9 +164,9 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
     getScreenshot();
   };
 
-  const handleChannelToggle = (channel: string, enabled: boolean) => {
-    // Toggle the hardware channel - server will auto-update streaming channels
-    setChannelEnabled(channel, enabled);
+  const handleChannelToggle = (channel: string) => {
+    // Toggle display visibility - instant, client-side only
+    toggleDisplayChannel(channel);
   };
 
   const handleMeasurementToggle = (measurement: string) => {
@@ -197,26 +198,19 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
   const channelCount = state?.capabilities?.channels || 4;
   const channels = Array.from({ length: channelCount }, (_, i) => `CHAN${i + 1}`);
 
-  // Get enabled channels from status (hardware state)
-  const enabledChannels = status?.channels
-    ? Object.entries(status.channels)
-        .filter(([_, ch]) => ch.enabled)
-        .map(([name]) => name)
-    : [];
-
   // Available measurements from capabilities
   const supportedMeasurements = state?.capabilities?.supportedMeasurements ?? [
     'VPP', 'VMAX', 'VMIN', 'VAVG', 'VRMS', 'FREQ', 'PER'
   ];
 
-  // Get waveform data for display - filter to only show enabled channels
-  const displayWaveforms = waveforms.filter(w => enabledChannels.includes(w.channel));
+  // Get waveform data for display - filter to only show user-selected display channels
+  const displayWaveforms = waveforms.filter(w => displayChannels.includes(w.channel));
   const triggerLevel = status?.trigger?.level ?? 0;
   const triggerEdge = status?.trigger?.edge as 'rising' | 'falling' | 'either' ?? 'rising';
 
-  // Filter measurements to only show enabled channels and selected types
+  // Filter measurements to only show display channels and selected types
   const filteredMeasurements = measurements.filter(
-    m => enabledChannels.includes(m.channel) && selectedMeasurements.includes(m.type)
+    m => displayChannels.includes(m.channel) && selectedMeasurements.includes(m.type)
   );
 
   return (
@@ -239,8 +233,8 @@ export function OscilloscopePanel({ device, onClose, onError, onSuccess }: Oscil
                 <StreamingControls
                   isStreaming={isStreaming}
                   scopeRunning={status?.running ?? false}
-                  channels={channels}
-                  enabledChannels={enabledChannels}
+                  channels={streamingChannels}
+                  enabledChannels={displayChannels}
                   fps={fps}
                   onChannelToggle={handleChannelToggle}
                 />

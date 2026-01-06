@@ -42,6 +42,10 @@ export interface UseOscilloscopeSocketResult {
   fps: number;
   streamingChannels: string[];  // Channels currently being streamed by server
 
+  // Display filter (client-side only, instant)
+  displayChannels: string[];  // Which channels to show on the chart
+  toggleDisplayChannel: (channel: string) => void;  // Toggle a channel's visibility
+
   // Actions
   subscribe: () => void;
   unsubscribe: () => void;
@@ -105,6 +109,7 @@ const getActions = () => {
     setTriggerSweep: store.setTriggerSweep,
     startStreaming: store.startStreaming,
     stopStreaming: store.stopStreaming,
+    toggleDisplayChannel: store.toggleDisplayChannel,
     _initializeWebSocket: store._initializeWebSocket,
   };
 };
@@ -122,6 +127,7 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   const waveforms = oscState.waveforms;
   const measurements = oscState.measurements;
   const screenshot = oscState.screenshot;
+  const displayChannels = oscState.displayChannels;
 
   // Derive streaming state from server's streaming state
   const isStreaming = state?.streaming?.isStreaming ?? false;
@@ -235,6 +241,11 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     getActions().stopStreaming(deviceId);
   }, [deviceId]);
 
+  // Display filter toggle (client-side only, instant)
+  const toggleDisplayChannel = useCallback((channel: string) => {
+    getActions().toggleDisplayChannel(deviceId, channel);
+  }, [deviceId]);
+
   return {
     state,
     connectionState,
@@ -247,6 +258,8 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     isStreaming,
     fps,
     streamingChannels,
+    displayChannels,
+    toggleDisplayChannel,
     subscribe,
     unsubscribe,
     run,

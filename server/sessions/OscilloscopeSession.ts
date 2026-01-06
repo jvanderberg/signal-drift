@@ -820,6 +820,26 @@ export function createOscilloscopeSession(
       waveformCache.delete(channel);
       freqCache.delete(`${channel}-FREQ`);
 
+      // Update local status immediately so client doesn't have to wait for poll
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              enabled,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
+
       // Update streaming channels
       if (enabled && !streamingChannels.includes(channel)) {
         streamingChannels.push(channel);

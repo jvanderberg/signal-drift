@@ -73,10 +73,10 @@ describe('StreamingControls', () => {
       );
 
       fireEvent.click(screen.getByTestId('channel-toggle-CHAN2'));
-      expect(onToggle).toHaveBeenCalledWith('CHAN2', true);
+      expect(onToggle).toHaveBeenCalledWith('CHAN2');
     });
 
-    it('should call onChannelToggle with false when disabling channel', () => {
+    it('should call onChannelToggle when toggling off displayed channel', () => {
       const onToggle = vi.fn();
       render(
         <StreamingControls
@@ -87,7 +87,7 @@ describe('StreamingControls', () => {
       );
 
       fireEvent.click(screen.getByTestId('channel-toggle-CHAN1'));
-      expect(onToggle).toHaveBeenCalledWith('CHAN1', false);
+      expect(onToggle).toHaveBeenCalledWith('CHAN1');
     });
   });
 

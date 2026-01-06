@@ -74,6 +74,9 @@ interface OscilloscopeState {
   waveforms: WaveformData[];
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;
+  // Client-side display filter - which channels to show on the chart
+  // This is purely local UI state, no server round-trip
+  displayChannels: string[];
 }
 
 // Store state
@@ -121,6 +124,10 @@ interface OscilloscopeStoreState {
   startStreaming: (deviceId: string, channels: string[], intervalMs: number, measurements?: string[]) => void;
   stopStreaming: (deviceId: string) => void;
 
+  // Actions - display filter (client-side only, instant, no server round-trip)
+  toggleDisplayChannel: (deviceId: string, channel: string) => void;
+  setDisplayChannels: (deviceId: string, channels: string[]) => void;
+
   // Actions - error handling
   clearError: (deviceId: string) => void;
 
@@ -145,6 +152,7 @@ const defaultOscilloscopeState: OscilloscopeState = {
   waveforms: [],
   measurements: [],
   screenshot: null,
+  displayChannels: [],
 };
 
 // Default empty arrays for selectors (stable references to prevent re-renders)
@@ -177,6 +185,10 @@ export const selectStreamingChannels = (deviceId: string) => (state: Oscilloscop
 
 export const selectStreamingFps = (deviceId: string) => (state: OscilloscopeStoreState) =>
   state.oscilloscopeStates[deviceId]?.sessionState?.streaming?.fps ?? 0;
+
+// Client-side display filter (purely local, no server interaction)
+export const selectDisplayChannels = (deviceId: string) => (state: OscilloscopeStoreState) =>
+  state.oscilloscopeStates[deviceId]?.displayChannels ?? emptyChannels;
 
 // Store unsubscribe functions for cleanup (e.g., testing, HMR)
 let _unsubscribeStateChange: (() => void) | null = null;
@@ -311,6 +323,39 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
           // No optimistic update - wait for server to broadcast streaming state
         },
 
+        // Display filter - pure client-side state, instant, no server round-trip
+        toggleDisplayChannel: (deviceId, channel) => {
+          set((state) => {
+            const oscState = state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState;
+            const currentDisplay = oscState.displayChannels;
+            const isDisplayed = currentDisplay.includes(channel);
+
+            return {
+              oscilloscopeStates: {
+                ...state.oscilloscopeStates,
+                [deviceId]: {
+                  ...oscState,
+                  displayChannels: isDisplayed
+                    ? currentDisplay.filter(ch => ch !== channel)
+                    : [...currentDisplay, channel],
+                },
+              },
+            };
+          });
+        },
+
+        setDisplayChannels: (deviceId, channels) => {
+          set((state) => ({
+            oscilloscopeStates: {
+              ...state.oscilloscopeStates,
+              [deviceId]: {
+                ...(state.oscilloscopeStates[deviceId] ?? defaultOscilloscopeState),
+                displayChannels: channels,
+              },
+            },
+          }));
+        },
+
         // Error handling
         clearError: (deviceId) => {
           set((state) => ({
@@ -340,6 +385,12 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                 if (!oscSessionState.streaming) {
                   oscSessionState.streaming = { ...defaultStreamingState };
                 }
+                // Initialize displayChannels with enabled hardware channels
+                const enabledChannels = oscSessionState.status?.channels
+                  ? Object.entries(oscSessionState.status.channels)
+                      .filter(([_, ch]) => ch.enabled)
+                      .map(([name]) => name)
+                  : [];
                 set((state) => ({
                   oscilloscopeStates: {
                     ...state.oscilloscopeStates,
@@ -347,6 +398,7 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                       ...defaultOscilloscopeState,
                       sessionState: oscSessionState,
                       isSubscribed: true,
+                      displayChannels: enabledChannels,
                     },
                   },
                 }));
@@ -380,10 +432,33 @@ export const useOscilloscopeStore = create<OscilloscopeStoreState>()(
                   case 'oscilloscopeStatus':
                     updated = { ...prev, status: message.value as OscilloscopeStatus };
                     break;
-                  case 'streaming':
+                  case 'streaming': {
                     // Server broadcasts streaming state changes
-                    updated = { ...prev, streaming: message.value as StreamingState };
-                    break;
+                    const newStreaming = message.value as StreamingState;
+                    updated = { ...prev, streaming: newStreaming };
+
+                    // Remove waveforms and measurements for channels no longer streaming
+                    const streamingChannels = newStreaming.channels;
+                    const filteredWaveforms = oscState.waveforms.filter(w =>
+                      streamingChannels.includes(w.channel)
+                    );
+                    const filteredMeasurements = oscState.measurements.filter(m =>
+                      streamingChannels.includes(m.channel)
+                    );
+
+                    return {
+                      oscilloscopeStates: {
+                        ...state.oscilloscopeStates,
+                        [deviceId]: {
+                          ...oscState,
+                          sessionState: updated,
+                          waveforms: filteredWaveforms,
+                          measurements: filteredMeasurements,
+                          waveform: filteredWaveforms[0] ?? null,
+                        },
+                      },
+                    };
+                  }
                   default:
                     updated = { ...prev, [message.field]: message.value };
                 }

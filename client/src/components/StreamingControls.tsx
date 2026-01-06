@@ -1,13 +1,14 @@
 /**
- * StreamingControls - Channel selection and streaming status display
+ * StreamingControls - Channel visibility toggles and streaming status display
  *
  * With the "always-on streaming" architecture, streaming auto-starts
- * when there are subscribers and enabled channels. This component:
- * - Shows which channels are enabled (click to toggle hardware state)
+ * when there are subscribers. This component:
+ * - Shows which channels are visible on the chart (click to toggle display)
  * - Displays live streaming status and FPS
  * - Shows scope running status
  *
- * No manual start/stop needed - the server handles streaming lifecycle.
+ * Channel toggles are INSTANT - purely client-side display filter, no server round-trip.
+ * Server streams all enabled hardware channels; this just filters what to show.
  */
 
 // Channel colors using CSS variables for theme support
@@ -21,10 +22,10 @@ const CHANNEL_CSS_VARS: Record<string, string> = {
 export interface StreamingControlsProps {
   isStreaming?: boolean;
   scopeRunning?: boolean;
-  channels?: string[];
-  enabledChannels?: string[];
-  fps?: number;  // Actual FPS from server
-  onChannelToggle?: (channel: string, enabled: boolean) => void;
+  channels?: string[];        // Channels available from server streaming
+  enabledChannels?: string[]; // Channels displayed on chart (client-side filter)
+  fps?: number;               // Actual FPS from server
+  onChannelToggle?: (channel: string) => void;  // Instant client-side toggle
 }
 
 export function StreamingControls({
@@ -35,10 +36,6 @@ export function StreamingControls({
   fps = 0,
   onChannelToggle,
 }: StreamingControlsProps) {
-  const handleChannelToggle = (channel: string) => {
-    const isEnabled = enabledChannels.includes(channel);
-    onChannelToggle?.(channel, !isEnabled);
-  };
 
   return (
     <div
@@ -56,7 +53,7 @@ export function StreamingControls({
               <button
                 key={channel}
                 data-testid={`channel-toggle-${channel}`}
-                onClick={() => handleChannelToggle(channel)}
+                onClick={() => onChannelToggle?.(channel)}
                 className={`channel-toggle px-2 py-1 rounded text-sm font-medium transition-all ${
                   isEnabled
                     ? 'active enabled selected bg-[var(--color-border-light)]'
@@ -66,7 +63,7 @@ export function StreamingControls({
                   color: isEnabled ? color : undefined,
                   borderBottom: isEnabled ? `2px solid ${color}` : '2px solid transparent',
                 }}
-                title={isEnabled ? `Disable ${channel}` : `Enable ${channel}`}
+                title={isEnabled ? `Hide ${channel}` : `Show ${channel}`}
               >
                 {channel.replace('CHAN', 'CH')}
               </button>

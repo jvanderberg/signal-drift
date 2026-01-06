@@ -31,6 +31,7 @@ export {
   selectIsStreaming,
   selectStreamingChannels,
   selectStreamingFps,
+  selectDisplayChannels,
   cleanupOscilloscopeStore,
   type OscilloscopeSessionState,
   type StreamingState,
