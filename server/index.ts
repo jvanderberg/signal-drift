@@ -288,12 +288,22 @@ async function stop(): Promise<void> {
   console.log('Closing database...');
   database.close();
 
-  // Close HTTP server
+  // Close HTTP server with timeout
+  console.log('Closing HTTP server...');
   await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      console.log('Server close timeout, forcing...');
+      resolve();
+    }, 5000);
+
     server.close(() => {
+      clearTimeout(timeout);
       console.log('Server closed');
       resolve();
     });
+
+    // Force-close any lingering connections
+    server.closeAllConnections();
   });
 }
 

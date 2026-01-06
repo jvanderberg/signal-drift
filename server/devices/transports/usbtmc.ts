@@ -159,7 +159,8 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
     });
   }
 
-  function transferIn(length: number): Promise<Buffer> {
+  function transferIn(length: number, customTimeout?: number): Promise<Buffer> {
+    const effectiveTimeout = customTimeout ?? timeout;
     return new Promise((resolve, reject) => {
       if (!bulkInEndpoint) {
         reject(new Error('Device not opened'));
@@ -171,9 +172,9 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
       const timeoutId = setTimeout(() => {
         if (!settled) {
           settled = true;
-          reject(new Error(`Timeout waiting for USB response after ${timeout}ms`));
+          reject(new Error(`Timeout waiting for USB response after ${effectiveTimeout}ms`));
         }
-      }, timeout);
+      }, effectiveTimeout);
 
       bulkInEndpoint.transfer(length, (err, data) => {
         if (settled) return;
@@ -338,7 +339,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
       });
     },
 
-    async queryBinary(cmd: string): Promise<Result<Buffer, Error>> {
+    async queryBinary(cmd: string, timeoutMs?: number): Promise<Result<Buffer, Error>> {
       return withLock(async () => {
         if (disconnected) {
           return Err(disconnectError || new Error('USB device disconnected'));
@@ -374,7 +375,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
               const chunks: Buffer[] = [];
               let totalRead = 0;
               for (let i = 0; i < 1000; i++) {
-                const pkt = await transferIn(512);
+                const pkt = await transferIn(512, timeoutMs);
                 if (pkt.length === 0) break;
                 chunks.push(pkt);
                 totalRead += pkt.length;
@@ -422,7 +423,7 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
 
             // Read USB packets until we have the full USBTMC message
             for (let i = 0; i < 1000; i++) {
-              const chunk = await transferIn(512);
+              const chunk = await transferIn(512, timeoutMs);
               if (chunk.length === 0) break;
               msgChunks.push(chunk);
               msgBytes += chunk.length;

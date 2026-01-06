@@ -19,7 +19,7 @@ export interface Transport {
   open(): Promise<Result<void, Error>>;
   close(): Promise<Result<void, Error>>;
   query(cmd: string): Promise<Result<string, Error>>;
-  queryBinary?(cmd: string): Promise<Result<Buffer, Error>>;
+  queryBinary?(cmd: string, timeoutMs?: number): Promise<Result<Buffer, Error>>;
   write(cmd: string): Promise<Result<void, Error>>;
   isOpen(): boolean;
 }
