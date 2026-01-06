@@ -398,14 +398,14 @@ export function WaveformDisplay({
     <div
       ref={containerRef}
       data-testid="waveform-display"
-      className="waveform-display w-full flex-1 min-h-0"
+      className="waveform-display w-full flex-1 min-h-[200px] relative"
     >
       <svg
         ref={svgRef}
         data-testid="waveform-svg"
-        width={width}
-        height={height}
-        className="rounded"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="absolute inset-0 w-full h-full rounded"
         style={{ backgroundColor: 'var(--color-waveform-bg)' }}
       >
         {/* Grid */}
