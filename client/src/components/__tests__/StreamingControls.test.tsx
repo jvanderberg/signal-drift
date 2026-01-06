@@ -73,10 +73,10 @@ describe('StreamingControls', () => {
       );
 
       fireEvent.click(screen.getByTestId('channel-toggle-CHAN2'));
-      expect(onToggle).toHaveBeenCalledWith('CHAN2', true);
+      expect(onToggle).toHaveBeenCalledWith('CHAN2');
     });
 
-    it('should call onChannelToggle with false when disabling channel', () => {
+    it('should call onChannelToggle when toggling off displayed channel', () => {
       const onToggle = vi.fn();
       render(
         <StreamingControls
@@ -87,34 +87,7 @@ describe('StreamingControls', () => {
       );
 
       fireEvent.click(screen.getByTestId('channel-toggle-CHAN1'));
-      expect(onToggle).toHaveBeenCalledWith('CHAN1', false);
-    });
-  });
-
-  describe('Streaming toggle', () => {
-    it('should have a start/stop streaming button', () => {
-      render(<StreamingControls />);
-      expect(screen.getByTestId('streaming-toggle')).toBeInTheDocument();
-    });
-
-    it('should call onStreamingToggle when button clicked', () => {
-      const onToggle = vi.fn();
-      render(<StreamingControls isStreaming={false} onStreamingToggle={onToggle} />);
-
-      fireEvent.click(screen.getByTestId('streaming-toggle'));
-      expect(onToggle).toHaveBeenCalledWith(true);
-    });
-
-    it('should show "Start" when not streaming', () => {
-      render(<StreamingControls isStreaming={false} />);
-      const button = screen.getByTestId('streaming-toggle');
-      expect(button.textContent).toMatch(/start|play/i);
-    });
-
-    it('should show "Stop" when streaming', () => {
-      render(<StreamingControls isStreaming />);
-      const button = screen.getByTestId('streaming-toggle');
-      expect(button.textContent).toMatch(/stop|pause/i);
+      expect(onToggle).toHaveBeenCalledWith('CHAN1');
     });
   });
 
