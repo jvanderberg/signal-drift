@@ -74,6 +74,25 @@ async function autoDetectSerialConfig(
 // Mutex to prevent concurrent scans
 let scanLock: Promise<void> = Promise.resolve();
 
+// Shutdown flag - when true, scanDevices() will abort early
+let shutdownRequested = false;
+
+/**
+ * Signal the scanner to stop. Any in-progress scan will abort early.
+ * Call this during server shutdown before closing transports.
+ */
+export function stopScanner(): void {
+  shutdownRequested = true;
+  console.log('[Scanner] Shutdown requested, will abort current/future scans');
+}
+
+/**
+ * Check if shutdown has been requested.
+ */
+export function isScannerStopped(): boolean {
+  return shutdownRequested;
+}
+
 async function withScanLock<T>(fn: () => Promise<T>): Promise<T> {
   const previousLock = scanLock;
   let releaseLock: () => void;
@@ -104,6 +123,11 @@ export async function scanDevices(
   registry: DeviceRegistry,
   sessionManager?: SessionManager
 ): Promise<ScanResult> {
+  // Check if shutdown was requested before acquiring lock
+  if (shutdownRequested) {
+    return { found: 0, added: 0, reconnected: 0, devices: [] };
+  }
+
   // Use lock to prevent concurrent scans
   return withScanLock(async () => {
     const result: ScanResult = {
@@ -113,12 +137,23 @@ export async function scanDevices(
       devices: [],
     };
 
+    // Check again after acquiring lock (shutdown may have started while waiting)
+    if (shutdownRequested) {
+      return result;
+    }
+
     // Get existing sessions to check for disconnected devices that need reconnection
     const existingDevices = registry.getDevices();
 
   // Scan USB-TMC devices
   const usbDevices = usb.getDeviceList();
   for (const usbDevice of usbDevices) {
+    // Check for shutdown between devices
+    if (shutdownRequested) {
+      console.log('[Scanner] Aborting USB-TMC scan due to shutdown');
+      return result;
+    }
+
     const vendorId = usbDevice.deviceDescriptor.idVendor;
     const productId = usbDevice.deviceDescriptor.idProduct;
 
@@ -198,10 +233,20 @@ export async function scanDevices(
   }
 
   // Scan for oscilloscopes (probe by vendor, match by IDN)
+  if (shutdownRequested) {
+    return result;
+  }
+
   const oscilloscopeRegs = registry.getOscilloscopeRegistrations();
   const scannedVendors = new Set<number>();
 
   for (const usbDevice of usbDevices) {
+    // Check for shutdown between devices
+    if (shutdownRequested) {
+      console.log('[Scanner] Aborting oscilloscope scan due to shutdown');
+      return result;
+    }
+
     const vendorId = usbDevice.deviceDescriptor.idVendor;
     const productId = usbDevice.deviceDescriptor.idProduct;
 
@@ -324,9 +369,19 @@ export async function scanDevices(
   }
 
   // Scan serial ports
+  if (shutdownRequested) {
+    return result;
+  }
+
   try {
     const ports = await SerialPort.list();
     for (const port of ports) {
+      // Check for shutdown between ports
+      if (shutdownRequested) {
+        console.log('[Scanner] Aborting serial port scan due to shutdown');
+        return result;
+      }
+
       const registration = registry.matchSerialPort(port.path);
       if (registration) {
         // Create a temporary driver just to get its static info

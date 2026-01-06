@@ -14,7 +14,7 @@ import { createDeviceRoutes } from './api/devices.js';
 import { createRigolDL3021 } from './devices/drivers/rigol-dl3021.js';
 import { createMatrixWPS300S } from './devices/drivers/matrix-wps300s.js';
 import { createRigolOscilloscope } from './devices/drivers/rigol-oscilloscope.js';
-import { scanDevices } from './devices/scanner.js';
+import { scanDevices, stopScanner } from './devices/scanner.js';
 import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
@@ -35,6 +35,9 @@ const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL || '250', 10);
 const HISTORY_WINDOW_MS = parseInt(process.env.HISTORY_WINDOW || String(30 * 60 * 1000), 10);
 const SCAN_INTERVAL_MS = parseInt(process.env.SCAN_INTERVAL || '10000', 10);
 const USE_SIMULATED_DEVICES = process.env.USE_SIMULATED_DEVICES === 'true';
+
+// Scan interval handle for cleanup during shutdown
+let scanIntervalHandle: ReturnType<typeof setInterval> | null = null;
 
 // Create registry and register drivers
 const registry = createDeviceRegistry();
@@ -223,7 +226,7 @@ async function start() {
     }
 
     // Periodic scan for device changes (disconnect/reconnect)
-    setInterval(async () => {
+    scanIntervalHandle = setInterval(async () => {
       try {
         // Scan for new devices or reconnect disconnected ones
         const result = await scanDevices(registry, sessionManager);
@@ -268,7 +271,15 @@ async function start() {
 async function stop(): Promise<void> {
   console.log('Shutting down server...');
 
-  // Stop WebSocket handler first (prevents new connections)
+  // Stop device scanner first (prevents new device connections during shutdown)
+  stopScanner();
+  if (scanIntervalHandle) {
+    clearInterval(scanIntervalHandle);
+    scanIntervalHandle = null;
+    console.log('Stopped device scanner');
+  }
+
+  // Stop WebSocket handler (prevents new connections)
   wsHandler.close();
 
   // Stop sequence manager (saves pending changes)
