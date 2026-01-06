@@ -1408,10 +1408,12 @@ export function createWebSocketHandler(
   }
 
   function close(): void {
-    // Clean up all clients
+    // Clean up all clients and forcefully close their connections
     for (const [ws, clientState] of clients) {
       sessionManager.unsubscribeAll(clientState.id);
       clients.delete(ws);
+      // Terminate immediately - close() does graceful handshake which can hang
+      ws.terminate();
     }
   }
 
