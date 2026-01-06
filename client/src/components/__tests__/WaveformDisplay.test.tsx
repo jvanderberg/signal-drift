@@ -177,9 +177,8 @@ describe('WaveformDisplay', () => {
       render(<WaveformDisplay waveform={waveform} height={400} />);
 
       const svg = screen.getByTestId('waveform-svg');
-      // SVG uses 100% dimensions with viewBox for responsive sizing
-      expect(svg.getAttribute('width')).toBe('100%');
-      expect(svg.getAttribute('height')).toBe('100%');
+      // SVG uses absolute positioning with CSS classes for responsive sizing
+      expect(svg).toHaveClass('absolute', 'inset-0', 'w-full', 'h-full');
       // viewBox should contain the provided height
       const viewBox = svg.getAttribute('viewBox') ?? '';
       const viewBoxHeight = parseInt(viewBox.split(' ')[3] ?? '0');
@@ -202,9 +201,9 @@ describe('WaveformDisplay', () => {
       const waveform = createWaveform({});
       render(<WaveformDisplay waveform={waveform} />);
 
-      // Container should have w-full class for responsive sizing
+      // Container should have relative positioning for absolute SVG child
       const container = screen.getByTestId('waveform-display');
-      expect(container).toHaveClass('w-full');
+      expect(container).toHaveClass('w-full', 'relative');
     });
   });
 
