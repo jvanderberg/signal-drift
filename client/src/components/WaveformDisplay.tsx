@@ -144,9 +144,9 @@ export function WaveformDisplay({
   const prevYBounds = useRef<{ min: number; max: number } | null>(null);
 
   // Calculate data ranges across all waveforms
-  const { xMin, xMax, yMin, yMax, hasData } = useMemo(() => {
+  const { xMin, xMax, xLabelMax, yMin, yMax, hasData } = useMemo(() => {
     if (waveforms.length === 0) {
-      return { xMin: 0, xMax: 1, yMin: -1, yMax: 1, hasData: false };
+      return { xMin: 0, xMax: 1, xLabelMax: 1, yMin: -1, yMax: 1, hasData: false };
     }
 
     let allPoints: number[] = [];
@@ -157,23 +157,21 @@ export function WaveformDisplay({
     }
 
     if (allPoints.length === 0) {
-      return { xMin: 0, xMax: 1, yMin: -1, yMax: 1, hasData: false };
+      return { xMin: 0, xMax: 1, xLabelMax: 1, yMin: -1, yMax: 1, hasData: false };
     }
 
-    // X-axis: Use timebase scale if provided (divisions × scale), otherwise use data
-    let computedXMax: number;
-    if (timebaseScale && timebaseScale > 0) {
-      // Exact oscilloscope timebase: divisions × seconds per division
-      computedXMax = divisions.x * timebaseScale;
-    } else {
-      // Fallback: use waveform data length
-      let maxTime = 0;
-      for (const wf of waveforms) {
-        const wfTime = wf.points.length * wf.xIncrement;
-        if (wfTime > maxTime) maxTime = wfTime;
-      }
-      computedXMax = maxTime || 1;
+    // X-axis scaling: always use waveform data length so data fits the chart
+    let computedXMax = 0;
+    for (const wf of waveforms) {
+      const wfTime = wf.points.length * wf.xIncrement;
+      if (wfTime > computedXMax) computedXMax = wfTime;
     }
+    computedXMax = computedXMax || 1;
+
+    // X-axis labels: use timebase scale if provided for accurate gridline labels
+    const computedXLabelMax = (timebaseScale && timebaseScale > 0)
+      ? divisions.x * timebaseScale
+      : computedXMax;
 
     // Y-axis: Calculate data bounds with quantization to prevent jitter
     const dataMin = Math.min(...allPoints);
@@ -198,14 +196,16 @@ export function WaveformDisplay({
     quantizedMin -= niceStep * 0.5;
     quantizedMax += niceStep * 0.5;
 
-    // Hysteresis: only update bounds if data moves outside current bounds
-    // This prevents jitter when data slightly changes within the same range
+    // Hysteresis: only update if quantized bounds changed
+    // This prevents jitter from tiny data changes that round to the same bounds
     if (prevYBounds.current) {
       const prev = prevYBounds.current;
-      const dataFitsInPrev = dataMin >= prev.min && dataMax <= prev.max;
+      const boundsChanged =
+        Math.abs(quantizedMin - prev.min) > niceStep * 0.01 ||
+        Math.abs(quantizedMax - prev.max) > niceStep * 0.01;
 
-      if (dataFitsInPrev) {
-        // Data still fits in previous bounds - keep them to prevent jitter
+      if (!boundsChanged) {
+        // Bounds are essentially the same - keep previous to prevent micro-jitter
         quantizedMin = prev.min;
         quantizedMax = prev.max;
       }
@@ -216,6 +216,7 @@ export function WaveformDisplay({
     return {
       xMin: 0,
       xMax: computedXMax,
+      xLabelMax: computedXLabelMax,
       yMin: quantizedMin,
       yMax: quantizedMax,
       hasData: true,
@@ -395,7 +396,7 @@ export function WaveformDisplay({
           {formatVoltage(yMin)}
         </text>
 
-        {/* X-axis labels */}
+        {/* X-axis labels - use timebase-derived values for accurate display */}
         <text
           data-testid="x-axis-min"
           x={padding.left}
@@ -404,7 +405,7 @@ export function WaveformDisplay({
           fill="var(--color-waveform-label)"
           fontSize={10}
         >
-          {formatTime(xMin)}
+          {formatTime(0)}
         </text>
         <text
           data-testid="x-axis-max"
@@ -414,11 +415,11 @@ export function WaveformDisplay({
           fill="var(--color-waveform-label)"
           fontSize={10}
         >
-          {formatTime(xMax)}
+          {formatTime(xLabelMax)}
         </text>
       </>
     );
-  }, [xMin, xMax, yMin, yMax, plotWidth, plotHeight, height, padding]);
+  }, [xLabelMax, yMin, yMax, plotWidth, plotHeight, height, padding]);
 
   // Render waveform traces
   const traces = useMemo(() => {
