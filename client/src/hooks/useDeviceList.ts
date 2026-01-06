@@ -2,12 +2,16 @@
  * useDeviceList - React hook for getting device list via WebSocket
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getWebSocketManager } from '../websocket';
-import type { DeviceSummary, ServerMessage } from '../../../shared/types';
+import type { DeviceSummary, StandardDeviceSummary, ServerMessage } from '../../../shared/types';
+import { isStandardDevice } from '../../../shared/types';
 
 export interface UseDeviceListResult {
+  /** All devices (PSU/loads and oscilloscopes) */
   devices: DeviceSummary[];
+  /** Only PSU/load devices (filtered, with DeviceCapabilities) */
+  standardDevices: StandardDeviceSummary[];
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
@@ -18,6 +22,12 @@ export function useDeviceList(): UseDeviceListResult {
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filtered list of standard devices only (PSU/loads)
+  const standardDevices = useMemo(
+    () => devices.filter(isStandardDevice),
+    [devices]
+  );
 
   useEffect(() => {
     const wsManager = getWebSocketManager();
@@ -63,6 +73,7 @@ export function useDeviceList(): UseDeviceListResult {
 
   return {
     devices,
+    standardDevices,
     isLoading,
     error,
     refresh,

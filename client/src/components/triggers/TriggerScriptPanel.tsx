@@ -43,7 +43,7 @@ export function TriggerScriptPanel({ onClose }: TriggerScriptPanelProps) {
   } = useTriggerScript();
 
   const { library: sequences } = useSequencer();
-  const { devices } = useDeviceList();
+  const { standardDevices: devices } = useDeviceList();
 
   // Mode state
   const [mode, setMode] = useState<PanelMode | null>(null);

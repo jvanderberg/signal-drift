@@ -41,18 +41,40 @@ console.log('Voltage:', status.value.voltage);
 - Propagate errors with early returns, don't swallow them
 - Exception: Test code may throw (e.g., `unwrapResult` helpers) since test failures are expected to throw
 
-### 2. No `any` Types
+### 2. STRICT: No Type Escape Hatches (`as any`, `as unknown`)
 
-Use proper types. Don't work around type errors with casts to `any`.
+**This is a strict, non-negotiable rule.** Never use `as any`, `as unknown`, or similar casts that bypass TypeScript's type system. These casts hide bugs and defeat the purpose of TypeScript.
 
 ```typescript
-// Bad
+// FORBIDDEN - These will fail code review
 const value = response as any;
+const state = scopeSession.getState() as unknown as DeviceSessionState;
+const capabilities = state.capabilities as any;
 
-// Good
+// CORRECT - Fix the actual type problem
 interface ParsedResponse { value: number; unit: string; }
 const value: ParsedResponse = JSON.parse(response);
+
+// CORRECT - Use union types for values that can be multiple types
+type AnyCapabilities = DeviceCapabilities | OscilloscopeCapabilities;
+const capabilities: AnyCapabilities = state.capabilities;
+
+// CORRECT - Use type guards to narrow types
+function isOscilloscopeCapabilities(cap: AnyCapabilities): cap is OscilloscopeCapabilities {
+  return 'channels' in cap && 'bandwidth' in cap;
+}
 ```
+
+**What to do when types don't match:**
+1. **Create union types** - If a value can be multiple types, define that explicitly
+2. **Use type guards** - Narrow types safely with runtime checks
+3. **Fix the design** - Mismatched types often indicate a design problem
+4. **Add proper interfaces** - Define types for external/untyped data
+
+**Exception for test files (very limited):**
+- `as unknown as T` is allowed ONLY for creating intentionally malformed test data
+- Example: `{ steps: 'not an array' } as unknown as ArbitraryWaveform` to test validation
+- Even in tests, prefer proper mock factories with correct types
 
 ### 3. No `undefined` Literal
 

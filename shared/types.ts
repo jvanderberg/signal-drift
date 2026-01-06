@@ -236,11 +236,17 @@ export interface OscilloscopeCapabilities {
   hasAWG: boolean;                     // Built-in arbitrary waveform generator
 }
 
-/** Type guard to check if capabilities are for a standard device (PSU/Load) vs oscilloscope */
-export function isDeviceCapabilities(
-  caps: DeviceCapabilities | OscilloscopeCapabilities
-): caps is DeviceCapabilities {
-  return 'outputs' in caps && Array.isArray(caps.outputs);
+/** Union type for any device capabilities (PSU/load vs oscilloscope) */
+export type AnyCapabilities = DeviceCapabilities | OscilloscopeCapabilities;
+
+/** Type guard to check if capabilities is for a standard device (PSU/load) */
+export function isDeviceCapabilities(cap: AnyCapabilities): cap is DeviceCapabilities {
+  return 'deviceClass' in cap && 'modes' in cap && 'outputs' in cap;
+}
+
+/** Type guard to check if capabilities is for an oscilloscope */
+export function isOscilloscopeCapabilities(cap: AnyCapabilities): cap is OscilloscopeCapabilities {
+  return 'channels' in cap && 'bandwidth' in cap && !('deviceClass' in cap);
 }
 
 // ============ WebSocket Types ============
@@ -280,6 +286,27 @@ export interface DeviceSessionState {
   // Meta
   lastUpdated: number;
 }
+
+// Streaming state for oscilloscopes
+export interface StreamingState {
+  isStreaming: boolean;
+  channels: string[];
+  fps: number;
+}
+
+// Oscilloscope session state - different shape from DeviceSessionState
+export interface OscilloscopeSessionState {
+  info: DeviceInfo;
+  capabilities: OscilloscopeCapabilities;
+  connectionStatus: ConnectionStatus;
+  consecutiveErrors: number;
+  status: OscilloscopeStatus | null;
+  lastUpdated: number;
+  streaming: StreamingState;
+}
+
+/** Union type for any session state (PSU/load vs oscilloscope) */
+export type AnySessionState = DeviceSessionState | OscilloscopeSessionState;
 
 // Incremental measurement update (sent on each poll)
 export interface MeasurementUpdate {
@@ -361,7 +388,7 @@ export type ClientMessage =
 // Server -> Client messages
 export type ServerMessage =
   | { type: 'deviceList'; devices: DeviceSummary[] }                  // Response to getDevices, scan, or auto-discovery
-  | { type: 'subscribed'; deviceId: string; state: DeviceSessionState }
+  | { type: 'subscribed'; deviceId: string; state: AnySessionState }
   | { type: 'unsubscribed'; deviceId: string }
   | { type: 'measurement'; deviceId: string; update: MeasurementUpdate }
   | { type: 'field'; deviceId: string; field: string; value: unknown }
@@ -409,10 +436,34 @@ export type ServerMessage =
 export interface DeviceSummary {
   id: string;
   info: DeviceInfo;
-  capabilities: DeviceCapabilities | OscilloscopeCapabilities;
+  capabilities: AnyCapabilities;
   connectionStatus: ConnectionStatus;
   alias?: string;  // User-friendly name if set
 }
+
+/** Narrowed DeviceSummary with DeviceCapabilities (for PSU/loads after filtering) */
+export interface StandardDeviceSummary extends Omit<DeviceSummary, 'capabilities'> {
+  capabilities: DeviceCapabilities;
+}
+
+/** Narrowed DeviceSummary with OscilloscopeCapabilities (after filtering) */
+export interface OscilloscopeDeviceSummary extends Omit<DeviceSummary, 'capabilities'> {
+  capabilities: OscilloscopeCapabilities;
+}
+
+/** Type guard to check if a summary is for a standard device (PSU/load) */
+export function isStandardDevice(summary: DeviceSummary): summary is StandardDeviceSummary {
+  return isDeviceCapabilities(summary.capabilities);
+}
+
+/** Type guard to check if a summary is for an oscilloscope */
+export function isOscilloscopeDevice(summary: DeviceSummary): summary is OscilloscopeDeviceSummary {
+  return isOscilloscopeCapabilities(summary.capabilities);
+}
+
+// Legacy aliases for backwards compatibility
+export const isDeviceSummary = isStandardDevice;
+export const isOscilloscopeSummary = isOscilloscopeDevice;
 
 // ============ Sequence / AWG Types ============
 

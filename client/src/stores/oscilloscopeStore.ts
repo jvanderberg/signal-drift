@@ -18,9 +18,12 @@ import type {
   OscilloscopeStatus,
   WaveformData,
   OscilloscopeMeasurement,
-  OscilloscopeCapabilities,
-  DeviceInfo,
+  OscilloscopeSessionState,
+  StreamingState,
 } from '../../../shared/types';
+
+// Re-export StreamingState for consumers of this module
+export type { StreamingState } from '../../../shared/types';
 
 // Infer measurement unit from type
 function getMeasurementUnit(type: string): string {
@@ -32,13 +35,6 @@ function getMeasurementUnit(type: string): string {
   if (upper.includes('DUT')) return '%';
   if (upper === 'OVER' || upper === 'PRES') return '%';
   return 'V';
-}
-
-// Streaming state from server
-export interface StreamingState {
-  isStreaming: boolean;
-  channels: string[];
-  fps: number;
 }
 
 // Type guard to check if state is oscilloscope-specific
@@ -54,16 +50,8 @@ function isOscilloscopeState(state: unknown): state is OscilloscopeSessionState 
   );
 }
 
-// Per-oscilloscope session state (matches server structure)
-export interface OscilloscopeSessionState {
-  info: DeviceInfo;
-  capabilities: OscilloscopeCapabilities;
-  connectionStatus: 'connected' | 'error' | 'disconnected';
-  consecutiveErrors: number;
-  status: OscilloscopeStatus | null;
-  lastUpdated: number;
-  streaming: StreamingState;
-}
+// Re-export OscilloscopeSessionState for consumers of this module
+export type { OscilloscopeSessionState } from '../../../shared/types';
 
 // Per-oscilloscope UI/data state
 interface OscilloscopeState {

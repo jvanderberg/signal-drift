@@ -35,7 +35,7 @@ export function SequencePanel({ onClose }: SequencePanelProps) {
     clearError,
   } = useSequencer();
 
-  const { devices } = useDeviceList();
+  const { standardDevices: devices } = useDeviceList();
 
   // Mode state - null means "not yet determined"
   const [mode, setMode] = useState<PanelMode | null>(null);

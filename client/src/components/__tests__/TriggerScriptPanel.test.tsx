@@ -74,6 +74,7 @@ const mockUseSequencer = {
 
 const mockUseDeviceList = {
   devices: [mockDevice],
+  standardDevices: [mockDevice],
 };
 
 const mockUseDeviceNames = {

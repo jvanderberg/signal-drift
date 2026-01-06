@@ -169,7 +169,7 @@ export function createSessionManager(
   function getDeviceSummaries(): DeviceSummary[] {
     const summaries: DeviceSummary[] = [];
 
-    // Standard devices
+    // Standard devices (PSU/loads)
     for (const session of sessions.values()) {
       const state = session.getState();
       summaries.push({
