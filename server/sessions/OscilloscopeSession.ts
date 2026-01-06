@@ -889,23 +889,123 @@ export function createOscilloscopeSession(
 
       await driver.setChannelScale(channel, scale);
 
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              scale,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
+
       resumeStreaming();
     },
 
     async setChannelOffset(channel: string, offset: number): Promise<void> {
       await driver.setChannelOffset(channel, offset);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              offset,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelCoupling(channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
       await driver.setChannelCoupling(channel, coupling);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              coupling,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelProbe(channel: string, ratio: number): Promise<void> {
       await driver.setChannelProbe(channel, ratio);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              probe: ratio,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setChannelBwLimit(channel: string, enabled: boolean): Promise<void> {
       await driver.setChannelBwLimit(channel, enabled);
+
+      // Optimistic update and broadcast
+      if (status?.channels?.[channel]) {
+        status = {
+          ...status,
+          channels: {
+            ...status.channels,
+            [channel]: {
+              ...status.channels[channel],
+              bwLimit: enabled,
+            },
+          },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     // Timebase
@@ -917,9 +1017,12 @@ export function createOscilloscopeSession(
 
       await driver.setTimebaseScale(scale);
 
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      // Optimistic update and broadcast (no hardware poll)
+      if (status?.timebase) {
+        status = {
+          ...status,
+          timebase: { ...status.timebase, scale },
+        };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -940,9 +1043,12 @@ export function createOscilloscopeSession(
 
       await driver.setTimebaseOffset(offset);
 
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      // Optimistic update and broadcast (no hardware poll)
+      if (status?.timebase) {
+        status = {
+          ...status,
+          timebase: { ...status.timebase, offset },
+        };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -958,6 +1064,20 @@ export function createOscilloscopeSession(
     // Trigger
     async setTriggerSource(source: string): Promise<void> {
       await driver.setTriggerSource(source);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, source },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setTriggerLevel(level: number): Promise<void> {
@@ -978,10 +1098,38 @@ export function createOscilloscopeSession(
 
     async setTriggerEdge(edge: string): Promise<void> {
       await driver.setTriggerEdge(edge);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, edge: edge as 'rising' | 'falling' | 'either' },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     async setTriggerSweep(sweep: string): Promise<void> {
       await driver.setTriggerSweep(sweep);
+
+      // Optimistic update and broadcast
+      if (status?.trigger) {
+        status = {
+          ...status,
+          trigger: { ...status.trigger, sweep: sweep as 'auto' | 'normal' | 'single' },
+        };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'oscilloscopeStatus',
+          value: status,
+        });
+      }
     },
 
     // On-demand queries
