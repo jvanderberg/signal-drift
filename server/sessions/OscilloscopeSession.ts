@@ -762,13 +762,11 @@ export function createOscilloscopeSession(
       }
     },
 
-    // Control commands
+    // Control commands - optimistically update and broadcast (no extra hardware poll)
     async run(): Promise<void> {
       await driver.run();
-      // Immediately poll and broadcast status so UI updates instantly
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      if (status) {
+        status = { ...status, running: true };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -781,10 +779,8 @@ export function createOscilloscopeSession(
 
     async stop(): Promise<void> {
       await driver.stop();
-      // Immediately poll and broadcast status so UI updates instantly
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      if (status) {
+        status = { ...status, running: false };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
@@ -797,10 +793,9 @@ export function createOscilloscopeSession(
 
     async single(): Promise<void> {
       await driver.single();
-      // Immediately poll and broadcast status so UI updates instantly
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
+      if (status) {
+        // Single triggers once then stops, so running becomes false
+        status = { ...status, running: false };
         lastUpdated = Date.now();
         broadcast({
           type: 'field',
