@@ -201,7 +201,9 @@ describe('OscilloscopePanel Integration', () => {
   });
 
   describe('Streaming Controls', () => {
-    it('should auto-start streaming after subscription', async () => {
+    it('should subscribe to oscilloscope on mount (server auto-starts streaming)', async () => {
+      // With the new architecture, the server auto-starts streaming when a client subscribes
+      // The client just needs to send a 'subscribe' message - no explicit 'startStreaming' needed
       const device = createMockOscilloscopeSummary({ id: 'scope-1' });
 
       render(
@@ -213,22 +215,13 @@ describe('OscilloscopePanel Integration', () => {
         />
       );
 
-      const sessionState = createOscilloscopeSessionState();
-
-      simulateMessage({
-        type: 'subscribed',
-        deviceId: 'scope-1',
-        state: sessionState as unknown as import('../../../../shared/types').DeviceSessionState,
-      });
-
-      await waitFor(() => {
-        expect(mockSend).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'scopeStartStreaming',
-            deviceId: 'scope-1',
-          })
-        );
-      });
+      // Verify subscribe is sent - server will handle streaming auto-start
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'subscribe',
+          deviceId: 'scope-1',
+        })
+      );
     });
   });
 

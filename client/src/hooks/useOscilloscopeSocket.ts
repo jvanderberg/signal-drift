@@ -4,6 +4,11 @@
  * Thin wrapper around the Zustand oscilloscopeStore.
  * Provides a convenient hook interface for components that manage a single oscilloscope.
  *
+ * REDESIGNED: Streaming state is now derived from server's streaming state.
+ * - isStreaming: from sessionState.streaming.isStreaming
+ * - fps: from sessionState.streaming.fps
+ * - streamingChannels: from sessionState.streaming.channels
+ *
  * State management is delegated to the Zustand store - no duplicate local state.
  * Actions are accessed via getState() to avoid unnecessary subscriptions.
  */
@@ -31,8 +36,15 @@ export interface UseOscilloscopeSocketResult {
   waveforms: WaveformData[];  // Multi-channel waveforms
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;  // base64 PNG
+
+  // Streaming state (derived from server)
   isStreaming: boolean;
-  fps: number;  // Actual FPS from server
+  fps: number;
+  streamingChannels: string[];  // Channels currently being streamed by server
+
+  // Display filter (client-side only, instant)
+  displayChannels: string[];  // Which channels to show on the chart
+  toggleDisplayChannel: (channel: string) => void;  // Toggle a channel's visibility
 
   // Actions
   subscribe: () => void;
@@ -64,7 +76,7 @@ export interface UseOscilloscopeSocketResult {
   setTriggerEdge: (edge: 'rising' | 'falling' | 'either') => void;
   setTriggerSweep: (sweep: 'auto' | 'normal' | 'single') => void;
 
-  // Streaming
+  // Streaming (for measurement configuration - streaming auto-starts)
   startStreaming: (channels: string[], intervalMs: number, measurements?: string[]) => void;
   stopStreaming: () => void;
 }
@@ -97,6 +109,7 @@ const getActions = () => {
     setTriggerSweep: store.setTriggerSweep,
     startStreaming: store.startStreaming,
     stopStreaming: store.stopStreaming,
+    toggleDisplayChannel: store.toggleDisplayChannel,
     _initializeWebSocket: store._initializeWebSocket,
   };
 };
@@ -114,8 +127,12 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
   const waveforms = oscState.waveforms;
   const measurements = oscState.measurements;
   const screenshot = oscState.screenshot;
-  const isStreaming = oscState.isStreaming;
-  const fps = oscState.fps;
+  const displayChannels = oscState.displayChannels;
+
+  // Derive streaming state from server's streaming state
+  const isStreaming = state?.streaming?.isStreaming ?? false;
+  const fps = state?.streaming?.fps ?? 0;
+  const streamingChannels = state?.streaming?.channels ?? [];
 
   // Initialize WebSocket on mount
   useEffect(() => {
@@ -224,6 +241,11 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     getActions().stopStreaming(deviceId);
   }, [deviceId]);
 
+  // Display filter toggle (client-side only, instant)
+  const toggleDisplayChannel = useCallback((channel: string) => {
+    getActions().toggleDisplayChannel(deviceId, channel);
+  }, [deviceId]);
+
   return {
     state,
     connectionState,
@@ -235,6 +257,9 @@ export function useOscilloscopeSocket(deviceId: string): UseOscilloscopeSocketRe
     screenshot,
     isStreaming,
     fps,
+    streamingChannels,
+    displayChannels,
+    toggleDisplayChannel,
     subscribe,
     unsubscribe,
     run,

@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { WaveformData, OscilloscopeMeasurement } from '../../../../shared/types';
-import type { OscilloscopeSessionState } from '../../stores';
+import type { OscilloscopeSessionState, StreamingState } from '../../stores';
+
+// Helper to create streaming state
+function createStreamingState(overrides?: Partial<StreamingState>): StreamingState {
+  return {
+    isStreaming: false,
+    channels: [],
+    fps: 0,
+    ...overrides,
+  };
+}
 
 // Create mock oscilloscope state
 function createMockState(deviceId: string): OscilloscopeSessionState {
@@ -37,10 +47,11 @@ function createMockState(deviceId: string): OscilloscopeSessionState {
       measurements: [],
     },
     lastUpdated: Date.now(),
+    streaming: createStreamingState(),
   };
 }
 
-// Mock store state
+// Mock store state - now streaming state is in sessionState.streaming
 interface OscilloscopeState {
   sessionState: OscilloscopeSessionState | null;
   isSubscribed: boolean;
@@ -49,7 +60,6 @@ interface OscilloscopeState {
   waveforms: WaveformData[];
   measurements: OscilloscopeMeasurement[];
   screenshot: string | null;
-  isStreaming: boolean;
 }
 
 const mockStoreState = {
@@ -90,7 +100,6 @@ const defaultOscState: OscilloscopeState = {
   waveforms: [],
   measurements: [],
   screenshot: null,
-  isStreaming: false,
 };
 
 // Create a mock useOscilloscopeStore with getState() support
@@ -158,7 +167,6 @@ describe('useOscilloscopeSocket', () => {
         waveforms: [],
         measurements: [],
         screenshot: null,
-        isStreaming: false,
       };
 
       const useOscilloscopeSocket = await getHook();
@@ -190,6 +198,27 @@ describe('useOscilloscopeSocket', () => {
 
       expect(result.current.waveform).toEqual(mockWaveform);
       expect(result.current.waveforms).toEqual([mockWaveform]);
+    });
+
+    it('should derive streaming state from sessionState.streaming', async () => {
+      const mockState = createMockState('scope-1');
+      mockState.streaming = createStreamingState({ isStreaming: true, channels: ['CHAN1'], fps: 30 });
+      mockStoreState.oscilloscopeStates['scope-1'] = {
+        sessionState: mockState,
+        isSubscribed: true,
+        error: null,
+        waveform: null,
+        waveforms: [],
+        measurements: [],
+        screenshot: null,
+      };
+
+      const useOscilloscopeSocket = await getHook();
+      const { result } = renderHook(() => useOscilloscopeSocket('scope-1'));
+
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.fps).toBe(30);
+      expect(result.current.streamingChannels).toEqual(['CHAN1']);
     });
   });
 

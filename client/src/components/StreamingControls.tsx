@@ -1,11 +1,14 @@
 /**
- * StreamingControls - Control waveform streaming and channel selection
+ * StreamingControls - Channel visibility toggles and streaming status display
  *
- * Features:
- * - Live/Stopped status indicator
- * - Channel enable/disable toggles
- * - Start/Stop streaming button
- * - Scope running status display
+ * With the "always-on streaming" architecture, streaming auto-starts
+ * when there are subscribers. This component:
+ * - Shows which channels are visible on the chart (click to toggle display)
+ * - Displays live streaming status and FPS
+ * - Shows scope running status
+ *
+ * Channel toggles are INSTANT - purely client-side display filter, no server round-trip.
+ * Server streams all enabled hardware channels; this just filters what to show.
  */
 
 // Channel colors using CSS variables for theme support
@@ -19,11 +22,10 @@ const CHANNEL_CSS_VARS: Record<string, string> = {
 export interface StreamingControlsProps {
   isStreaming?: boolean;
   scopeRunning?: boolean;
-  channels?: string[];
-  enabledChannels?: string[];
-  fps?: number;  // Actual FPS from server
-  onStreamingToggle?: (enabled: boolean) => void;
-  onChannelToggle?: (channel: string, enabled: boolean) => void;
+  channels?: string[];        // Channels available from server streaming
+  enabledChannels?: string[]; // Channels displayed on chart (client-side filter)
+  fps?: number;               // Actual FPS from server
+  onChannelToggle?: (channel: string) => void;  // Instant client-side toggle
 }
 
 export function StreamingControls({
@@ -32,17 +34,8 @@ export function StreamingControls({
   channels = [],
   enabledChannels = [],
   fps = 0,
-  onStreamingToggle,
   onChannelToggle,
 }: StreamingControlsProps) {
-  const handleStreamingToggle = () => {
-    onStreamingToggle?.(!isStreaming);
-  };
-
-  const handleChannelToggle = (channel: string) => {
-    const isEnabled = enabledChannels.includes(channel);
-    onChannelToggle?.(channel, !isEnabled);
-  };
 
   return (
     <div
@@ -60,7 +53,7 @@ export function StreamingControls({
               <button
                 key={channel}
                 data-testid={`channel-toggle-${channel}`}
-                onClick={() => handleChannelToggle(channel)}
+                onClick={() => onChannelToggle?.(channel)}
                 className={`channel-toggle px-2 py-1 rounded text-sm font-medium transition-all ${
                   isEnabled
                     ? 'active enabled selected bg-[var(--color-border-light)]'
@@ -70,6 +63,7 @@ export function StreamingControls({
                   color: isEnabled ? color : undefined,
                   borderBottom: isEnabled ? `2px solid ${color}` : '2px solid transparent',
                 }}
+                title={isEnabled ? `Hide ${channel}` : `Show ${channel}`}
               >
                 {channel.replace('CHAN', 'CH')}
               </button>
@@ -89,7 +83,7 @@ export function StreamingControls({
             isStreaming ? 'live pulse animate-pulse bg-[var(--color-success)]' : 'bg-[var(--color-text-muted)]'
           }`}
         />
-        <span className={`text-sm ${isStreaming ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]'}`}>
+        <span className={`text-sm font-medium ${isStreaming ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]'}`}>
           {isStreaming ? 'Live' : 'Stopped'}
         </span>
         {isStreaming && fps > 0 && (
@@ -99,18 +93,7 @@ export function StreamingControls({
         )}
       </div>
 
-      {/* Streaming toggle button */}
-      <button
-        data-testid="streaming-toggle"
-        onClick={handleStreamingToggle}
-        className={`streaming-toggle px-3 py-1 rounded text-sm font-medium transition-all ${
-          isStreaming
-            ? 'bg-red-600 hover:bg-red-700 text-white'
-            : 'bg-green-600 hover:bg-green-700 text-white'
-        }`}
-      >
-        {isStreaming ? 'Stop' : 'Start'}
-      </button>
+      <div className="flex-1" />
 
       {/* Scope status */}
       <div
