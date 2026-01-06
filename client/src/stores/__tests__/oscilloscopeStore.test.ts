@@ -148,6 +148,7 @@ describe('oscilloscopeStore', () => {
             waveforms: [],
             measurements: [],
             screenshot: null,
+            fps: 0,
           },
         },
       });
@@ -331,6 +332,7 @@ describe('oscilloscopeStore', () => {
             waveforms: [],
             measurements: [],
             screenshot: null,
+            fps: 0,
           },
         },
       });
@@ -398,6 +400,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -432,6 +435,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [existingWaveform],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -466,6 +470,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -502,6 +507,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [{ channel: 'CH1', type: 'FREQ', value: 500, unit: 'Hz' }],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -533,6 +539,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -565,6 +572,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -594,6 +602,7 @@ describe('oscilloscopeStore', () => {
               waveforms: [],
               measurements: [],
               screenshot: null,
+              fps: 0,
             },
           },
         });
@@ -630,6 +639,7 @@ describe('oscilloscopeStore', () => {
             waveforms: [sampleWaveform],
             measurements: [{ channel: 'CH1', type: 'FREQ', value: 1000, unit: 'Hz' }],
             screenshot: null,
+            fps: 0,
           },
         },
       });
@@ -678,6 +688,7 @@ describe('oscilloscopeStore', () => {
             waveforms: [],
             measurements: [],
             screenshot: null,
+            fps: 0,
           },
         },
       });
