@@ -5,9 +5,13 @@
  * - Reconnection with exponential backoff (1s, 2s, 4s... max 30s)
  * - Message queuing during reconnection
  * - Observable connection state
+ * - Stale message filtering after tab sleep/background
+ * - Tab keep-alive to prevent browser throttling
  */
 
 import type { ClientMessage, ServerMessage } from '../../shared/types';
+import { getVisibilityTracker } from './hooks/usePageVisibility';
+import { getTabKeepAlive } from './tabKeepAlive';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -18,6 +22,8 @@ interface WebSocketManagerOptions {
   url?: string;
   maxReconnectDelay?: number;
   initialReconnectDelay?: number;
+  /** Max age of messages to process after waking from sleep (ms). Default: 2000 */
+  staleMessageThresholdMs?: number;
 }
 
 export interface WebSocketManager {
@@ -44,7 +50,35 @@ const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
   url: getWebSocketUrl(),
   maxReconnectDelay: 30000,
   initialReconnectDelay: 1000,
+  staleMessageThresholdMs: 2000,
 };
+
+// High-frequency message types that can be filtered (but not critical state changes)
+const FILTERABLE_MESSAGE_TYPES: Set<string> = new Set(['scopeWaveform', 'measurement']);
+
+// Critical field names that should never be filtered, even if stale
+const CRITICAL_FIELDS: Set<string> = new Set(['mode', 'outputEnabled', 'connectionStatus', 'listRunning']);
+
+// Extract timestamp from messages that have it, using proper type guard
+function getMessageTimestamp(message: ServerMessage): number | undefined {
+  if ('timestamp' in message && typeof message.timestamp === 'number') {
+    return message.timestamp;
+  }
+  return undefined;
+}
+
+// Check if a message is safe to filter (high-frequency, non-critical)
+function isFilterableMessage(message: ServerMessage): boolean {
+  if (FILTERABLE_MESSAGE_TYPES.has(message.type)) {
+    return true;
+  }
+  // Field messages are filterable only if they're not critical state changes
+  if (message.type === 'field' && 'field' in message) {
+    const fieldName = message.field;
+    return typeof fieldName === 'string' && !CRITICAL_FIELDS.has(fieldName);
+  }
+  return false;
+}
 
 let instance: WebSocketManager | null = null;
 
@@ -64,9 +98,33 @@ export function createWebSocketManager(options: WebSocketManagerOptions = {}): W
   const messageHandlers = new Set<MessageHandler>();
   const stateHandlers = new Set<StateHandler>();
 
+  // Visibility and stale message tracking
+  const visibilityTracker = getVisibilityTracker();
+  const tabKeepAlive = getTabKeepAlive();
+  let discardStaleUntil: number | null = null;
+  let staleMessagesDiscarded = 0;
+
+  // When visibility changes, set up stale message filtering
+  visibilityTracker.onVisibilityChange((isVisible, hiddenDuration) => {
+    if (isVisible && hiddenDuration !== null && hiddenDuration > 1000) {
+      // Page was hidden for more than 1 second - enable stale filtering
+      discardStaleUntil = Date.now() + 500; // Filter for next 500ms
+      staleMessagesDiscarded = 0;
+      console.debug(`[WebSocket] Woke after ${hiddenDuration}ms, filtering stale messages`);
+    }
+  });
+
   function setState(newState: ConnectionState): void {
     if (state !== newState) {
       state = newState;
+
+      // Manage tab keep-alive based on connection state
+      if (newState === 'connected') {
+        tabKeepAlive.start();
+      } else if (newState === 'disconnected') {
+        tabKeepAlive.stop();
+      }
+
       for (const handler of stateHandlers) {
         try {
           handler(newState);
@@ -77,9 +135,46 @@ export function createWebSocketManager(options: WebSocketManagerOptions = {}): W
     }
   }
 
+  function shouldDiscardMessage(message: ServerMessage): boolean {
+    // Only filter during the post-wake window
+    if (!discardStaleUntil || Date.now() > discardStaleUntil) {
+      if (discardStaleUntil && staleMessagesDiscarded > 0) {
+        console.debug(`[WebSocket] Stale filtering complete, discarded ${staleMessagesDiscarded} messages`);
+        discardStaleUntil = null;
+        staleMessagesDiscarded = 0;
+      }
+      return false;
+    }
+
+    // Only filter high-frequency, non-critical messages
+    if (!isFilterableMessage(message)) {
+      return false;
+    }
+
+    const timestamp = getMessageTimestamp(message);
+    if (timestamp === undefined) {
+      // Non-timestamped messages always pass through
+      return false;
+    }
+
+    const age = Date.now() - timestamp;
+    if (age > opts.staleMessageThresholdMs) {
+      staleMessagesDiscarded++;
+      return true;
+    }
+
+    return false;
+  }
+
   function handleMessage(event: MessageEvent): void {
     try {
       const message = JSON.parse(event.data) as ServerMessage;
+
+      // Filter stale messages after waking from sleep
+      if (shouldDiscardMessage(message)) {
+        return;
+      }
+
       for (const handler of messageHandlers) {
         try {
           handler(message);
