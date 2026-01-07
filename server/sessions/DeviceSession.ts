@@ -89,27 +89,13 @@ export function createDeviceSession(
 
   // Helper: Broadcast message to all subscribers
   function broadcast(message: ServerMessage): void {
-    // Add timestamp to high-frequency messages for stale message filtering
-    const timestampedMessage = addMessageTimestamp(message);
+    const timestampedMessage = { ...message, timestamp: Date.now() };
     for (const callback of subscribers.values()) {
       try {
         callback(timestampedMessage);
       } catch (err) {
         console.error('Subscriber callback error:', err);
       }
-    }
-  }
-
-  // Add timestamp to high-frequency messages (field, measurement)
-  function addMessageTimestamp(message: ServerMessage): ServerMessage {
-    const timestamp = Date.now();
-    switch (message.type) {
-      case 'field':
-        return { ...message, timestamp };
-      case 'measurement':
-        return { ...message, timestamp };
-      default:
-        return message;
     }
   }
 
