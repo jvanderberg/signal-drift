@@ -368,9 +368,10 @@ export function createOscilloscopeSession(
   }
 
   function broadcast(message: ServerMessage): void {
+    const timestampedMessage = { ...message, timestamp: Date.now() };
     for (const callback of subscribers.values()) {
       try {
-        callback(message);
+        callback(timestampedMessage);
       } catch (err) {
         console.error('Subscriber callback error:', err);
       }
