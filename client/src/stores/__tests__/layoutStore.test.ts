@@ -299,24 +299,24 @@ describe('layoutStore', () => {
       expect(state.layouts.sm.find(p => p.i === 'new-panel')?.w).toBe(GRID_COLS.sm);
     });
 
-    it('should use shorter height for device panels', () => {
+    it('should use default height for device panels', () => {
       act(() => {
         useLayoutStore.getState().addPanel('device-test-123');
       });
 
       const state = useLayoutStore.getState();
-      // Device panels should use height 15 (~450px)
-      expect(state.layouts.lg.find(p => p.i === 'device-test-123')?.h).toBe(15);
+      // Device panels use default height 12 (~360px)
+      expect(state.layouts.lg.find(p => p.i === 'device-test-123')?.h).toBe(12);
     });
 
-    it('should use taller height for oscilloscope panels', () => {
+    it('should use default height for oscilloscope panels', () => {
       act(() => {
         useLayoutStore.getState().addPanel('oscilloscope-test-456');
       });
 
       const state = useLayoutStore.getState();
-      // Oscilloscope panels should use height 20 (~600px)
-      expect(state.layouts.lg.find(p => p.i === 'oscilloscope-test-456')?.h).toBe(20);
+      // Oscilloscope panels use default height 12 (~360px)
+      expect(state.layouts.lg.find(p => p.i === 'oscilloscope-test-456')?.h).toBe(12);
     });
 
     it('should use default height for other panels like sequencer', () => {
@@ -325,8 +325,8 @@ describe('layoutStore', () => {
       });
 
       const state = useLayoutStore.getState();
-      // Non-oscilloscope panels should use default height 15
-      expect(state.layouts.lg.find(p => p.i === 'sequencer')?.h).toBe(15);
+      // All panels use default height 12
+      expect(state.layouts.lg.find(p => p.i === 'sequencer')?.h).toBe(12);
     });
   });
 
