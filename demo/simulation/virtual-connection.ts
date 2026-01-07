@@ -266,9 +266,6 @@ export function createVirtualConnection(
         };
       }
 
-      // Calculate duty cycle: D = 1 - Vin/Vout for boost converter
-      const dutyCycle = Math.max(0, Math.min(0.9, 1 - (psuVoltage / targetVout)));
-
       // Calculate output current based on load
       const { current: loadCurrent } = calculateCircuit();
       const outputCurrent = state.loadInputEnabled ? loadCurrent : 0;
@@ -277,6 +274,16 @@ export function createVirtualConnection(
       const inputCurrent = outputCurrent > 0
         ? (outputCurrent * targetVout) / (psuVoltage * efficiency)
         : 0;
+
+      // Calculate duty cycle: D = 1 - Vin/Vout for ideal boost converter
+      // In reality, duty cycle increases with load to compensate for losses:
+      // - Rds(on) losses in the switch
+      // - Inductor DCR losses
+      // - Diode forward voltage drop
+      // Model: D_actual = D_ideal + k * I_out where k represents loss compensation
+      const idealDutyCycle = 1 - (psuVoltage / targetVout);
+      const lossCompensation = 0.02 * outputCurrent; // ~2% duty increase per amp of load
+      const dutyCycle = Math.max(0, Math.min(0.9, idealDutyCycle + lossCompensation));
 
       // Simplified ripple calculations
       const inductorRipple = inputCurrent * 0.3; // 30% ripple
