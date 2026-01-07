@@ -13,9 +13,11 @@ import { useState } from 'react';
 import type { PanelDefaults } from './stores';
 
 // Widget size defaults - each widget type specifies its own preferred dimensions
-const DEVICE_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px - PSU/Load panels
-const SEQUENCER_PANEL_DEFAULTS: PanelDefaults = { height: 14 };  // ~420px
-const TRIGGER_SCRIPTS_PANEL_DEFAULTS: PanelDefaults = { height: 14 };  // ~420px
+const PSU_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
+const LOAD_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
+const OSCILLOSCOPE_PANEL_DEFAULTS: PanelDefaults = { height: 20 };  // ~600px - needs room for waveform
+const SEQUENCER_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
+const TRIGGER_SCRIPTS_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
 
 function App() {
   const { devices, isLoading, scan } = useDeviceList();
@@ -63,7 +65,11 @@ function App() {
   const handleDeviceClick = useCallback((device: DeviceSummary) => {
     const key = getDevicePanelKey(device.id);
     if (!hasPanel(key)) {
-      addPanel(key, DEVICE_PANEL_DEFAULTS);
+      // Use appropriate defaults based on device type
+      const defaults = device.info.type === 'oscilloscope' ? OSCILLOSCOPE_PANEL_DEFAULTS
+        : device.info.type === 'electronic-load' ? LOAD_PANEL_DEFAULTS
+        : PSU_PANEL_DEFAULTS;
+      addPanel(key, defaults);
     }
     // Always close sidebar
     setSidebarOpen(false);
