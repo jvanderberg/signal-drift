@@ -106,6 +106,9 @@ export function createSimulatedDevices(
     boostOutputCapacitance: config.boostOutputCapacitance ?? envConfig.boostOutputCapacitance ?? 100,
     boostInductance: config.boostInductance ?? envConfig.boostInductance ?? 22,
     boostEnabled: config.boostEnabled ?? envConfig.boostEnabled ?? true,
+    boostDiodeVoltage: config.boostDiodeVoltage ?? envConfig.boostDiodeVoltage ?? 0.5,
+    boostSwitchResistance: config.boostSwitchResistance ?? envConfig.boostSwitchResistance ?? 0.1,
+    boostInductorResistance: config.boostInductorResistance ?? envConfig.boostInductorResistance ?? 0.1,
     psuLatencyMs: config.psuLatencyMs ?? envConfig.psuLatencyMs ?? 50,
     loadLatencyMs: config.loadLatencyMs ?? envConfig.loadLatencyMs ?? 20,
     scopeLatencyMs: config.scopeLatencyMs ?? envConfig.scopeLatencyMs ?? 10,
@@ -126,6 +129,9 @@ export function createSimulatedDevices(
     boostOutputCapacitance: resolvedConfig.boostOutputCapacitance,
     boostInductance: resolvedConfig.boostInductance,
     boostEnabled: resolvedConfig.boostEnabled,
+    boostDiodeVoltage: resolvedConfig.boostDiodeVoltage,
+    boostSwitchResistance: resolvedConfig.boostSwitchResistance,
+    boostInductorResistance: resolvedConfig.boostInductorResistance,
   });
 
   // Create simulators that use the connection

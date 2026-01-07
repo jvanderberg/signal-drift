@@ -98,6 +98,29 @@ export interface VirtualConnectionConfig {
    * Default: true
    */
   boostEnabled?: boolean;
+
+  /**
+   * Diode forward voltage drop in volts.
+   * Schottky: 0.3-0.5V, Silicon: 0.7-1.0V
+   * Default: 0.5V (Schottky)
+   */
+  boostDiodeVoltage?: number;
+
+  /**
+   * MOSFET Rds(on) in ohms.
+   * Low-side switch conduction resistance.
+   * Hobby parts: 50-200mΩ, Good parts: 10-50mΩ
+   * Default: 0.1Ω (100mΩ)
+   */
+  boostSwitchResistance?: number;
+
+  /**
+   * Inductor DC resistance (DCR) in ohms.
+   * Series resistance of the inductor winding.
+   * Hobby inductors: 50-200mΩ, Good inductors: 10-50mΩ
+   * Default: 0.1Ω (100mΩ)
+   */
+  boostInductorResistance?: number;
 }
 
 /**
@@ -164,7 +187,7 @@ export interface VirtualConnectionState {
 const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   measurementStabilityPPM: 100,
   measurementNoiseFloorMv: 1.0,
-  psuOutputImpedance: 0.005, // 5mΩ - typical for regulated bench PSU
+  psuOutputImpedance: 0.005,        // 5mΩ - typical for regulated bench PSU
   loadCvGain: 10,
   boostTargetVoltage: 24,           // 24V output
   boostSwitchingFrequency: 200000,  // 200kHz
@@ -172,6 +195,9 @@ const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   boostOutputCapacitance: 100,      // 100µF
   boostInductance: 22,              // 22µH
   boostEnabled: true,               // Use boost converter by default
+  boostDiodeVoltage: 0.5,           // 0.5V Schottky diode drop
+  boostSwitchResistance: 0.1,       // 100mΩ Rds(on)
+  boostInductorResistance: 0.1,     // 100mΩ inductor DCR
 };
 
 export function createVirtualConnection(
@@ -340,17 +366,37 @@ export function createVirtualConnection(
         loadDemandedCurrent = 0;
     }
 
-    // Adjust duty cycle based on load current to compensate for losses:
-    // - Rds(on) losses in the switch (~50-200mΩ)
-    // - Inductor DCR losses (~50-200mΩ)
-    // - Diode forward voltage drop (~0.5-0.7V)
-    // In a closed-loop converter, the controller increases duty cycle to maintain
-    // the target output voltage despite losses. The output voltage stays at target.
-    // Model: D_actual = D_ideal + k * I_out where k represents loss compensation
-    // Real hobby converters with higher-loss components need ~5-10% per amp
-    const lossCompensation = 0.08 * loadDemandedCurrent; // ~8% duty increase per amp of load
-    dutyCycle = Math.max(0, Math.min(0.9, idealDutyCycle + lossCompensation));
-    // Note: boostOutputVoltage stays at target (closed-loop regulation)
+    // Physics-based duty cycle calculation with parasitic losses:
+    //
+    // In a real boost converter, load current flows through parasitic resistances
+    // causing voltage drops. The controller must increase duty cycle to compensate
+    // and maintain the target voltage at the load terminals.
+    //
+    // Voltage drops:
+    // 1. Diode forward voltage (Vd) - ~0.5V for Schottky during off-time
+    // 2. MOSFET Rds(on) drop - I_L × Rds during on-time
+    // 3. Inductor DCR drop - I_L × DCR continuous
+    //
+    // The converter must produce Vout + V_drop to deliver Vout to the load:
+    //   D = 1 - Vin / (Vout + V_drop)
+    //
+    // Where V_drop = Vd + I_L × R_total, and I_L (inductor/input current) is
+    // related to output current by: I_L ≈ I_out × Vout / (Vin × η)
+    //
+    const Vd = resolvedConfig.boostDiodeVoltage;
+    const R_total = resolvedConfig.boostSwitchResistance + resolvedConfig.boostInductorResistance;
+
+    // Estimate inductor current from power balance
+    const inductorCurrent = loadDemandedCurrent > 0
+      ? (loadDemandedCurrent * targetVout) / (psuVoltage * efficiency)
+      : 0;
+
+    // Calculate total voltage drop due to parasitics
+    const voltageDrop = Vd + inductorCurrent * R_total;
+
+    // Controller sets D to compensate for voltage drop and maintain target
+    dutyCycle = Math.max(0, Math.min(0.9, 1 - psuVoltage / (targetVout + voltageDrop)));
+    // Note: boostOutputVoltage stays at target (closed-loop regulation maintains it)
 
     // Calculate required input current from PSU
     // Pin = Pout / efficiency, and Pin = Vin * Iin, Pout = Vout * Iout
