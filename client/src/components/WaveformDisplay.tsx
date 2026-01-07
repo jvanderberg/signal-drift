@@ -143,6 +143,11 @@ export function WaveformDisplay({
   // Track previous Y bounds for hysteresis (prevent jitter)
   const prevYBounds = useRef<{ min: number; max: number } | null>(null);
 
+  // Y-axis lock state - when locked, bounds are calculated but not applied
+  const [yBoundsLocked, setYBoundsLocked] = useState(false);
+  const lockedYBounds = useRef<{ min: number; max: number } | null>(null);
+  const pendingYBounds = useRef<{ min: number; max: number } | null>(null);
+
   // Calculate data ranges across all waveforms
   const { xMin, xMax, xLabelMax, yMin, yMax, hasData } = useMemo(() => {
     if (waveforms.length === 0) {
@@ -173,45 +178,69 @@ export function WaveformDisplay({
       ? divisions.x * timebaseScale
       : computedXMax;
 
-    // Y-axis: Calculate data bounds with quantization to prevent jitter
+    // Y-axis: Calculate data bounds with aggressive quantization to prevent jitter
     const dataMin = Math.min(...allPoints);
     const dataMax = Math.max(...allPoints);
     const dataRange = dataMax - dataMin || 1;
 
-    // Pick a "nice" step size based on data range (1-2-5 sequence)
-    const targetDivisions = divisions.y;
+    // Pick a "nice" step size - use fewer divisions for coarser quantization
+    // This creates larger, more stable steps that don't jump as often
+    const targetDivisions = Math.max(2, Math.floor(divisions.y / 2));
     const rawStep = dataRange / targetDivisions;
     const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
     const normalized = rawStep / magnitude;
+
+    // More aggressive 1-2-5 sequence with wider bands
     let niceStep: number;
-    if (normalized <= 1.5) niceStep = magnitude;
-    else if (normalized <= 3.5) niceStep = 2 * magnitude;
-    else if (normalized <= 7.5) niceStep = 5 * magnitude;
-    else niceStep = 10 * magnitude;
+    if (normalized <= 2) niceStep = magnitude;
+    else if (normalized <= 5) niceStep = 2 * magnitude;
+    else niceStep = 5 * magnitude;
 
     let quantizedMin = Math.floor(dataMin / niceStep) * niceStep;
     let quantizedMax = Math.ceil(dataMax / niceStep) * niceStep;
 
-    // Add padding (half a step on each side)
-    quantizedMin -= niceStep * 0.5;
-    quantizedMax += niceStep * 0.5;
+    // Add padding (full step on each side for more breathing room)
+    quantizedMin -= niceStep;
+    quantizedMax += niceStep;
 
-    // Hysteresis: only update if quantized bounds changed
-    // This prevents jitter from tiny data changes that round to the same bounds
+    // Strong hysteresis: only update if bounds change by at least 20% of current range
+    // This prevents frequent rescaling from small signal variations
     if (prevYBounds.current) {
       const prev = prevYBounds.current;
+      const prevRange = prev.max - prev.min;
+      const hysteresisThreshold = prevRange * 0.2;
+
       const boundsChanged =
-        Math.abs(quantizedMin - prev.min) > niceStep * 0.01 ||
-        Math.abs(quantizedMax - prev.max) > niceStep * 0.01;
+        Math.abs(quantizedMin - prev.min) > hysteresisThreshold ||
+        Math.abs(quantizedMax - prev.max) > hysteresisThreshold;
 
       if (!boundsChanged) {
-        // Bounds are essentially the same - keep previous to prevent micro-jitter
+        // Bounds are similar enough - keep previous to prevent rescaling
         quantizedMin = prev.min;
         quantizedMax = prev.max;
       }
     }
 
-    prevYBounds.current = { min: quantizedMin, max: quantizedMax };
+    // Store calculated bounds
+    const calculatedBounds = { min: quantizedMin, max: quantizedMax };
+
+    // If locked, store as pending but use locked bounds
+    if (yBoundsLocked && lockedYBounds.current) {
+      pendingYBounds.current = calculatedBounds;
+      return {
+        xMin: 0,
+        xMax: computedXMax,
+        xLabelMax: computedXLabelMax,
+        yMin: lockedYBounds.current.min,
+        yMax: lockedYBounds.current.max,
+        hasData: true,
+      };
+    }
+
+    // Not locked - update the bounds
+    prevYBounds.current = calculatedBounds;
+    lockedYBounds.current = calculatedBounds;
+    pendingYBounds.current = null;
 
     return {
       xMin: 0,
@@ -221,7 +250,20 @@ export function WaveformDisplay({
       yMax: quantizedMax,
       hasData: true,
     };
-  }, [waveforms, timebaseScale, divisions.x, divisions.y]);
+  }, [waveforms, timebaseScale, divisions.x, divisions.y, yBoundsLocked]);
+
+  // Handler to toggle Y-axis lock
+  const handleToggleYLock = useCallback(() => {
+    setYBoundsLocked((locked) => {
+      if (locked && pendingYBounds.current) {
+        // Unlocking - apply pending bounds
+        prevYBounds.current = pendingYBounds.current;
+        lockedYBounds.current = pendingYBounds.current;
+        pendingYBounds.current = null;
+      }
+      return !locked;
+    });
+  }, []);
 
   // Scale functions
   const scaleX = (time: number) => {
@@ -421,6 +463,88 @@ export function WaveformDisplay({
     );
   }, [xLabelMax, yMin, yMax, plotWidth, plotHeight, height, padding]);
 
+  // Y-axis lock button - positioned in the left margin
+  const yAxisLockButton = useMemo(() => {
+    const centerY = padding.top + plotHeight / 2;
+    const lockX = 12;
+    const iconSize = 12;
+
+    return (
+      <g
+        data-testid="y-axis-lock-button"
+        onClick={handleToggleYLock}
+        style={{ cursor: 'pointer' }}
+      >
+        {/* Invisible hit area */}
+        <rect
+          x={lockX - 6}
+          y={centerY - 10}
+          width={20}
+          height={20}
+          fill="transparent"
+        />
+        {/* Lock icon */}
+        {yBoundsLocked ? (
+          // Locked icon (closed padlock)
+          <g transform={`translate(${lockX}, ${centerY - iconSize / 2})`}>
+            {/* Shackle (closed) */}
+            <path
+              d={`M2,${iconSize * 0.4} V${iconSize * 0.25} A${iconSize * 0.25},${iconSize * 0.25} 0 1 1 ${iconSize - 2},${iconSize * 0.25} V${iconSize * 0.4}`}
+              fill="none"
+              stroke="var(--color-waveform-trigger)"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+            />
+            {/* Body */}
+            <rect
+              x={0}
+              y={iconSize * 0.4}
+              width={iconSize}
+              height={iconSize * 0.55}
+              rx={1}
+              fill="var(--color-waveform-trigger)"
+            />
+            {/* Keyhole */}
+            <circle
+              cx={iconSize / 2}
+              cy={iconSize * 0.6}
+              r={1.5}
+              fill="var(--color-waveform-bg)"
+            />
+          </g>
+        ) : (
+          // Unlocked icon (open padlock)
+          <g transform={`translate(${lockX}, ${centerY - iconSize / 2})`}>
+            {/* Shackle (open) */}
+            <path
+              d={`M2,${iconSize * 0.4} V${iconSize * 0.25} A${iconSize * 0.25},${iconSize * 0.25} 0 1 1 ${iconSize - 2},${iconSize * 0.25} V${iconSize * 0.1}`}
+              fill="none"
+              stroke="var(--color-waveform-label)"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+            />
+            {/* Body */}
+            <rect
+              x={0}
+              y={iconSize * 0.4}
+              width={iconSize}
+              height={iconSize * 0.55}
+              rx={1}
+              fill="var(--color-waveform-label)"
+            />
+            {/* Keyhole */}
+            <circle
+              cx={iconSize / 2}
+              cy={iconSize * 0.6}
+              r={1.5}
+              fill="var(--color-waveform-bg)"
+            />
+          </g>
+        )}
+      </g>
+    );
+  }, [padding.top, plotHeight, yBoundsLocked, handleToggleYLock]);
+
   // Render waveform traces
   const traces = useMemo(() => {
     return waveforms.map((wf) => {
@@ -463,6 +587,9 @@ export function WaveformDisplay({
 
         {/* Axis labels */}
         {axisLabels}
+
+        {/* Y-axis lock button */}
+        {yAxisLockButton}
 
         {/* Waveform traces */}
         {traces}
