@@ -12,6 +12,14 @@ import { Ok, Err } from '../../../shared/types.js';
 export const DEV_DEP_MSG_OUT = 1;
 export const REQUEST_DEV_DEP_MSG_IN = 2;
 
+// USB-TMC Control Request types (bRequest values)
+const INITIATE_CLEAR = 5;
+const CHECK_CLEAR_STATUS = 6;
+
+// USB-TMC bmRequestType for class-specific interface requests
+const USBTMC_REQUEST_TYPE_IN = 0xA1;   // Device-to-host, class, interface
+const USBTMC_REQUEST_TYPE_OUT = 0x21;  // Host-to-device, class, interface
+
 // Fatal USB errors that indicate device disconnection
 const FATAL_USB_ERRORS = [
   'LIBUSB_ERROR_NO_DEVICE',
@@ -456,6 +464,79 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
 
     isOpen(): boolean {
       return opened && !disconnected;
+    },
+
+    async clear(): Promise<Result<void, Error>> {
+      if (!opened || disconnected) {
+        return Err(new Error('Device not opened or disconnected'));
+      }
+
+      return withLock(async () => {
+        try {
+          // Send INITIATE_CLEAR control request
+          // This tells the device to abort any pending operations and clear buffers
+          await new Promise<void>((resolve, reject) => {
+            device.controlTransfer(
+              USBTMC_REQUEST_TYPE_OUT,  // bmRequestType: host-to-device, class, interface
+              INITIATE_CLEAR,            // bRequest
+              0,                         // wValue
+              0,                         // wIndex (interface number)
+              Buffer.alloc(0),           // No data
+              (err) => {
+                if (err) reject(err);
+                else resolve();
+              }
+            );
+          });
+
+          // Poll CHECK_CLEAR_STATUS until clear is complete (with timeout)
+          const maxAttempts = 10;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const status = await new Promise<number>((resolve, reject) => {
+              device.controlTransfer(
+                USBTMC_REQUEST_TYPE_IN,   // bmRequestType: device-to-host, class, interface
+                CHECK_CLEAR_STATUS,        // bRequest
+                0,                         // wValue
+                0,                         // wIndex
+                1,                         // wLength (expecting 1 byte response)
+                (err, data) => {
+                  if (err) reject(err);
+                  else if (!data || typeof data === 'number') reject(new Error('No status data'));
+                  else if (data.length === 0) reject(new Error('Empty status data'));
+                  else resolve(data[0]);
+                }
+              );
+            });
+
+            // Status byte: bit 0 = pending, when 0 = clear complete
+            if ((status & 0x01) === 0) {
+              // Clear complete, now drain any remaining bulk data
+              try {
+                // Try to read any leftover data with a short timeout
+                await transferIn(512, 100).catch(() => {
+                  // Ignore timeout - means no stale data
+                });
+              } catch {
+                // Ignore errors during drain
+              }
+              console.log('[USBTMC] Clear completed successfully');
+              return Ok();
+            }
+
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+
+          // Clear took too long, but may still be okay
+          console.warn('[USBTMC] Clear status polling timed out, continuing anyway');
+          return Ok();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error('[USBTMC] Clear failed:', error.message);
+          // Don't mark as fatal - device may still be usable
+          return Err(error);
+        }
+      });
     },
   };
 }
