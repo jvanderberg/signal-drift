@@ -273,6 +273,16 @@ export function createDeviceSession(
     }
   }
 
+  // Wait for any in-flight heartbeat to complete (with timeout for safety)
+  async function waitForHeartbeat(timeoutMs = 3000): Promise<void> {
+    if (!heartbeatInProgress) return;
+
+    const start = Date.now();
+    while (heartbeatInProgress && Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+  }
+
   /**
    * Heartbeat - Independent health check that verifies device responsiveness
    *
@@ -581,6 +591,9 @@ export function createDeviceSession(
     // Wait for any in-flight poll to complete before swapping driver
     await waitForPoll();
 
+    // Wait for any in-flight heartbeat to complete before swapping driver
+    await waitForHeartbeat();
+
     // Replace driver with fresh one
     driver = newDriver;
 
@@ -625,11 +638,21 @@ export function createDeviceSession(
     }
     pendingValues.clear();
 
-    // Wait for any in-flight poll to complete (with timeout)
+    // Wait for any in-flight operations to complete (with timeout)
+    const STOP_TIMEOUT = 3000;
+    const waitPromises: Promise<void>[] = [];
+
     if (pollInProgress) {
-      const STOP_TIMEOUT = 3000;
+      waitPromises.push(pollInProgress);
+    }
+
+    if (heartbeatInProgress) {
+      waitPromises.push(waitForHeartbeat(STOP_TIMEOUT));
+    }
+
+    if (waitPromises.length > 0) {
       await Promise.race([
-        pollInProgress,
+        Promise.all(waitPromises),
         new Promise<void>(resolve => setTimeout(resolve, STOP_TIMEOUT)),
       ]);
     }

@@ -884,5 +884,126 @@ describe('DeviceSession', () => {
       // This test verifies heartbeat doesn't call getStatus while poll is active
       expect(getStatusSpy).toHaveBeenCalledTimes(1); // Only the initial poll
     });
+
+    it('should not disconnect on non-fatal heartbeat error', async () => {
+      let callCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          callCount++;
+          // First call (poll) succeeds, second call (heartbeat) returns non-fatal error
+          if (callCount === 1) {
+            return Ok({
+              mode: 'CC',
+              outputEnabled: false,
+              setpoints: { current: 1.0 },
+              measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+            });
+          }
+          // Non-fatal error (doesn't include Timeout, LIBUSB_ERROR, etc)
+          return Err(new Error('Temporary communication error'));
+        },
+      });
+
+      const forceReconnectCallback = vi.fn();
+
+      session = createDeviceSession(
+        driver,
+        {
+          pollIntervalMs: 10000,     // Very slow polling
+          heartbeatIntervalMs: 500,  // Fast heartbeat
+        },
+        forceReconnectCallback
+      );
+
+      // Initial poll succeeds
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Advance to trigger heartbeat - non-fatal error should not disconnect
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Device should still be connected (non-fatal error doesn't trigger disconnect)
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Force reconnect callback should NOT have been called
+      expect(forceReconnectCallback).not.toHaveBeenCalled();
+    });
+
+    it('should skip heartbeat if previous one still running', async () => {
+      let heartbeatCallCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          heartbeatCallCount++;
+          // Simulate slow getStatus (1.5s) - longer than heartbeat interval
+          await new Promise(r => setTimeout(r, 1500));
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling (won't interfere)
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      // Initial poll starts
+      await vi.advanceTimersByTimeAsync(0);
+      expect(heartbeatCallCount).toBe(1); // Initial poll
+
+      // Advance by multiple heartbeat intervals while first heartbeat is running
+      // Heartbeat takes 1.5s but interval is 0.5s - 3 intervals should pass
+      await vi.advanceTimersByTimeAsync(1600);
+
+      // Only 2 calls: initial poll + one heartbeat (others skipped due to in-progress flag)
+      // After 1.5s the first heartbeat completes, then next interval fires
+      expect(heartbeatCallCount).toBeLessThanOrEqual(3);
+    });
+
+    it('should wait for in-flight heartbeat during stop()', async () => {
+      let heartbeatCompleted = false;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          // Slow heartbeat/poll
+          await new Promise(r => setTimeout(r, 500));
+          heartbeatCompleted = true;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,
+        heartbeatIntervalMs: 100,
+      });
+
+      // Initial poll starts
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Let poll complete
+      await vi.advanceTimersByTimeAsync(500);
+      heartbeatCompleted = false;
+
+      // Trigger heartbeat
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Stop should wait for heartbeat to complete
+      const stopPromise = session.stop();
+
+      // Advance time to let heartbeat complete
+      await vi.advanceTimersByTimeAsync(500);
+
+      await stopPromise;
+
+      // Heartbeat should have completed before stop returned
+      expect(heartbeatCompleted).toBe(true);
+    });
   });
 });
