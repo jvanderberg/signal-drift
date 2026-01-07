@@ -20,7 +20,7 @@ import type { ServerMessage, Result, OscilloscopeSessionState, ConnectionStatus,
 
 export interface OscilloscopeSessionConfig {
   statusPollIntervalMs?: number;  // Slow poll for trigger status (default: 500ms)
-  maxConsecutiveErrors?: number;
+  maxConsecutiveErrors?: number;  // Max USB errors before disconnect (default: 3)
 }
 
 // Re-export for consumers that import from this module
@@ -76,7 +76,7 @@ export interface OscilloscopeSession {
 
 const DEFAULT_CONFIG: Required<OscilloscopeSessionConfig> = {
   statusPollIntervalMs: 500,
-  maxConsecutiveErrors: 5,
+  maxConsecutiveErrors: 3,
 };
 
 export function createOscilloscopeSession(
@@ -595,6 +595,29 @@ export function createOscilloscopeSession(
             // Log channel-specific errors
             console.warn(`[OscilloscopeSession] Waveform fetch failed for ${channel}: ${errorMsg}`);
 
+            // Check for timeout errors - these indicate a stale USB handle
+            // A single timeout is fatal - tear down immediately and let scanner reconnect
+            const isTimeoutError = errorMsg.includes('Timeout waiting for USB response') ||
+                                   errorMsg.includes('LIBUSB_TRANSFER_TIMED_OUT');
+
+            if (isTimeoutError) {
+              // Timeout is fatal - immediately disconnect to trigger fresh reconnection
+              connectionStatus = 'disconnected';
+              broadcast({
+                type: 'field',
+                deviceId: driver.info.id,
+                field: 'connectionStatus',
+                value: 'disconnected',
+              });
+              console.log(`[OscilloscopeSession] DISCONNECTED due to timeout: ${driver.info.id} - triggering immediate reconnection`);
+              if (streamingTimer) {
+                clearTimeout(streamingTimer);
+                streamingTimer = null;
+              }
+              broadcastStreamingState();
+              return;
+            }
+
             if (errorMsg.includes('LIBUSB_ERROR_NO_DEVICE') ||
                 errorMsg.includes('LIBUSB_ERROR_IO') ||
                 errorMsg.includes('LIBUSB_ERROR_PIPE')) {
@@ -608,7 +631,10 @@ export function createOscilloscopeSession(
                   value: 'disconnected',
                 });
                 console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
-                streamingTimer = null;
+                if (streamingTimer) {
+                  clearTimeout(streamingTimer);
+                  streamingTimer = null;
+                }
                 broadcastStreamingState();
                 return;
               }
@@ -1177,6 +1203,10 @@ export function createOscilloscopeSession(
       driver = newDriver;
       consecutiveErrors = 0;
       connectionStatus = 'connected';
+
+      // Clear caches - device state may have changed after power cycle
+      waveformCache.clear();
+      freqCache.clear();
 
       broadcast({
         type: 'field',
