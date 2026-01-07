@@ -252,7 +252,7 @@ export function createOscilloscopeSimulator(
   /**
    * CH4: Input current (inductor current)
    * Triangle wave: ramps up during on-time, ramps down during off-time
-   * Displayed as voltage using current sense (0.1V/A)
+   * Displayed as voltage using current sense (1V/A)
    */
   function generateInputCurrent(
     cyclePos: number,
@@ -263,7 +263,7 @@ export function createOscilloscopeSimulator(
 
     const iAvg = state.inputCurrent;
     const iRipple = state.inductorRipple;
-    const currentSenseGain = 0.1;  // 0.1V per amp
+    const currentSenseGain = 1.0;  // 1V per amp
 
     // Triangle wave centered on average current
     let current: number;

@@ -341,13 +341,14 @@ export function createVirtualConnection(
     }
 
     // Adjust duty cycle based on load current to compensate for losses:
-    // - Rds(on) losses in the switch
-    // - Inductor DCR losses
-    // - Diode forward voltage drop
+    // - Rds(on) losses in the switch (~50-200mΩ)
+    // - Inductor DCR losses (~50-200mΩ)
+    // - Diode forward voltage drop (~0.5-0.7V)
     // In a closed-loop converter, the controller increases duty cycle to maintain
     // the target output voltage despite losses. The output voltage stays at target.
     // Model: D_actual = D_ideal + k * I_out where k represents loss compensation
-    const lossCompensation = 0.02 * loadDemandedCurrent; // ~2% duty increase per amp of load
+    // Real hobby converters with higher-loss components need ~5-10% per amp
+    const lossCompensation = 0.08 * loadDemandedCurrent; // ~8% duty increase per amp of load
     dutyCycle = Math.max(0, Math.min(0.9, idealDutyCycle + lossCompensation));
     // Note: boostOutputVoltage stays at target (closed-loop regulation)
 
