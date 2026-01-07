@@ -56,4 +56,5 @@ export {
   GRID_COLS,
   GRID_BREAKPOINTS,
   ROW_HEIGHT,
+  type PanelDefaults,
 } from './layoutStore';
