@@ -27,12 +27,12 @@
 import type { DeviceDriver, OscilloscopeDriver } from '../types.js';
 import {
   createVirtualConnection,
+  createPsuSimulator,
+  createLoadSimulator,
+  createOscilloscopeSimulator,
   type VirtualConnection,
   type VirtualConnectionConfig,
-} from './virtual-connection.js';
-import { createPsuSimulator } from './psu-simulator.js';
-import { createLoadSimulator } from './load-simulator.js';
-import { createOscilloscopeSimulator } from './oscilloscope-simulator.js';
+} from '../../../shared/simulation/index.js';
 import { createSimulatedTransport } from './simulated-transport.js';
 import { createMatrixWPS300S } from '../drivers/matrix-wps300s.js';
 import { createRigolDL3021 } from '../drivers/rigol-dl3021.js';
@@ -192,8 +192,12 @@ export function createSimulatedDevices(
   };
 }
 
-// Re-export types
-export type { VirtualConnection, VirtualConnectionConfig, BoostConverterState } from './virtual-connection.js';
-export type { PsuSimulator } from './psu-simulator.js';
-export type { LoadSimulator } from './load-simulator.js';
-export type { OscilloscopeSimulator } from './oscilloscope-simulator.js';
+// Re-export types from shared simulation
+export type {
+  VirtualConnection,
+  VirtualConnectionConfig,
+  BoostConverterState,
+  PsuSimulator,
+  LoadSimulator,
+  OscilloscopeSimulator,
+} from '../../../shared/simulation/index.js';

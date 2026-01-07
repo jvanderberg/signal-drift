@@ -27,10 +27,16 @@ import type {
   DashboardLayoutData,
   WaveformData,
 } from '../../shared/types';
-import { createVirtualConnection, type VirtualConnection } from './virtual-connection';
-import { createPsuSimulator, type PsuSimulator } from './psu-simulator';
-import { createLoadSimulator, type LoadSimulator } from './load-simulator';
-import { createOscilloscopeSimulator, type OscilloscopeSimulator } from './oscilloscope-simulator';
+import {
+  createVirtualConnection,
+  createPsuSimulator,
+  createLoadSimulator,
+  createOscilloscopeSimulator,
+  type VirtualConnection,
+  type PsuSimulator,
+  type LoadSimulator,
+  type OscilloscopeSimulator,
+} from '../../shared/simulation';
 
 interface SimulatedDevice {
   id: string;

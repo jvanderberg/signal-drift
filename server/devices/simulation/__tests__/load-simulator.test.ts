@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createLoadSimulator, type LoadSimulator } from '../load-simulator.js';
-import { createVirtualConnection, type VirtualConnection } from '../virtual-connection.js';
+import { createLoadSimulator, type LoadSimulator } from '../../../../shared/simulation/load-simulator.js';
+import { createVirtualConnection, type VirtualConnection } from '../../../../shared/simulation/virtual-connection.js';
 
 describe('LoadSimulator', () => {
   let conn: VirtualConnection;

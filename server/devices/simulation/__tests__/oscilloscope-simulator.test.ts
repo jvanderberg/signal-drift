@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createOscilloscopeSimulator, type OscilloscopeSimulator } from '../oscilloscope-simulator.js';
-import { createVirtualConnection, type VirtualConnection } from '../virtual-connection.js';
-import { createPsuSimulator, type PsuSimulator } from '../psu-simulator.js';
-import { createLoadSimulator, type LoadSimulator } from '../load-simulator.js';
+import { createOscilloscopeSimulator, type OscilloscopeSimulator } from '../../../../shared/simulation/oscilloscope-simulator.js';
+import { createVirtualConnection, type VirtualConnection } from '../../../../shared/simulation/virtual-connection.js';
+import { createPsuSimulator, type PsuSimulator } from '../../../../shared/simulation/psu-simulator.js';
+import { createLoadSimulator, type LoadSimulator } from '../../../../shared/simulation/load-simulator.js';
 
 describe('OscilloscopeSimulator', () => {
   let conn: VirtualConnection;

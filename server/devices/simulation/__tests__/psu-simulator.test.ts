@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createPsuSimulator, type PsuSimulator } from '../psu-simulator.js';
-import { createVirtualConnection, type VirtualConnection } from '../virtual-connection.js';
+import { createPsuSimulator, type PsuSimulator } from '../../../../shared/simulation/psu-simulator.js';
+import { createVirtualConnection, type VirtualConnection } from '../../../../shared/simulation/virtual-connection.js';
 
 describe('PsuSimulator', () => {
   let conn: VirtualConnection;
