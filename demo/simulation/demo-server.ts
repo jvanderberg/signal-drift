@@ -29,13 +29,15 @@ import type {
 import { createVirtualConnection, type VirtualConnection } from './virtual-connection';
 import { createPsuSimulator, type PsuSimulator } from './psu-simulator';
 import { createLoadSimulator, type LoadSimulator } from './load-simulator';
+import { createOscilloscopeSimulator, type OscilloscopeSimulator } from './oscilloscope-simulator';
 
 interface SimulatedDevice {
   id: string;
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
-  simulator: PsuSimulator | LoadSimulator;
+  simulator: PsuSimulator | LoadSimulator | OscilloscopeSimulator;
   isPsu: boolean;
+  isOscilloscope?: boolean;
 }
 
 interface DeviceSession {
@@ -154,6 +156,7 @@ export function createDemoServer(): DemoServer {
   let connection: VirtualConnection;
   let psuDevice: SimulatedDevice;
   let loadDevice: SimulatedDevice;
+  let scopeDevice: SimulatedDevice;
 
   function broadcast(message: ServerMessage): void {
     for (const handler of messageHandlers) {
@@ -241,9 +244,33 @@ export function createDemoServer(): DemoServer {
       isPsu: false,
     };
 
+    const scopeSimulator = createOscilloscopeSimulator(connection, 'DS1ZA000000001');
+    scopeDevice = {
+      id: 'rigol-ds1054z-demo',
+      info: {
+        id: 'rigol-ds1054z-demo',
+        type: 'oscilloscope',
+        manufacturer: 'Rigol',
+        model: 'DS1054Z',
+        serial: 'DS1ZA000000001',
+      },
+      // Oscilloscope capabilities - simplified for demo
+      capabilities: {
+        deviceClass: 'oscilloscope',
+        channels: 4,
+        maxSampleRate: 1e9,
+        maxBandwidth: 50e6,
+        memoryDepth: 12000,
+      } as unknown as DeviceCapabilities,
+      simulator: scopeSimulator,
+      isPsu: false,
+      isOscilloscope: true,
+    };
+
     // Create sessions
     sessions.set(psuDevice.id, createSession(psuDevice));
     sessions.set(loadDevice.id, createSession(loadDevice));
+    sessions.set(scopeDevice.id, createSession(scopeDevice));
   }
 
   function createSession(device: SimulatedDevice): DeviceSession {

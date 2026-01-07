@@ -1,6 +1,6 @@
 /**
  * Virtual Connection (Browser-compatible version)
- * Links PSU and Load electrically for simulation
+ * Links PSU and Load electrically for simulation with boost converter
  */
 
 export interface VirtualConnectionConfig {
@@ -8,6 +8,22 @@ export interface VirtualConnectionConfig {
   measurementNoiseFloorMv?: number;
   psuOutputImpedance?: number;
   loadCvGain?: number;
+  // Boost converter parameters
+  boostTargetVoltage?: number;
+  boostSwitchingFrequency?: number;
+  boostEfficiency?: number;
+}
+
+export interface BoostConverterState {
+  inputVoltage: number;
+  outputVoltage: number;
+  dutyCycle: number;
+  inputCurrent: number;
+  outputCurrent: number;
+  switchingFrequency: number;
+  active: boolean;
+  outputRipple: number;
+  inductorRipple: number;
 }
 
 export interface VirtualConnection {
@@ -26,6 +42,7 @@ export interface VirtualConnection {
   getLoadPower(): number;
   getLoadResistance(): number;
 
+  getBoostConverterState(): BoostConverterState;
   getConfig(): Required<VirtualConnectionConfig>;
 }
 
@@ -43,6 +60,9 @@ const DEFAULT_CONFIG: Required<VirtualConnectionConfig> = {
   measurementNoiseFloorMv: 1.0,
   psuOutputImpedance: 0.005,
   loadCvGain: 10,
+  boostTargetVoltage: 24,
+  boostSwitchingFrequency: 200000,
+  boostEfficiency: 0.90,
 };
 
 export function createVirtualConnection(
@@ -221,6 +241,58 @@ export function createVirtualConnection(
       const { voltage, current } = calculateCircuit();
       if (current < 0.0001) return 0;
       return addJitter(voltage / current);
+    },
+
+    getBoostConverterState(): BoostConverterState {
+      const psuVoltage = state.psuOutputEnabled ? state.psuVoltage : 0;
+      const targetVout = resolvedConfig.boostTargetVoltage;
+      const switchingFrequency = resolvedConfig.boostSwitchingFrequency;
+      const efficiency = resolvedConfig.boostEfficiency;
+
+      // Boost converter is active when PSU is on and has voltage
+      const active = state.psuOutputEnabled && psuVoltage > 0;
+
+      if (!active) {
+        return {
+          inputVoltage: 0,
+          outputVoltage: 0,
+          dutyCycle: 0,
+          inputCurrent: 0,
+          outputCurrent: 0,
+          switchingFrequency,
+          active: false,
+          outputRipple: 0,
+          inductorRipple: 0,
+        };
+      }
+
+      // Calculate duty cycle: D = 1 - Vin/Vout for boost converter
+      const dutyCycle = Math.max(0, Math.min(0.9, 1 - (psuVoltage / targetVout)));
+
+      // Calculate output current based on load
+      const { current: loadCurrent } = calculateCircuit();
+      const outputCurrent = state.loadInputEnabled ? loadCurrent : 0;
+
+      // Input current = output current * Vout / (Vin * efficiency)
+      const inputCurrent = outputCurrent > 0
+        ? (outputCurrent * targetVout) / (psuVoltage * efficiency)
+        : 0;
+
+      // Simplified ripple calculations
+      const inductorRipple = inputCurrent * 0.3; // 30% ripple
+      const outputRipple = targetVout * 0.02; // 2% output ripple
+
+      return {
+        inputVoltage: psuVoltage,
+        outputVoltage: targetVout,
+        dutyCycle,
+        inputCurrent,
+        outputCurrent,
+        switchingFrequency,
+        active,
+        outputRipple,
+        inductorRipple,
+      };
     },
 
     getConfig(): Required<VirtualConnectionConfig> {
