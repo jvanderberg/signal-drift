@@ -368,12 +368,29 @@ export function createOscilloscopeSession(
   }
 
   function broadcast(message: ServerMessage): void {
+    // Add timestamp to high-frequency messages for stale message filtering
+    const timestampedMessage = addMessageTimestamp(message);
     for (const callback of subscribers.values()) {
       try {
-        callback(message);
+        callback(timestampedMessage);
       } catch (err) {
         console.error('Subscriber callback error:', err);
       }
+    }
+  }
+
+  // Add timestamp to high-frequency messages (scopeWaveform, field, measurement)
+  function addMessageTimestamp(message: ServerMessage): ServerMessage {
+    const timestamp = Date.now();
+    switch (message.type) {
+      case 'scopeWaveform':
+        return { ...message, timestamp };
+      case 'field':
+        return { ...message, timestamp };
+      case 'measurement':
+        return { ...message, timestamp };
+      default:
+        return message;
     }
   }
 

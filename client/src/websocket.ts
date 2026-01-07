@@ -5,9 +5,13 @@
  * - Reconnection with exponential backoff (1s, 2s, 4s... max 30s)
  * - Message queuing during reconnection
  * - Observable connection state
+ * - Stale message filtering after tab sleep/background
+ * - Tab keep-alive to prevent browser throttling
  */
 
 import type { ClientMessage, ServerMessage } from '../../shared/types';
+import { getVisibilityTracker } from './hooks/usePageVisibility';
+import { getTabKeepAlive } from './tabKeepAlive';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -18,6 +22,8 @@ interface WebSocketManagerOptions {
   url?: string;
   maxReconnectDelay?: number;
   initialReconnectDelay?: number;
+  /** Max age of messages to process after waking from sleep (ms). Default: 2000 */
+  staleMessageThresholdMs?: number;
 }
 
 export interface WebSocketManager {
@@ -44,7 +50,20 @@ const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
   url: getWebSocketUrl(),
   maxReconnectDelay: 30000,
   initialReconnectDelay: 1000,
+  staleMessageThresholdMs: 2000,
 };
+
+// High-frequency message types that can be filtered
+const TIMESTAMPED_MESSAGE_TYPES: Set<string> = new Set(['scopeWaveform', 'field', 'measurement']);
+
+// Extract timestamp from messages that have it
+function getMessageTimestamp(message: ServerMessage): number | undefined {
+  if (!TIMESTAMPED_MESSAGE_TYPES.has(message.type)) {
+    return undefined;
+  }
+  // TypeScript doesn't know these types have timestamp, so we cast
+  return (message as { timestamp?: number }).timestamp;
+}
 
 let instance: WebSocketManager | null = null;
 
@@ -64,9 +83,33 @@ export function createWebSocketManager(options: WebSocketManagerOptions = {}): W
   const messageHandlers = new Set<MessageHandler>();
   const stateHandlers = new Set<StateHandler>();
 
+  // Visibility and stale message tracking
+  const visibilityTracker = getVisibilityTracker();
+  const tabKeepAlive = getTabKeepAlive();
+  let discardStaleUntil: number | null = null;
+  let staleMessagesDiscarded = 0;
+
+  // When visibility changes, set up stale message filtering
+  visibilityTracker.onVisibilityChange((isVisible, hiddenDuration) => {
+    if (isVisible && hiddenDuration !== null && hiddenDuration > 1000) {
+      // Page was hidden for more than 1 second - enable stale filtering
+      discardStaleUntil = Date.now() + 500; // Filter for next 500ms
+      staleMessagesDiscarded = 0;
+      console.debug(`[WebSocket] Woke after ${hiddenDuration}ms, filtering stale messages`);
+    }
+  });
+
   function setState(newState: ConnectionState): void {
     if (state !== newState) {
       state = newState;
+
+      // Manage tab keep-alive based on connection state
+      if (newState === 'connected') {
+        tabKeepAlive.start();
+      } else if (newState === 'disconnected') {
+        tabKeepAlive.stop();
+      }
+
       for (const handler of stateHandlers) {
         try {
           handler(newState);
@@ -77,9 +120,41 @@ export function createWebSocketManager(options: WebSocketManagerOptions = {}): W
     }
   }
 
+  function shouldDiscardMessage(message: ServerMessage): boolean {
+    // Only filter during the post-wake window
+    if (!discardStaleUntil || Date.now() > discardStaleUntil) {
+      if (discardStaleUntil && staleMessagesDiscarded > 0) {
+        console.debug(`[WebSocket] Stale filtering complete, discarded ${staleMessagesDiscarded} messages`);
+        discardStaleUntil = null;
+        staleMessagesDiscarded = 0;
+      }
+      return false;
+    }
+
+    const timestamp = getMessageTimestamp(message);
+    if (timestamp === undefined) {
+      // Non-timestamped messages always pass through
+      return false;
+    }
+
+    const age = Date.now() - timestamp;
+    if (age > opts.staleMessageThresholdMs) {
+      staleMessagesDiscarded++;
+      return true;
+    }
+
+    return false;
+  }
+
   function handleMessage(event: MessageEvent): void {
     try {
       const message = JSON.parse(event.data) as ServerMessage;
+
+      // Filter stale messages after waking from sleep
+      if (shouldDiscardMessage(message)) {
+        return;
+      }
+
       for (const handler of messageHandlers) {
         try {
           handler(message);
