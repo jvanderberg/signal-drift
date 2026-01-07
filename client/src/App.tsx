@@ -8,7 +8,7 @@ import { ToastContainer } from './components/ToastContainer';
 import { DeviceSidebar } from './components/DeviceSidebar';
 import { SequencePanel } from './components/sequencer';
 import { TriggerScriptPanel } from './components/triggers';
-import { DashboardGrid, getDevicePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
+import { DashboardGrid, getDevicePanelKey, getOscilloscopePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
 import { useState } from 'react';
 import type { PanelDefaults } from './stores';
 
@@ -46,6 +46,8 @@ function App() {
       for (const item of layouts[bp]) {
         if (item.i.startsWith('device-')) {
           ids.add(item.i.replace('device-', ''));
+        } else if (item.i.startsWith('oscilloscope-')) {
+          ids.add(item.i.replace('oscilloscope-', ''));
         }
       }
     }
@@ -64,7 +66,9 @@ function App() {
 
   // Handle sidebar device click - open panel (close via panel's X button only)
   const handleDeviceClick = useCallback((device: DeviceSummary) => {
-    const key = getDevicePanelKey(device.id);
+    const key = device.info.type === 'oscilloscope'
+      ? getOscilloscopePanelKey(device.id)
+      : getDevicePanelKey(device.id);
     if (!hasPanel(key)) {
       // Use appropriate defaults based on device type
       const defaults = device.info.type === 'oscilloscope' ? OSCILLOSCOPE_PANEL_DEFAULTS
@@ -76,8 +80,11 @@ function App() {
     setSidebarOpen(false);
   }, [addPanel, hasPanel]);
 
-  const handleDeviceClose = useCallback((deviceId: string) => {
-    removePanel(getDevicePanelKey(deviceId));
+  const handleDeviceClose = useCallback((device: DeviceSummary) => {
+    const key = device.info.type === 'oscilloscope'
+      ? getOscilloscopePanelKey(device.id)
+      : getDevicePanelKey(device.id);
+    removePanel(key);
   }, [removePanel]);
 
   const handleSequencerClick = useCallback(() => {
@@ -184,9 +191,9 @@ function App() {
             {openDevices.map(device => (
               device.info.type === 'oscilloscope' ? (
                 <OscilloscopePanel
-                  key={getDevicePanelKey(device.id)}
+                  key={getOscilloscopePanelKey(device.id)}
                   device={device}
-                  onClose={() => handleDeviceClose(device.id)}
+                  onClose={() => handleDeviceClose(device)}
                   onError={error}
                   onSuccess={success}
                 />
@@ -194,7 +201,7 @@ function App() {
                 <DevicePanel
                   key={getDevicePanelKey(device.id)}
                   device={device}
-                  onClose={() => handleDeviceClose(device.id)}
+                  onClose={() => handleDeviceClose(device)}
                   onError={error}
                   onSuccess={success}
                 />

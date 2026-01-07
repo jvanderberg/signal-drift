@@ -298,6 +298,36 @@ describe('layoutStore', () => {
       expect(state.layouts.xs.find(p => p.i === 'new-panel')?.w).toBe(GRID_COLS.xs);
       expect(state.layouts.sm.find(p => p.i === 'new-panel')?.w).toBe(GRID_COLS.sm);
     });
+
+    it('should use shorter height for device panels', () => {
+      act(() => {
+        useLayoutStore.getState().addPanel('device-test-123');
+      });
+
+      const state = useLayoutStore.getState();
+      // Device panels should use height 15 (~450px)
+      expect(state.layouts.lg.find(p => p.i === 'device-test-123')?.h).toBe(15);
+    });
+
+    it('should use taller height for oscilloscope panels', () => {
+      act(() => {
+        useLayoutStore.getState().addPanel('oscilloscope-test-456');
+      });
+
+      const state = useLayoutStore.getState();
+      // Oscilloscope panels should use height 20 (~600px)
+      expect(state.layouts.lg.find(p => p.i === 'oscilloscope-test-456')?.h).toBe(20);
+    });
+
+    it('should use default height for other panels like sequencer', () => {
+      act(() => {
+        useLayoutStore.getState().addPanel('sequencer');
+      });
+
+      const state = useLayoutStore.getState();
+      // Non-oscilloscope panels should use default height 15
+      expect(state.layouts.lg.find(p => p.i === 'sequencer')?.h).toBe(15);
+    });
   });
 
   describe('removePanel', () => {
