@@ -279,9 +279,11 @@ export function createVirtualConnection(
     }
 
     // Calculate ideal duty cycle: D = 1 - Vin/Vout
-    // Clamp to valid range
-    let dutyCycle = 1 - (psuVoltage / targetVout);
-    dutyCycle = Math.max(0, Math.min(0.9, dutyCycle)); // Max 90% duty cycle for stability
+    // This will be adjusted below based on load current to compensate for losses
+    const idealDutyCycle = 1 - (psuVoltage / targetVout);
+
+    // Start with ideal duty cycle, will be adjusted after calculating load
+    let dutyCycle = Math.max(0, Math.min(0.9, idealDutyCycle));
 
     // Actual boost output voltage (may be limited by duty cycle constraint)
     let boostOutputVoltage = psuVoltage / (1 - dutyCycle);
@@ -337,6 +339,17 @@ export function createVirtualConnection(
       default:
         loadDemandedCurrent = 0;
     }
+
+    // Adjust duty cycle based on load current to compensate for losses:
+    // - Rds(on) losses in the switch
+    // - Inductor DCR losses
+    // - Diode forward voltage drop
+    // In a closed-loop converter, the controller increases duty cycle to maintain
+    // the target output voltage despite losses. The output voltage stays at target.
+    // Model: D_actual = D_ideal + k * I_out where k represents loss compensation
+    const lossCompensation = 0.02 * loadDemandedCurrent; // ~2% duty increase per amp of load
+    dutyCycle = Math.max(0, Math.min(0.9, idealDutyCycle + lossCompensation));
+    // Note: boostOutputVoltage stays at target (closed-loop regulation)
 
     // Calculate required input current from PSU
     // Pin = Pout / efficiency, and Pin = Vin * Iin, Pout = Vout * Iout

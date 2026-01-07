@@ -65,8 +65,8 @@ export function createOscilloscopeSimulator(
   const channels: Record<string, ChannelState> = {};
   for (let i = 1; i <= NUM_CHANNELS; i++) {
     channels[`CHAN${i}`] = {
-      enabled: i <= 2,  // CH1 and CH2 enabled by default
-      scale: i === 3 ? 5 : 2,  // 5V/div for output, 2V/div for others
+      enabled: true,  // All 4 channels enabled by default
+      scale: i === 3 ? 5 : i === 4 ? 0.5 : 2,  // 5V/div for output, 0.5V for current, 2V for others
       offset: 0,
       coupling: 'DC',
       probe: 1,

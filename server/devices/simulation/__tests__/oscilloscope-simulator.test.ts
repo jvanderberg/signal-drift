@@ -50,10 +50,11 @@ describe('OscilloscopeSimulator', () => {
 
   describe('Channel Commands', () => {
     it('should query channel display state', () => {
-      expect(scope.handleCommand(':CHAN1:DISP?')).toBe('1');  // Enabled by default
-      expect(scope.handleCommand(':CHAN2:DISP?')).toBe('1');  // Enabled by default
-      expect(scope.handleCommand(':CHAN3:DISP?')).toBe('0');  // Disabled by default
-      expect(scope.handleCommand(':CHAN4:DISP?')).toBe('0');  // Disabled by default
+      // All 4 channels enabled by default
+      expect(scope.handleCommand(':CHAN1:DISP?')).toBe('1');
+      expect(scope.handleCommand(':CHAN2:DISP?')).toBe('1');
+      expect(scope.handleCommand(':CHAN3:DISP?')).toBe('1');
+      expect(scope.handleCommand(':CHAN4:DISP?')).toBe('1');
     });
 
     it('should enable/disable channel display', () => {
