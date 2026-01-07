@@ -159,6 +159,10 @@ export function getDevicePanelKey(deviceId: string): string {
   return `device-${deviceId}`;
 }
 
+export function getOscilloscopePanelKey(deviceId: string): string {
+  return `oscilloscope-${deviceId}`;
+}
+
 export function getSequencerPanelKey(): string {
   return 'sequencer';
 }
