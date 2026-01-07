@@ -72,9 +72,15 @@ signal-drift/
 ```
 
 ## Key Design Decisions
-### 0. TDD TDD TDD
+### 0. TDD TDD TDD - Testing is Mandatory
 
-Use test driven development for all the things.,
+**Use test driven development for all the things.**
+
+**CRITICAL: Before every commit, you MUST:**
+1. Run `npm run typecheck` - must pass with zero errors
+2. Run `npm run test:run` - ALL tests must pass
+
+**Never commit code that breaks tests.** If tests fail after your changes, either fix the code or fix the tests. Do not skip this step.
 
 ### 1. Shared Types (Single Source of Truth)
 
@@ -1260,6 +1266,13 @@ Client                          Server                         Device
 
 ## Testing Strategy
 
+**MANDATORY: Run tests before every commit:**
+```bash
+npm run typecheck    # Must pass with zero errors
+npm run test:run     # ALL tests must pass
+```
+
+**General approach:**
 - Mock transports for driver unit tests
 - Mock API for React component tests
 - Real hardware for integration tests (automated)
