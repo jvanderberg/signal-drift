@@ -36,9 +36,21 @@ export const ROW_HEIGHT = 30;
 
 // Default panel dimensions (in grid units)
 const DEFAULT_PANEL_WIDTH = 6;
-const DEFAULT_PANEL_HEIGHT = 20;  // ~600px - gives room for oscilloscope waveform
 const DEFAULT_PANEL_MIN_WIDTH = 4;
 const DEFAULT_PANEL_MIN_HEIGHT = 8;
+
+// Panel-type specific heights
+const DEFAULT_DEVICE_PANEL_HEIGHT = 15;       // ~450px - fits PSU/Load panels with chart
+const DEFAULT_OSCILLOSCOPE_PANEL_HEIGHT = 20; // ~600px - gives room for oscilloscope waveform
+
+// Determine default height based on panel key
+function getDefaultPanelHeight(key: string): number {
+  if (key.startsWith('oscilloscope-')) {
+    return DEFAULT_OSCILLOSCOPE_PANEL_HEIGHT;
+  }
+  // Default for device panels, sequencer, trigger scripts, etc.
+  return DEFAULT_DEVICE_PANEL_HEIGHT;
+}
 
 // Debounce delay for saving layouts (ms)
 // Balances responsiveness with avoiding excessive server writes during rapid adjustments
@@ -169,7 +181,7 @@ function generateResponsiveLayouts(
         x,
         y,
         w: width,
-        h: DEFAULT_PANEL_HEIGHT,
+        h: getDefaultPanelHeight(key),
         minW: Math.min(DEFAULT_PANEL_MIN_WIDTH, cols),
         minH: DEFAULT_PANEL_MIN_HEIGHT,
       },
