@@ -29,6 +29,47 @@ function createTabKeepAlive(): TabKeepAliveInternal {
   let gainNode: GainNode | null = null;
   let wakeLock: WakeLockSentinel | null = null;
   let active = false;
+  let userGestureHandler: (() => void) | null = null;
+
+  /**
+   * Resume AudioContext after user gesture
+   * Browsers require user interaction before allowing audio playback
+   */
+  function resumeAudioContext(): void {
+    if (audioContext?.state === 'suspended') {
+      audioContext.resume().then(() => {
+        console.debug('[TabKeepAlive] AudioContext resumed after user gesture');
+        removeUserGestureListener();
+      }).catch(() => {
+        // Ignore resume errors
+      });
+    }
+  }
+
+  /**
+   * Add listener for user gesture to resume AudioContext
+   */
+  function addUserGestureListener(): void {
+    if (userGestureHandler) return;
+
+    userGestureHandler = resumeAudioContext;
+    // These events indicate user interaction
+    document.addEventListener('click', userGestureHandler, { once: true });
+    document.addEventListener('keydown', userGestureHandler, { once: true });
+    document.addEventListener('touchstart', userGestureHandler, { once: true });
+  }
+
+  /**
+   * Remove user gesture listeners
+   */
+  function removeUserGestureListener(): void {
+    if (userGestureHandler) {
+      document.removeEventListener('click', userGestureHandler);
+      document.removeEventListener('keydown', userGestureHandler);
+      document.removeEventListener('touchstart', userGestureHandler);
+      userGestureHandler = null;
+    }
+  }
 
   /**
    * Start silent audio playback
@@ -56,7 +97,13 @@ function createTabKeepAlive(): TabKeepAliveInternal {
       // Start the oscillator
       oscillator.start();
 
-      console.debug('[TabKeepAlive] Silent audio started');
+      // If AudioContext is suspended (no user gesture yet), wait for one
+      if (audioContext.state === 'suspended') {
+        console.debug('[TabKeepAlive] AudioContext suspended, waiting for user gesture');
+        addUserGestureListener();
+      } else {
+        console.debug('[TabKeepAlive] Silent audio started');
+      }
     } catch (err) {
       console.warn('[TabKeepAlive] Failed to start silent audio:', err);
     }
@@ -176,6 +223,7 @@ function createTabKeepAlive(): TabKeepAliveInternal {
 
   function cleanup(): void {
     stop();
+    removeUserGestureListener();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
   }
 
