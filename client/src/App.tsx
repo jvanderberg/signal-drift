@@ -142,11 +142,11 @@ function App() {
             </button>
             {/* Confirmation overlay */}
             <div
-              className={`absolute right-0 flex items-center gap-2 transition-opacity duration-150 ease-out ${
+              className={`absolute right-0 flex items-center gap-2 whitespace-nowrap transition-opacity duration-150 ease-out ${
                 clearLayoutConfirm ? 'opacity-100' : 'opacity-0 pointer-events-none'
               }`}
             >
-              <span className="text-xs text-[var(--color-text-secondary)]">Clear layout?</span>
+              <span className="text-xs text-[var(--color-text-primary)]">Clear layout?</span>
               <button
                 className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)] transition-colors duration-100"
                 onClick={() => setClearLayoutConfirm(false)}
