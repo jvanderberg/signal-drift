@@ -10,6 +10,12 @@ import { SequencePanel } from './components/sequencer';
 import { TriggerScriptPanel } from './components/triggers';
 import { DashboardGrid, getDevicePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
 import { useState } from 'react';
+import type { PanelDefaults } from './stores';
+
+// Widget size defaults - each widget type specifies its own preferred dimensions
+const DEVICE_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px - PSU/Load panels
+const SEQUENCER_PANEL_DEFAULTS: PanelDefaults = { height: 14 };  // ~420px
+const TRIGGER_SCRIPTS_PANEL_DEFAULTS: PanelDefaults = { height: 14 };  // ~420px
 
 function App() {
   const { devices, isLoading, scan } = useDeviceList();
@@ -57,7 +63,7 @@ function App() {
   const handleDeviceClick = useCallback((device: DeviceSummary) => {
     const key = getDevicePanelKey(device.id);
     if (!hasPanel(key)) {
-      addPanel(key);
+      addPanel(key, DEVICE_PANEL_DEFAULTS);
     }
     // Always close sidebar
     setSidebarOpen(false);
@@ -70,7 +76,7 @@ function App() {
   const handleSequencerClick = useCallback(() => {
     const key = getSequencerPanelKey();
     if (!hasPanel(key)) {
-      addPanel(key);
+      addPanel(key, SEQUENCER_PANEL_DEFAULTS);
     }
     setSidebarOpen(false);
   }, [addPanel, hasPanel]);
@@ -78,7 +84,7 @@ function App() {
   const handleTriggerScriptsClick = useCallback(() => {
     const key = getTriggerScriptsPanelKey();
     if (!hasPanel(key)) {
-      addPanel(key);
+      addPanel(key, TRIGGER_SCRIPTS_PANEL_DEFAULTS);
     }
     setSidebarOpen(false);
   }, [addPanel, hasPanel]);

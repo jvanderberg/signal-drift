@@ -36,9 +36,17 @@ export const ROW_HEIGHT = 30;
 
 // Default panel dimensions (in grid units)
 const DEFAULT_PANEL_WIDTH = 6;
-const DEFAULT_PANEL_HEIGHT = 20;  // ~600px - gives room for oscilloscope waveform
+const DEFAULT_PANEL_HEIGHT = 12;  // ~360px - compact default
 const DEFAULT_PANEL_MIN_WIDTH = 4;
 const DEFAULT_PANEL_MIN_HEIGHT = 8;
+
+// Panel size defaults - passed when adding a panel
+export interface PanelDefaults {
+  width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+}
 
 // Debounce delay for saving layouts (ms)
 // Balances responsiveness with avoiding excessive server writes during rapid adjustments
@@ -66,7 +74,7 @@ interface LayoutStoreState {
   updateLayout: (breakpoint: DashboardBreakpoint, layout: Layout, isAutoLayoutChange?: boolean) => void;
   updateSingleItem: (breakpoint: DashboardBreakpoint, item: LayoutItem) => void;
   saveLayoutDebounced: () => void;
-  addPanel: (key: string) => void;
+  addPanel: (key: string, defaults?: PanelDefaults) => void;
   removePanel: (key: string) => void;
   hasPanel: (key: string) => boolean;
   resetLayout: () => void;
@@ -125,19 +133,26 @@ function createEmptyLayouts(): Record<DashboardBreakpoint, DashboardLayoutItem[]
 // Generate responsive layouts for a new panel
 function generateResponsiveLayouts(
   key: string,
-  currentLayouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>
+  currentLayouts: Record<DashboardBreakpoint, DashboardLayoutItem[]>,
+  defaults?: PanelDefaults
 ): Record<DashboardBreakpoint, DashboardLayoutItem[]> {
   const result = { ...currentLayouts };
+
+  // Use provided defaults or fall back to global defaults
+  const panelWidth = defaults?.width ?? DEFAULT_PANEL_WIDTH;
+  const panelHeight = defaults?.height ?? DEFAULT_PANEL_HEIGHT;
+  const panelMinWidth = defaults?.minWidth ?? DEFAULT_PANEL_MIN_WIDTH;
+  const panelMinHeight = defaults?.minHeight ?? DEFAULT_PANEL_MIN_HEIGHT;
 
   for (const bp of Object.keys(GRID_COLS) as DashboardBreakpoint[]) {
     const existingItems = result[bp] || [];
     const cols = GRID_COLS[bp];
 
     // Calculate responsive width
-    let width = DEFAULT_PANEL_WIDTH;
+    let width = panelWidth;
     if (bp === 'xs') width = cols; // Full width on mobile
     else if (bp === 'sm') width = cols; // Full width on tablet
-    else if (bp === 'md') width = Math.min(DEFAULT_PANEL_WIDTH, cols);
+    else if (bp === 'md') width = Math.min(panelWidth, cols);
 
     // Find next position
     let maxY = 0;
@@ -169,9 +184,9 @@ function generateResponsiveLayouts(
         x,
         y,
         w: width,
-        h: DEFAULT_PANEL_HEIGHT,
-        minW: Math.min(DEFAULT_PANEL_MIN_WIDTH, cols),
-        minH: DEFAULT_PANEL_MIN_HEIGHT,
+        h: panelHeight,
+        minW: Math.min(panelMinWidth, cols),
+        minH: panelMinHeight,
       },
     ];
   }
@@ -275,13 +290,13 @@ export const useLayoutStore = create<LayoutStoreState>()(
       set({ _saveDebounceTimer: newTimer });
     },
 
-    addPanel: (key) => {
+    addPanel: (key, defaults) => {
       const { layouts, hasPanel } = get();
       if (hasPanel(key)) {
         return; // Panel already exists
       }
 
-      const newLayouts = generateResponsiveLayouts(key, layouts);
+      const newLayouts = generateResponsiveLayouts(key, layouts, defaults);
       set({ layouts: newLayouts });
       get()._saveToServer();
     },
