@@ -256,12 +256,20 @@ All communication uses WebSocket (no REST API for real-time operations):
 
 ### Testing
 
+**IMPORTANT: Always run tests before committing changes.**
+
 ```bash
-npm test              # Watch mode
-npm run test:run      # Single run
+npm run typecheck     # TypeScript compilation check - MUST pass
+npm run test:run      # Single run - MUST pass before commit
+npm test              # Watch mode (for development)
 npm run test:e2e      # End-to-end tests (requires running server)
 npm run test:e2e:demo # Demo-specific e2e tests
 ```
+
+Before committing ANY changes:
+1. Run `npm run typecheck` - must pass with zero errors
+2. Run `npm run test:run` - all tests must pass
+3. If tests fail, fix them before committing
 
 ### Building
 
