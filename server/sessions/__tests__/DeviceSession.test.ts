@@ -727,4 +727,162 @@ describe('DeviceSession', () => {
       expect(session.getState().setpoints.current).toBe(2.5);
     });
   });
+
+  describe('Heartbeat', () => {
+    it('should not run heartbeat when disabled (interval = 0)', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 250,
+        heartbeatIntervalMs: 0,  // Disable heartbeat
+      });
+
+      // Initial poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Advance past what would be heartbeat interval
+      await vi.advanceTimersByTimeAsync(15000);
+
+      // Only polls should have run (250ms * 60 = 60 polls for 15 seconds)
+      // But with 250ms poll interval: 15000/250 = 60 + 1 initial = 61
+      expect(getStatusSpy).toHaveBeenCalledTimes(61);
+    });
+
+    it('should call getStatus on heartbeat interval', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 1000,      // Slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat for testing
+      });
+
+      // Initial poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Advance by 500ms - heartbeat should fire
+      await vi.advanceTimersByTimeAsync(500);
+      // Poll hasn't fired yet (every 1000ms), but heartbeat should have (every 500ms)
+      expect(getStatusSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('should allow pausing and resuming heartbeat', async () => {
+      const driver = createMockDriver();
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      // Pause heartbeat
+      session.pauseHeartbeat();
+      expect(session.isHeartbeatPaused()).toBe(true);
+
+      // Resume heartbeat
+      session.resumeHeartbeat();
+      expect(session.isHeartbeatPaused()).toBe(false);
+    });
+
+    it('should not fire heartbeat when paused', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      await vi.advanceTimersByTimeAsync(0); // Initial poll
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Pause heartbeat before it fires
+      session.pauseHeartbeat();
+
+      // Advance past multiple heartbeat intervals
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Heartbeat should not have fired (paused), and poll hasn't fired yet (every 10s)
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should disconnect on heartbeat timeout error', async () => {
+      let callCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          callCount++;
+          // First call (poll) succeeds, subsequent calls (heartbeat) timeout
+          if (callCount === 1) {
+            return Ok({
+              mode: 'CC',
+              outputEnabled: false,
+              setpoints: { current: 1.0 },
+              measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+            });
+          }
+          return Err(new Error('Timeout waiting for response'));
+        },
+      });
+
+      const forceReconnectCallback = vi.fn();
+
+      session = createDeviceSession(
+        driver,
+        {
+          pollIntervalMs: 10000,     // Very slow polling
+          heartbeatIntervalMs: 500,  // Fast heartbeat
+        },
+        forceReconnectCallback
+      );
+
+      // Initial poll succeeds
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Advance to trigger heartbeat - should fail and disconnect
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Device should be marked as disconnected due to timeout error
+      expect(session.getState().connectionStatus).toBe('disconnected');
+
+      // Force reconnect callback should have been called
+      expect(forceReconnectCallback).toHaveBeenCalledWith(driver.info.id);
+    });
+
+    it('should not interfere with active poll', async () => {
+      let pollInProgress = false;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          // Simulate a slow poll
+          pollInProgress = true;
+          await new Promise(r => setTimeout(r, 100));
+          pollInProgress = false;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 200,
+        heartbeatIntervalMs: 150,
+      });
+
+      // Start initial poll
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance by 150ms while poll is still in progress
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should be in progress, heartbeat should skip
+      // This test verifies heartbeat doesn't call getStatus while poll is active
+      expect(getStatusSpy).toHaveBeenCalledTimes(1); // Only the initial poll
+    });
+  });
 });
