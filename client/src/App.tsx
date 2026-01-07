@@ -133,7 +133,7 @@ function App() {
           <div className="relative flex items-center">
             {/* Clear Layout button */}
             <button
-              className={`px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)] transition-opacity duration-150 ease-out ${
+              className={`px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-border-dark)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-all duration-150 ${
                 clearLayoutConfirm ? 'opacity-0 pointer-events-none' : 'opacity-100'
               }`}
               onClick={() => setClearLayoutConfirm(true)}
@@ -148,7 +148,7 @@ function App() {
             >
               <span className="text-xs text-[var(--color-text-primary)]">Clear layout?</span>
               <button
-                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)] transition-colors duration-100"
+                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-border-dark)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
                 onClick={() => setClearLayoutConfirm(false)}
               >
                 No
