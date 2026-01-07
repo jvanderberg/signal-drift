@@ -8,7 +8,7 @@
  * - Callbacks for visibility changes
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 export interface PageVisibilityState {
   /** Whether the page is currently visible */
