@@ -205,7 +205,8 @@ export function createOscilloscopeSimulator(
         // Rising edge with overshoot
         const overshoot = 1 + 0.15 * Math.exp(-transitionPos * 40) *
           Math.sin(transitionPos * 200);
-        return (vOut + 0.7) * Math.min(1, transitionPos * 20) * overshoot;
+        // Clamp to non-negative (real switching nodes can't go below ground)
+        return Math.max(0, (vOut + 0.7) * Math.min(1, transitionPos * 20) * overshoot);
       } else if (transitionPos < 0.15) {
         // Ringing decay
         const ringing = Math.exp(-(transitionPos - 0.05) * 30) *
@@ -232,17 +233,17 @@ export function createOscilloscopeSimulator(
     const vOut = state.outputVoltage;
     const ripple = state.outputRipple;
 
-    // Triangular ripple: rises during switch-on, falls during switch-off
+    // Triangular ripple: falls during switch-on (cap discharges), rises during switch-off
     // This is simplified - real ripple shape depends on ESR and load
     let rippleComponent: number;
 
     if (cyclePos < dutyCycle) {
-      // During on-time, output cap discharges (voltage falls slightly)
-      rippleComponent = -ripple / 2 + (ripple * cyclePos / dutyCycle);
+      // During on-time, output cap discharges into load (voltage falls)
+      rippleComponent = ripple / 2 - (ripple * cyclePos / dutyCycle);
     } else {
-      // During off-time, output cap charges (voltage rises)
+      // During off-time, diode conducts, cap charges (voltage rises)
       const offPos = (cyclePos - dutyCycle) / (1 - dutyCycle);
-      rippleComponent = ripple / 2 - (ripple * offPos);
+      rippleComponent = -ripple / 2 + (ripple * offPos);
     }
 
     return vOut + rippleComponent;
@@ -480,10 +481,10 @@ export function createOscilloscopeSimulator(
     if (upper === ':AUT' || upper === 'AUT') {
       // Auto setup - adjust scales for current signals
       const boostState = connection.getBoostConverterState();
-      if (boostState.active) {
+      if (boostState.active && boostState.switchingFrequency > 0) {
         channels['CHAN1'].scale = 2;  // 2V/div for 5V PWM
-        channels['CHAN2'].scale = boostState.outputVoltage / 4;  // Fit Vout
-        channels['CHAN3'].scale = boostState.outputVoltage / 4;
+        channels['CHAN2'].scale = Math.max(1, boostState.outputVoltage / 4);  // Fit Vout
+        channels['CHAN3'].scale = Math.max(1, boostState.outputVoltage / 4);
         channels['CHAN4'].scale = boostState.inputCurrent * 0.1 / 2 || 0.5;
         timebase.scale = 1 / boostState.switchingFrequency / 2;  // 2 cycles
       }
@@ -524,29 +525,38 @@ export function createOscilloscopeSimulator(
     }
     if (upper.match(/^:?WAV:STAR\s+(\d+)/)) {
       const match = upper.match(/WAV:STAR\s+(\d+)/);
-      if (match) waveform.start = parseInt(match[1], 10);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        // Clamp to valid range (1-indexed, max MEMORY_DEPTH)
+        waveform.start = Math.max(1, Math.min(val, MEMORY_DEPTH));
+      }
       return null;
     }
     if (upper.match(/^:?WAV:STOP\s+(\d+)/)) {
       const match = upper.match(/WAV:STOP\s+(\d+)/);
-      if (match) waveform.stop = parseInt(match[1], 10);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        // Clamp to valid range and ensure stop >= start
+        waveform.stop = Math.max(waveform.start, Math.min(val, MEMORY_DEPTH));
+      }
       return null;
     }
 
     // Waveform preamble
     if (upper === ':WAV:PRE?' || upper === 'WAV:PRE?') {
       // format, type, points, count, xincrement, xorigin, xref, yincrement
+      // Rigol DS1054Z: 8 vertical divisions (±4 from center), 256-level ADC
       const points = Math.min(waveform.stop - waveform.start + 1, MEMORY_DEPTH);
       const xIncrement = timebase.scale * 12 / points;
-      const yIncrement = channels[waveform.source]?.scale / 25 || 0.04;  // 8 bits per div
+      const yIncrement = (channels[waveform.source]?.scale || 1) / 32;  // (8 divs * scale) / 256 levels
       return `0,0,${points},1,${xIncrement.toExponential(6)},0.0,0,${yIncrement.toExponential(6)}`;
     }
 
     // Y origin and reference
     if (upper === ':WAV:YOR?' || upper === 'WAV:YOR?') {
       const ch = channels[waveform.source];
-      // Y origin is the offset in ADC counts
-      return String(Math.round((ch?.offset || 0) / (ch?.scale || 1) * 25));
+      // Y origin is the offset in ADC counts (matching yIncrement = scale/32)
+      return String(Math.round((ch?.offset || 0) / ((ch?.scale || 1) / 32)));
     }
     if (upper === ':WAV:YREF?' || upper === 'WAV:YREF?') {
       return '127';  // Center of 8-bit range
@@ -571,12 +581,13 @@ export function createOscilloscopeSimulator(
       const offset = ch?.offset || 0;
 
       // Create byte array
+      // Matches yIncrement = scale/32, meaning 8 divisions over 256 levels
       const data = Buffer.alloc(numPoints);
       for (let i = 0; i < numPoints; i++) {
         // Convert voltage to byte value (0-255, centered at 127)
         const voltage = voltagePoints[i] - offset;
         const normalized = voltage / (scale * 4);  // ±4 divisions from center
-        const byteVal = Math.round(127 + normalized * 127);
+        const byteVal = Math.round(127 + normalized * 128);  // 128 for symmetric 256-level range
         data[i] = Math.max(0, Math.min(255, byteVal));
       }
 
