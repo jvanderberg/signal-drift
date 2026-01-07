@@ -53,16 +53,31 @@ const DEFAULT_OPTIONS: Required<WebSocketManagerOptions> = {
   staleMessageThresholdMs: 2000,
 };
 
-// High-frequency message types that can be filtered
-const TIMESTAMPED_MESSAGE_TYPES: Set<string> = new Set(['scopeWaveform', 'field', 'measurement']);
+// High-frequency message types that can be filtered (but not critical state changes)
+const FILTERABLE_MESSAGE_TYPES: Set<string> = new Set(['scopeWaveform', 'measurement']);
 
-// Extract timestamp from messages that have it
+// Critical field names that should never be filtered, even if stale
+const CRITICAL_FIELDS: Set<string> = new Set(['mode', 'outputEnabled', 'connectionStatus', 'listRunning']);
+
+// Extract timestamp from messages that have it, using proper type guard
 function getMessageTimestamp(message: ServerMessage): number | undefined {
-  if (!TIMESTAMPED_MESSAGE_TYPES.has(message.type)) {
-    return undefined;
+  if ('timestamp' in message && typeof message.timestamp === 'number') {
+    return message.timestamp;
   }
-  // TypeScript doesn't know these types have timestamp, so we cast
-  return (message as { timestamp?: number }).timestamp;
+  return undefined;
+}
+
+// Check if a message is safe to filter (high-frequency, non-critical)
+function isFilterableMessage(message: ServerMessage): boolean {
+  if (FILTERABLE_MESSAGE_TYPES.has(message.type)) {
+    return true;
+  }
+  // Field messages are filterable only if they're not critical state changes
+  if (message.type === 'field' && 'field' in message) {
+    const fieldName = message.field;
+    return typeof fieldName === 'string' && !CRITICAL_FIELDS.has(fieldName);
+  }
+  return false;
 }
 
 let instance: WebSocketManager | null = null;
@@ -128,6 +143,11 @@ export function createWebSocketManager(options: WebSocketManagerOptions = {}): W
         discardStaleUntil = null;
         staleMessagesDiscarded = 0;
       }
+      return false;
+    }
+
+    // Only filter high-frequency, non-critical messages
+    if (!isFilterableMessage(message)) {
       return false;
     }
 

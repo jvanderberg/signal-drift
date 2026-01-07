@@ -17,9 +17,13 @@ export interface TabKeepAlive {
   isActive(): boolean;
 }
 
-let instance: TabKeepAlive | null = null;
+interface TabKeepAliveInternal extends TabKeepAlive {
+  cleanup(): void;
+}
 
-function createTabKeepAlive(): TabKeepAlive {
+let instance: TabKeepAliveInternal | null = null;
+
+function createTabKeepAlive(): TabKeepAliveInternal {
   let audioContext: AudioContext | null = null;
   let oscillator: OscillatorNode | null = null;
   let gainNode: GainNode | null = null;
@@ -170,25 +174,34 @@ function createTabKeepAlive(): TabKeepAlive {
     return active;
   }
 
+  function cleanup(): void {
+    stop();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+
   return {
     start,
     stop,
     isActive,
+    cleanup,
   };
 }
 
 // Singleton accessor
 export function getTabKeepAlive(): TabKeepAlive {
+  if (typeof document === 'undefined') {
+    throw new Error('TabKeepAlive requires browser environment');
+  }
   if (!instance) {
     instance = createTabKeepAlive();
   }
   return instance;
 }
 
-// For testing - reset the singleton
+// For testing - reset the singleton and clean up event listeners
 export function resetTabKeepAlive(): void {
   if (instance) {
-    instance.stop();
+    instance.cleanup();
     instance = null;
   }
 }

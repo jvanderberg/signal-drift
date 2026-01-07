@@ -104,8 +104,9 @@ interface VisibilityTracker {
 }
 
 let trackerInstance: VisibilityTracker | null = null;
+let trackerCleanup: (() => void) | null = null;
 
-function createVisibilityTracker(): VisibilityTracker {
+function createVisibilityTracker(): { tracker: VisibilityTracker; cleanup: () => void } {
   let lastHiddenAt: number | null = null;
   let lastVisibleAt: number | null = null;
   const callbacks = new Set<(isVisible: boolean, hiddenDuration: number | null) => void>();
@@ -117,16 +118,29 @@ function createVisibilityTracker(): VisibilityTracker {
     if (isVisible) {
       const hiddenDuration = lastHiddenAt ? now - lastHiddenAt : null;
       lastVisibleAt = now;
-      callbacks.forEach((cb) => cb(true, hiddenDuration));
+      // Wrap callbacks in try-catch to prevent one failure from blocking others
+      callbacks.forEach((cb) => {
+        try {
+          cb(true, hiddenDuration);
+        } catch (err) {
+          console.error('[VisibilityTracker] Callback error:', err);
+        }
+      });
     } else {
       lastHiddenAt = now;
-      callbacks.forEach((cb) => cb(false, null));
+      callbacks.forEach((cb) => {
+        try {
+          cb(false, null);
+        } catch (err) {
+          console.error('[VisibilityTracker] Callback error:', err);
+        }
+      });
     }
   }
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
 
-  return {
+  const tracker: VisibilityTracker = {
     isVisible: () => !document.hidden,
     getLastHiddenAt: () => lastHiddenAt,
     getLastVisibleAt: () => lastVisibleAt,
@@ -139,11 +153,32 @@ function createVisibilityTracker(): VisibilityTracker {
       return () => callbacks.delete(callback);
     },
   };
+
+  const cleanup = (): void => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    callbacks.clear();
+  };
+
+  return { tracker, cleanup };
 }
 
 export function getVisibilityTracker(): VisibilityTracker {
+  if (typeof document === 'undefined') {
+    throw new Error('VisibilityTracker requires browser environment');
+  }
   if (!trackerInstance) {
-    trackerInstance = createVisibilityTracker();
+    const { tracker, cleanup } = createVisibilityTracker();
+    trackerInstance = tracker;
+    trackerCleanup = cleanup;
   }
   return trackerInstance;
+}
+
+// For testing - reset the singleton and clean up event listeners
+export function resetVisibilityTracker(): void {
+  if (trackerCleanup) {
+    trackerCleanup();
+    trackerCleanup = null;
+  }
+  trackerInstance = null;
 }
