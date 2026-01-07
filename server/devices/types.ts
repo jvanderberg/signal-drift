@@ -22,6 +22,12 @@ export interface Transport {
   queryBinary?(cmd: string, timeoutMs?: number): Promise<Result<Buffer, Error>>;
   write(cmd: string): Promise<Result<void, Error>>;
   isOpen(): boolean;
+  /**
+   * Clear/reset the transport state.
+   * For USBTMC, this sends INITIATE_CLEAR to abort pending operations and reset buffers.
+   * Useful after reconnection to ensure the device is in a known good state.
+   */
+  clear?(): Promise<Result<void, Error>>;
 }
 
 /** Error type for probe failures with specific reason codes */

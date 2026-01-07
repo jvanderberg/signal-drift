@@ -179,6 +179,16 @@ export async function scanDevices(
 
           const openResult = await transport.open();
           if (openResult.ok) {
+            // Clear any stale USB state before using the transport
+            // This is critical for recovery after power cycle or USB errors
+            if (transport.clear) {
+              const clearResult = await transport.clear();
+              if (!clearResult.ok) {
+                console.warn(`[Scanner] USBTMC clear failed for device reconnect: ${clearResult.error.message}`);
+                // Continue anyway - device may still work
+              }
+            }
+
             const probeResult = await driver.probe();
 
             if (probeResult.ok) {
@@ -274,6 +284,16 @@ export async function scanDevices(
         });
         const openResult = await transport.open();
         if (!openResult.ok) continue;
+
+        // Clear any stale USB state before using the transport
+        // This is critical for recovery after power cycle or USB errors
+        if (transport.clear) {
+          const clearResult = await transport.clear();
+          if (!clearResult.ok) {
+            console.warn(`[Scanner] USBTMC clear failed for oscilloscope reconnect: ${clearResult.error.message}`);
+            // Continue anyway - device may still work
+          }
+        }
 
         // Query IDN to find correct driver
         const idnResult = await transport.query('*IDN?');
