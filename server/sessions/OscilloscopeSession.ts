@@ -609,7 +609,10 @@ export function createOscilloscopeSession(
                 value: 'disconnected',
               });
               console.log(`[OscilloscopeSession] DISCONNECTED due to timeout: ${driver.info.id} - triggering immediate reconnection`);
-              streamingTimer = null;
+              if (streamingTimer) {
+                clearTimeout(streamingTimer);
+                streamingTimer = null;
+              }
               broadcastStreamingState();
               return;
             }
@@ -627,7 +630,10 @@ export function createOscilloscopeSession(
                   value: 'disconnected',
                 });
                 console.log(`[OscilloscopeSession] DISCONNECTED during streaming: ${driver.info.id}`);
-                streamingTimer = null;
+                if (streamingTimer) {
+                  clearTimeout(streamingTimer);
+                  streamingTimer = null;
+                }
                 broadcastStreamingState();
                 return;
               }
@@ -1196,6 +1202,10 @@ export function createOscilloscopeSession(
       driver = newDriver;
       consecutiveErrors = 0;
       connectionStatus = 'connected';
+
+      // Clear caches - device state may have changed after power cycle
+      waveformCache.clear();
+      freqCache.clear();
 
       broadcast({
         type: 'field',

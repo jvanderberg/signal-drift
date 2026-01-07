@@ -511,13 +511,15 @@ export function createUSBTMCTransport(device: usb.Device, config: USBTMCConfig =
             // Status byte: bit 0 = pending, when 0 = clear complete
             if ((status & 0x01) === 0) {
               // Clear complete, now drain any remaining bulk data
-              try {
-                // Try to read any leftover data with a short timeout
-                await transferIn(512, 100).catch(() => {
-                  // Ignore timeout - means no stale data
-                });
-              } catch {
-                // Ignore errors during drain
+              // Loop until buffer is empty (timeout) or max attempts
+              for (let drainAttempt = 0; drainAttempt < 20; drainAttempt++) {
+                try {
+                  await transferIn(512, 200);
+                  // Successfully read data, continue draining
+                } catch {
+                  // Timeout or error = buffer empty
+                  break;
+                }
               }
               console.log('[USBTMC] Clear completed successfully');
               return Ok();
