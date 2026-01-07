@@ -130,17 +130,31 @@ function App() {
       <div className="flex justify-between items-center px-4 py-2 border-b border-[var(--color-border-dark)] flex-shrink-0">
         <h1 className="text-lg font-semibold ml-12">Lab Controller</h1>
         <div className="flex items-center gap-3">
-          {clearLayoutConfirm ? (
-            <div className="flex items-center gap-2">
+          <div className="relative flex items-center">
+            {/* Clear Layout button */}
+            <button
+              className={`px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)] transition-opacity duration-150 ease-out ${
+                clearLayoutConfirm ? 'opacity-0 pointer-events-none' : 'opacity-100'
+              }`}
+              onClick={() => setClearLayoutConfirm(true)}
+            >
+              ✕ Clear Layout
+            </button>
+            {/* Confirmation overlay */}
+            <div
+              className={`absolute right-0 flex items-center gap-2 transition-opacity duration-150 ease-out ${
+                clearLayoutConfirm ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+            >
               <span className="text-xs text-[var(--color-text-secondary)]">Clear layout?</span>
               <button
-                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)]"
+                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)] transition-colors duration-100"
                 onClick={() => setClearLayoutConfirm(false)}
               >
                 No
               </button>
               <button
-                className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors duration-100"
                 onClick={() => {
                   clearLayoutFromServer();
                   setClearLayoutConfirm(false);
@@ -149,14 +163,7 @@ function App() {
                 Yes
               </button>
             </div>
-          ) : (
-            <button
-              className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)]"
-              onClick={() => setClearLayoutConfirm(true)}
-            >
-              ✕ Clear Layout
-            </button>
-          )}
+          </div>
           <select
             className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)]"
             value={theme}
