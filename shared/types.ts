@@ -386,15 +386,16 @@ export type ClientMessage =
 // - immediate: true - execute now, for programmatic sequences
 
 // Server -> Client messages
+// High-frequency messages include optional `timestamp` for stale message filtering
 export type ServerMessage =
   | { type: 'deviceList'; devices: DeviceSummary[] }                  // Response to getDevices, scan, or auto-discovery
   | { type: 'subscribed'; deviceId: string; state: AnySessionState }
   | { type: 'unsubscribed'; deviceId: string }
-  | { type: 'measurement'; deviceId: string; update: MeasurementUpdate }
-  | { type: 'field'; deviceId: string; field: string; value: unknown }
+  | { type: 'measurement'; deviceId: string; update: MeasurementUpdate; timestamp?: number }
+  | { type: 'field'; deviceId: string; field: string; value: unknown; timestamp?: number }
   | { type: 'error'; deviceId?: string; code: string; message: string }
   // Oscilloscope responses
-  | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData; fps?: number }
+  | { type: 'scopeWaveform'; deviceId: string; channel: string; waveform: WaveformData; fps?: number; timestamp?: number }
   | { type: 'scopeMeasurement'; deviceId: string; channel: string; measurementType: string; value: number | null }
   | { type: 'scopeScreenshot'; deviceId: string; data: string }  // Base64-encoded PNG
   // Sequence responses - library

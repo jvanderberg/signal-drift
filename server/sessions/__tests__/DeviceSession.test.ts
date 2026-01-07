@@ -235,14 +235,16 @@ describe('DeviceSession', () => {
 
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(subscriber).toHaveBeenCalledWith({
-        type: 'measurement',
-        deviceId: 'test-device-1',
-        update: expect.objectContaining({
-          timestamp: expect.any(Number),
-          measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
-        }),
-      });
+      expect(subscriber).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'measurement',
+          deviceId: 'test-device-1',
+          update: expect.objectContaining({
+            timestamp: expect.any(Number),
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          }),
+        })
+      );
     });
 
     it('should not notify unsubscribed clients', async () => {
@@ -379,12 +381,14 @@ describe('DeviceSession', () => {
 
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(subscriber).toHaveBeenCalledWith({
-        type: 'field',
-        deviceId: 'test-device-1',
-        field: 'connectionStatus',
-        value: 'error',
-      });
+      expect(subscriber).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'field',
+          deviceId: 'test-device-1',
+          field: 'connectionStatus',
+          value: 'error',
+        })
+      );
     });
   });
 
@@ -402,12 +406,14 @@ describe('DeviceSession', () => {
       await session.setMode('CV');
 
       expect(setModeSpy).toHaveBeenCalledWith('CV');
-      expect(subscriber).toHaveBeenCalledWith({
-        type: 'field',
-        deviceId: 'test-device-1',
-        field: 'mode',
-        value: 'CV',
-      });
+      expect(subscriber).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'field',
+          deviceId: 'test-device-1',
+          field: 'mode',
+          value: 'CV',
+        })
+      );
     });
 
     it('should execute setOutput and broadcast field change', async () => {
@@ -423,12 +429,14 @@ describe('DeviceSession', () => {
       await session.setOutput(true);
 
       expect(setOutputSpy).toHaveBeenCalledWith(true);
-      expect(subscriber).toHaveBeenCalledWith({
-        type: 'field',
-        deviceId: 'test-device-1',
-        field: 'outputEnabled',
-        value: true,
-      });
+      expect(subscriber).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'field',
+          deviceId: 'test-device-1',
+          field: 'outputEnabled',
+          value: true,
+        })
+      );
     });
 
     it('should debounce setValue calls by default', async () => {
