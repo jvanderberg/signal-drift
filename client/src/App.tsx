@@ -134,6 +134,12 @@ function App() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--color-text-secondary)]">Clear layout?</span>
               <button
+                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)]"
+                onClick={() => setClearLayoutConfirm(false)}
+              >
+                No
+              </button>
+              <button
                 className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
                 onClick={() => {
                   clearLayoutFromServer();
@@ -141,12 +147,6 @@ function App() {
                 }}
               >
                 Yes
-              </button>
-              <button
-                className="px-2 py-1 text-xs rounded bg-[var(--color-bg-secondary)] border border-[var(--color-border-dark)] hover:bg-[var(--color-bg-tertiary)]"
-                onClick={() => setClearLayoutConfirm(false)}
-              >
-                No
               </button>
             </div>
           ) : (
