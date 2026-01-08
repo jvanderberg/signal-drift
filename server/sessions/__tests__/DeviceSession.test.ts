@@ -727,4 +727,158 @@ describe('DeviceSession', () => {
       expect(session.getState().setpoints.current).toBe(2.5);
     });
   });
+
+  describe('Setpoint Change Broadcasting (Safety Critical)', () => {
+    it('should broadcast setpoint changes when device reports different values', async () => {
+      // This test verifies the fix for a critical safety bug:
+      // When a PSU reconnects after power cycle, it may reset to a different voltage.
+      // The UI must be notified of this change to prevent applying dangerous voltages.
+      let pollCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // First poll: device reports voltage = 12.0
+          // Second poll: device reports voltage changed to 5.0 (simulating PSU reset)
+          const voltage = pollCount === 1 ? 12.0 : 5.0;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0, voltage },
+            measurements: { voltage, current: 0.98, power: voltage * 0.98 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // First poll - establishes initial setpoints
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().setpoints.voltage).toBe(12.0);
+
+      // Clear notifications
+      notifications.length = 0;
+
+      // Second poll - device reports different voltage
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value.voltage).toBe(5.0);
+      expect(session.getState().setpoints.voltage).toBe(5.0);
+    });
+
+    it('should broadcast setpoint changes after reconnect with different values', async () => {
+      // Simulates: PSU disconnects, user power cycles it, PSU reconnects with reset voltage
+      const oldDriver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CV',
+          outputEnabled: false,
+          setpoints: { voltage: 24.0, current: 5.0 },
+          measurements: { voltage: 24.0, current: 0.0, power: 0.0 },
+        }),
+      });
+
+      // New driver simulates PSU that has been power cycled and reset to defaults
+      const newDriver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CV',
+          outputEnabled: false,
+          setpoints: { voltage: 0.0, current: 1.0 },  // Reset to dangerous defaults!
+          measurements: { voltage: 0.0, current: 0.0, power: 0.0 },
+        }),
+      });
+
+      session = createDeviceSession(oldDriver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Verify initial state from old driver
+      expect(session.getState().setpoints.voltage).toBe(24.0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Reconnect with new driver (simulating PSU reconnect after power cycle)
+      await session.reconnect(newDriver);
+
+      // Trigger poll with new driver
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change to 0.0
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value.voltage).toBe(0.0);
+      expect(session.getState().setpoints.voltage).toBe(0.0);
+    });
+
+    it('should not broadcast setpoints when they have not changed', async () => {
+      const driver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CC',
+          outputEnabled: false,
+          setpoints: { current: 1.0 },  // Same every time
+          measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+        }),
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+
+      // First poll
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Second poll - same setpoints
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should NOT have broadcast setpoint changes
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeUndefined();
+    });
+
+    it('should detect setpoint changes when new keys are added', async () => {
+      let pollCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // First poll: only current setpoint
+          // Second poll: voltage setpoint added
+          const setpoints: Record<string, number> = pollCount === 1
+            ? { current: 1.0 }
+            : { current: 1.0, voltage: 12.0 };
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints,
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change (new key added)
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value).toEqual({ current: 1.0, voltage: 12.0 });
+    });
+  });
 });

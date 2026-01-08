@@ -166,8 +166,26 @@ export function createDeviceSession(
         });
       }
 
-      // Update remaining state
-      setpoints = status.setpoints;
+      // Check for setpoint changes and broadcast
+      // This is critical for safety: when a PSU reconnects after power cycle,
+      // it may have reset to a different voltage than what the UI shows
+      const setpointsChanged = Object.keys(status.setpoints).some(
+        key => status.setpoints[key] !== setpoints[key]
+      ) || Object.keys(setpoints).some(
+        key => status.setpoints[key] !== setpoints[key]
+      );
+      if (setpointsChanged) {
+        setpoints = status.setpoints;
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'setpoints',
+          value: { ...setpoints },
+        });
+      } else {
+        // Update remaining state
+        setpoints = status.setpoints;
+      }
       measurements = status.measurements;
       listRunning = status.listRunning ?? false;
       lastUpdated = now;
