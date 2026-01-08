@@ -11,10 +11,10 @@ describe('Matrix WPS300S Driver', () => {
     transport = createMockTransport({
       responses: {
         'VOLT?': '12.000',        // Voltage setpoint
-        'CURR?': '1.0000',        // Current limit
+        'CURR?': '2.0000',        // Current limit (2A - above measured current)
         'OUTP?': '1',             // Output on (returns "0" or "1", not "ON"/"OFF")
         'MEAS:VOLT?': '12.345',   // Actual measured voltage
-        'MEAS:CURR?': '1.2340',   // Actual measured current
+        'MEAS:CURR?': '0.5000',   // Actual measured current (below limit = CV mode)
       },
     });
     driver = createMatrixWPS300S(transport);
@@ -158,7 +158,7 @@ describe('Matrix WPS300S Driver', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.setpoints.voltage).toBeCloseTo(12.0);
-        expect(result.value.setpoints.current).toBeCloseTo(1.0);
+        expect(result.value.setpoints.current).toBeCloseTo(2.0);
       }
     });
 
@@ -167,9 +167,29 @@ describe('Matrix WPS300S Driver', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.measurements.voltage).toBeCloseTo(12.345);
-        expect(result.value.measurements.current).toBeCloseTo(1.234);
+        expect(result.value.measurements.current).toBeCloseTo(0.5);
         // Power should be calculated from actual measurements
-        expect(result.value.measurements.power).toBeCloseTo(12.345 * 1.234, 2);
+        expect(result.value.measurements.power).toBeCloseTo(12.345 * 0.5, 2);
+      }
+    });
+
+    it('should return CC mode when current is at limit', async () => {
+      // Set up mock with current at limit (CC mode condition)
+      transport = createMockTransport({
+        responses: {
+          'VOLT?': '12.000',
+          'CURR?': '1.0000',        // Current limit = 1A
+          'OUTP?': '1',
+          'MEAS:VOLT?': '11.500',   // Voltage may droop in CC mode
+          'MEAS:CURR?': '0.9900',   // At 99% of limit = CC mode (>= 98% threshold)
+        },
+      });
+      driver = createMatrixWPS300S(transport);
+      await driver.connect();
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CC');
       }
     });
   });
