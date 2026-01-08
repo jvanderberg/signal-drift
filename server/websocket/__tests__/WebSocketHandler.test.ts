@@ -106,6 +106,9 @@ function createMockSession(deviceId: string): DeviceSession {
     setValue: vi.fn(),
     reconnect: vi.fn(),
     stop: vi.fn(),
+    pauseHeartbeat: vi.fn(),
+    resumeHeartbeat: vi.fn(),
+    isHeartbeatPaused: vi.fn(() => false),
   };
 }
 
@@ -199,6 +202,10 @@ function createMockSessionManager(): SessionManager & {
     oscilloscopeSetTriggerSweep: vi.fn().mockResolvedValue(Ok()),
     oscilloscopeStartStreaming: vi.fn().mockResolvedValue(Ok()),
     oscilloscopeStopStreaming: vi.fn().mockResolvedValue(Ok()),
+    // Heartbeat coordination
+    pauseAllHeartbeats: vi.fn(),
+    resumeAllHeartbeats: vi.fn(),
+    setForceReconnectCallback: vi.fn(),
   };
 }
 

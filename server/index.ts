@@ -225,9 +225,34 @@ async function start() {
       console.error('Device scan failed:', err);
     }
 
+    // Set up force reconnect callback for heartbeat-triggered reconnections
+    // When heartbeat detects a device is unresponsive, it will call this to trigger immediate rescan
+    sessionManager.setForceReconnectCallback(async (deviceId: string) => {
+      console.log(`[Heartbeat] Force reconnect requested for ${deviceId}, triggering scan...`);
+      try {
+        // Pause all heartbeats during the scan to avoid conflicts
+        sessionManager.pauseAllHeartbeats();
+
+        const result = await scanDevices(registry, sessionManager);
+
+        if (result.reconnected > 0) {
+          console.log(`[Heartbeat] Reconnected ${result.reconnected} device(s)`);
+          wsHandler.broadcastDeviceList();
+        }
+      } catch (err) {
+        console.error('[Heartbeat] Force reconnect scan failed:', err);
+      } finally {
+        // Resume heartbeats after scan completes
+        sessionManager.resumeAllHeartbeats();
+      }
+    });
+
     // Periodic scan for device changes (disconnect/reconnect)
     scanIntervalHandle = setInterval(async () => {
       try {
+        // Pause heartbeats during scan to avoid conflicts
+        sessionManager.pauseAllHeartbeats();
+
         // Scan for new devices or reconnect disconnected ones
         const result = await scanDevices(registry, sessionManager);
 
@@ -243,6 +268,9 @@ async function start() {
         }
       } catch (err) {
         console.error('Periodic scan failed:', err);
+      } finally {
+        // Resume heartbeats after scan completes
+        sessionManager.resumeAllHeartbeats();
       }
     }, SCAN_INTERVAL_MS);
   }
