@@ -16,7 +16,12 @@ export interface SerialConfig {
   timeout?: number;       // query timeout in ms (default: 2000)
 }
 
-export function createSerialTransport(config: SerialConfig): Transport {
+// Extended Transport interface with clear capability
+export interface SerialTransport extends Transport {
+  clear(): Promise<Result<void, Error>>;
+}
+
+export function createSerialTransport(config: SerialConfig): SerialTransport {
   const { path, baudRate, commandDelay = 50, timeout = 2000 } = config;
 
   let port: SerialPort | null = null;
@@ -218,6 +223,68 @@ export function createSerialTransport(config: SerialConfig): Transport {
 
     isOpen(): boolean {
       return opened && !disconnected;
+    },
+
+    /**
+     * Clear any pending data in the serial buffer
+     * This helps recover from stuck states where the device has pending output
+     * that's confusing the command/response flow
+     */
+    async clear(): Promise<Result<void, Error>> {
+      return withLock(async () => {
+        if (!port || !opened) {
+          return Ok(); // Nothing to clear if not open
+        }
+
+        try {
+          // Flush any pending outgoing data
+          await new Promise<void>((resolve, reject) => {
+            port!.flush((err) => {
+              if (err) reject(err);
+              else resolve();
+            });
+          });
+
+          // Drain any pending incoming data by consuming it with a short timeout
+          // Uses a dedicated listener that cleans up properly
+          if (parser) {
+            await new Promise<void>((resolve) => {
+              let resolved = false;
+              let timeoutId: ReturnType<typeof setTimeout>;
+
+              const cleanup = () => {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timeoutId);
+                  parser?.removeListener('data', onData);
+                  resolve();
+                }
+              };
+
+              const onData = () => {
+                // Got some data, wait a bit more for any additional buffered data
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(cleanup, 50);
+              };
+
+              // Listen for data (not once - we want to drain ALL buffered data)
+              parser!.on('data', onData);
+
+              // Max drain time - resolve even if data keeps coming
+              timeoutId = setTimeout(cleanup, 100);
+            });
+          }
+
+          // Add a small delay for the device to settle
+          await delay(commandDelay);
+
+          return Ok();
+        } catch (e) {
+          // Clear errors are non-fatal - just log and continue
+          console.warn(`[Serial] Clear failed: ${e}`);
+          return Ok();
+        }
+      });
     },
   };
 }

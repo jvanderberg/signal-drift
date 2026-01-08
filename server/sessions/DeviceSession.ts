@@ -25,7 +25,11 @@ export interface DeviceSessionConfig {
   historyWindowMs?: number;
   maxConsecutiveErrors?: number;
   debounceMs?: number;
+  heartbeatIntervalMs?: number;  // Independent heartbeat check interval (default: 10000ms)
 }
+
+// Callback to request full teardown and reconnection
+export type ForceReconnectCallback = (deviceId: string) => Promise<void>;
 
 type SubscriberCallback = (message: ServerMessage) => void;
 
@@ -40,6 +44,10 @@ export interface DeviceSession {
   setValue(name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
   reconnect(newDriver: DeviceDriver): Promise<void>;
   stop(): Promise<void>;
+  // Heartbeat control - allows external coordination with scanner
+  pauseHeartbeat(): void;
+  resumeHeartbeat(): void;
+  isHeartbeatPaused(): boolean;
 }
 
 const DEFAULT_CONFIG: Required<DeviceSessionConfig> = {
@@ -47,11 +55,13 @@ const DEFAULT_CONFIG: Required<DeviceSessionConfig> = {
   historyWindowMs: 30 * 60 * 1000, // 30 minutes
   maxConsecutiveErrors: 10,
   debounceMs: 250,
+  heartbeatIntervalMs: 10000, // 10 seconds - independent health check
 };
 
 export function createDeviceSession(
   initialDriver: DeviceDriver,
-  config: DeviceSessionConfig = {}
+  config: DeviceSessionConfig = {},
+  onForceReconnect?: ForceReconnectCallback
 ): DeviceSession {
   const cfg: Required<DeviceSessionConfig> = { ...DEFAULT_CONFIG, ...config };
 
@@ -86,6 +96,12 @@ export function createDeviceSession(
 
   // Debounce state for setValue
   const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout> }>();
+
+  // Heartbeat control - independent health check that runs alongside polling
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let heartbeatPaused = false;
+  let heartbeatInProgress = false;
+  let lastHeartbeatSuccess = Date.now();
 
   // Helper: Broadcast message to all subscribers
   function broadcast(message: ServerMessage): void {
@@ -255,6 +271,153 @@ export function createDeviceSession(
     if (pollInProgress) {
       await pollInProgress;
     }
+  }
+
+  // Wait for any in-flight heartbeat to complete (with timeout for safety)
+  async function waitForHeartbeat(timeoutMs = 3000): Promise<void> {
+    if (!heartbeatInProgress) return;
+
+    const start = Date.now();
+    while (heartbeatInProgress && Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+  }
+
+  /**
+   * Heartbeat - Independent health check that verifies device responsiveness
+   *
+   * Unlike polling which accumulates errors before disconnecting, the heartbeat
+   * immediately tears down the connection on failure. This catches "stuck" devices
+   * that are technically connected but not responding to commands.
+   *
+   * The heartbeat coordinates with the scanner via pause/resume to avoid conflicts
+   * during reconnection attempts.
+   */
+  async function doHeartbeat(): Promise<void> {
+    // Skip if paused (scanner is running) or already in progress
+    if (heartbeatPaused || heartbeatInProgress || !isRunning) {
+      return;
+    }
+
+    // Skip if already disconnected - scanner will handle reconnection
+    if (connectionStatus === 'disconnected') {
+      return;
+    }
+
+    // Skip if poll is currently in progress to avoid command interleaving
+    if (pollInProgress) {
+      return;
+    }
+
+    heartbeatInProgress = true;
+
+    try {
+      // Use getStatus as our heartbeat probe - it's the same as what poll does
+      // but we have stricter failure handling
+      const result = await driver.getStatus();
+
+      if (result.ok) {
+        lastHeartbeatSuccess = Date.now();
+        // If we were in error state, heartbeat success doesn't clear it
+        // (let the regular polling handle state transitions)
+      } else {
+        // Heartbeat failure - this is serious
+        // If device was working and suddenly fails heartbeat, tear it down
+        const timeSinceSuccess = Date.now() - lastHeartbeatSuccess;
+
+        console.error(
+          `[Heartbeat] FAILED for ${driver.info.id}: ${result.error.message}` +
+          ` (last success ${Math.round(timeSinceSuccess / 1000)}s ago)`
+        );
+
+        // Check for fatal errors that indicate device is gone
+        const err = result.error;
+        const isFatalError = (
+          err.message.includes('LIBUSB_ERROR_NO_DEVICE') ||
+          err.message.includes('LIBUSB_ERROR_IO') ||
+          err.message.includes('LIBUSB_ERROR_PIPE') ||
+          err.message.includes('SERIAL_PORT_DISCONNECTED') ||
+          err.message.includes('SERIAL_PORT_ERROR') ||
+          err.message.includes('Timeout')
+        );
+
+        if (isFatalError) {
+          // Immediate teardown
+          console.log(`[Heartbeat] Forcing disconnect for ${driver.info.id} due to fatal error`);
+
+          // Stop polling
+          if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+          }
+
+          // Mark as disconnected
+          connectionStatus = 'disconnected';
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'connectionStatus',
+            value: 'disconnected',
+          });
+
+          // Close the transport to ensure clean state
+          if (driver.disconnect) {
+            try {
+              await driver.disconnect();
+            } catch (closeErr) {
+              console.error(`[Heartbeat] Error closing transport: ${closeErr}`);
+            }
+          }
+
+          // Request reconnection from scanner if callback provided
+          if (onForceReconnect) {
+            // Don't await - let scanner handle it asynchronously
+            Promise.resolve(onForceReconnect(driver.info.id)).catch(err => {
+              console.error(`[Heartbeat] Force reconnect callback failed: ${err}`);
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[Heartbeat] Unexpected error for ${driver.info.id}:`, err);
+    } finally {
+      heartbeatInProgress = false;
+    }
+  }
+
+  // Start heartbeat timer
+  function startHeartbeat(): void {
+    if (heartbeatTimer || cfg.heartbeatIntervalMs <= 0) {
+      return;
+    }
+    heartbeatTimer = setInterval(() => {
+      doHeartbeat().catch(err => {
+        console.error(`[Heartbeat] Unhandled error: ${err}`);
+      });
+    }, cfg.heartbeatIntervalMs);
+  }
+
+  // Stop heartbeat timer
+  function stopHeartbeat(): void {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  // Pause heartbeat (for scanner coordination)
+  function pauseHeartbeat(): void {
+    heartbeatPaused = true;
+  }
+
+  // Resume heartbeat (after scanner completes)
+  function resumeHeartbeat(): void {
+    heartbeatPaused = false;
+    lastHeartbeatSuccess = Date.now(); // Reset timer after scanner operation
+  }
+
+  function isHeartbeatPaused(): boolean {
+    return heartbeatPaused;
   }
 
   // Actions
@@ -428,12 +591,19 @@ export function createDeviceSession(
     // Wait for any in-flight poll to complete before swapping driver
     await waitForPoll();
 
+    // Wait for any in-flight heartbeat to complete before swapping driver
+    await waitForHeartbeat();
+
     // Replace driver with fresh one
     driver = newDriver;
 
     // Reset error state
     consecutiveErrors = 0;
     connectionStatus = 'connected';
+
+    // Reset heartbeat state
+    lastHeartbeatSuccess = Date.now();
+    heartbeatInProgress = false;
 
     // Notify subscribers of reconnection
     broadcast({
@@ -454,6 +624,10 @@ export function createDeviceSession(
 
   async function stop(): Promise<void> {
     isRunning = false;
+
+    // Stop heartbeat first
+    stopHeartbeat();
+
     if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
@@ -464,11 +638,21 @@ export function createDeviceSession(
     }
     pendingValues.clear();
 
-    // Wait for any in-flight poll to complete (with timeout)
+    // Wait for any in-flight operations to complete (with timeout)
+    const STOP_TIMEOUT = 3000;
+    const waitPromises: Promise<void>[] = [];
+
     if (pollInProgress) {
-      const STOP_TIMEOUT = 3000;
+      waitPromises.push(pollInProgress);
+    }
+
+    if (heartbeatInProgress) {
+      waitPromises.push(waitForHeartbeat(STOP_TIMEOUT));
+    }
+
+    if (waitPromises.length > 0) {
       await Promise.race([
-        pollInProgress,
+        Promise.all(waitPromises),
         new Promise<void>(resolve => setTimeout(resolve, STOP_TIMEOUT)),
       ]);
     }
@@ -512,6 +696,9 @@ export function createDeviceSession(
   // Start polling immediately
   poll();
 
+  // Start heartbeat monitoring (independent from polling)
+  startHeartbeat();
+
   return {
     getState,
     getSubscriberCount,
@@ -523,5 +710,9 @@ export function createDeviceSession(
     setValue: setValueAction,
     reconnect,
     stop,
+    // Heartbeat control - allows external coordination with scanner
+    pauseHeartbeat,
+    resumeHeartbeat,
+    isHeartbeatPaused,
   };
 }

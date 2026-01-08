@@ -433,6 +433,16 @@ export async function scanDevices(
             const openResult = await transport.open();
             if (!openResult.ok) continue;
 
+            // Clear any stale serial data before using the transport
+            // This is critical for recovery after device restart or communication errors
+            if (transport.clear) {
+              const clearResult = await transport.clear();
+              if (!clearResult.ok) {
+                console.warn(`[Scanner] Serial clear failed for device reconnect: ${clearResult.error.message}`);
+                // Continue anyway - device may still work
+              }
+            }
+
             const probeResult = await driver.probe();
 
             if (probeResult.ok) {

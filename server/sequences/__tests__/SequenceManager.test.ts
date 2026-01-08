@@ -70,6 +70,9 @@ function createMockSession(): DeviceSession {
     setValue: vi.fn().mockResolvedValue(Ok()),
     reconnect: vi.fn(),
     stop: vi.fn(),
+    pauseHeartbeat: vi.fn(),
+    resumeHeartbeat: vi.fn(),
+    isHeartbeatPaused: vi.fn(() => false),
   };
 }
 
