@@ -245,30 +245,33 @@ export function createSerialTransport(config: SerialConfig): SerialTransport {
             });
           });
 
-          // Drain any pending incoming data by reading with a short timeout
-          // This clears the receive buffer without blocking
+          // Drain any pending incoming data by consuming it with a short timeout
+          // Uses a dedicated listener that cleans up properly
           if (parser) {
-            // Remove existing listeners temporarily
-            parser.removeAllListeners('data');
-
-            // Set up a drain with timeout
             await new Promise<void>((resolve) => {
-              const drainTimeout = setTimeout(() => {
-                resolve();
-              }, 100); // Short timeout - just drain what's there
+              let resolved = false;
+              let timeoutId: ReturnType<typeof setTimeout>;
 
-              const onData = () => {
-                // Got some data, extend the drain period slightly
-                clearTimeout(drainTimeout);
-                setTimeout(resolve, 50);
+              const cleanup = () => {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timeoutId);
+                  parser?.removeListener('data', onData);
+                  resolve();
+                }
               };
 
-              parser!.once('data', onData);
+              const onData = () => {
+                // Got some data, wait a bit more for any additional buffered data
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(cleanup, 50);
+              };
 
-              // If no data comes in the timeout period, we're done
-              setTimeout(() => {
-                parser?.removeListener('data', onData);
-              }, 100);
+              // Listen for data (not once - we want to drain ALL buffered data)
+              parser!.on('data', onData);
+
+              // Max drain time - resolve even if data keeps coming
+              timeoutId = setTimeout(cleanup, 100);
             });
           }
 
