@@ -171,7 +171,7 @@ async function start() {
     console.log('Creating simulated devices...');
 
     try {
-      const { psuDriver, loadDriver, connection } = createSimulatedDevices();
+      const { psuDriver, loadDriver, oscilloscopeDriver, connection } = createSimulatedDevices();
 
       // Log simulation configuration
       const simConfig = connection.getConfig();
@@ -180,22 +180,34 @@ async function start() {
       console.log(`  Measurement noise floor: ${simConfig.measurementNoiseFloorMv} mV`);
       console.log(`  PSU output impedance: ${simConfig.psuOutputImpedance} ohms`);
       console.log(`  Load CV gain: ${simConfig.loadCvGain} A/V`);
+      console.log(`  Boost target voltage: ${simConfig.boostTargetVoltage} V`);
+      console.log(`  Boost switching frequency: ${simConfig.boostSwitchingFrequency / 1000} kHz`);
 
       // Open the simulated transports
       await psuDriver.connect();
       await loadDriver.connect();
+      await oscilloscopeDriver.connect();
 
       // Probe to populate driver info
       await psuDriver.probe();
       await loadDriver.probe();
+      await oscilloscopeDriver.probe();
 
       // Add to registry
       registry.addDevice(psuDriver);
       registry.addDevice(loadDriver);
+      registry.addOscilloscope(oscilloscopeDriver);
 
       console.log('Simulated devices created:');
       console.log(`  - ${psuDriver.info.manufacturer} ${psuDriver.info.model} (${psuDriver.info.type})`);
       console.log(`  - ${loadDriver.info.manufacturer} ${loadDriver.info.model} (${loadDriver.info.type})`);
+      console.log(`  - ${oscilloscopeDriver.info.manufacturer} ${oscilloscopeDriver.info.model} (${oscilloscopeDriver.info.type})`);
+      console.log('');
+      console.log('Boost converter simulation:');
+      console.log('  CH1: PWM gate drive signal');
+      console.log('  CH2: Switching node voltage');
+      console.log('  CH3: Output voltage with ripple');
+      console.log('  CH4: Input current waveform');
 
       // Sync session manager with simulated devices
       await sessionManager.syncDevices();

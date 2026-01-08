@@ -20,10 +20,12 @@ export interface SimulatedTransportConfig {
 }
 
 export type CommandHandler = (cmd: string) => string | null;
+export type BinaryCommandHandler = (cmd: string) => Buffer | null;
 
 export function createSimulatedTransport(
   handler: CommandHandler,
-  config: SimulatedTransportConfig = {}
+  config: SimulatedTransportConfig = {},
+  binaryHandler?: BinaryCommandHandler
 ): Transport {
   const { latencyMs = 20, jitterMs = 10, name = 'simulated' } = config;
 
@@ -77,5 +79,16 @@ export function createSimulatedTransport(
     isOpen(): boolean {
       return opened;
     },
+
+    // Binary query support for oscilloscope waveform data
+    queryBinary: binaryHandler
+      ? async (cmd: string): Promise<Result<Buffer, Error>> => {
+          return withLock(async () => {
+            await delay();
+            const response = binaryHandler(cmd);
+            return Ok(response ?? Buffer.alloc(0));
+          });
+        }
+      : undefined,
   };
 }
