@@ -1006,4 +1006,234 @@ describe('DeviceSession', () => {
       expect(heartbeatCompleted).toBe(true);
     });
   });
+
+  describe('In-Flight Command Protection (Toggle Flicker Prevention)', () => {
+    it('should not revert setOutput optimistic update while command is in flight', async () => {
+      // This test simulates the toggle flicker scenario:
+      // 1. User clicks toggle -> optimistic update to true
+      // 2. Driver command is slow
+      // 3. Poll runs and sees old device state (false)
+      // 4. Without protection, poll would revert to false -> flicker
+      // 5. With protection, poll skips the update
+
+      let pollCount = 0;
+      let setOutputResolve: (() => void) | null = null;
+      const setOutputPromise = new Promise<void>(resolve => {
+        setOutputResolve = resolve;
+      });
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // Always return outputEnabled: false to simulate device not yet updated
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+        setOutputImpl: async () => {
+          // Simulate slow hardware command - wait for explicit resolve
+          await setOutputPromise;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+
+      // Let initial poll complete
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pollCount).toBe(1);
+      expect(session.getState().outputEnabled).toBe(false);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => {
+        if (msg.type === 'field' && msg.field === 'outputEnabled') {
+          notifications.push(msg);
+        }
+      });
+
+      // Start setOutput (will not complete until we resolve)
+      const setOutputPromiseResult = session.setOutput(true);
+
+      // Verify optimistic update happened
+      expect(session.getState().outputEnabled).toBe(true);
+      expect(notifications.length).toBe(1);
+      expect(notifications[0].value).toBe(true);
+
+      // Advance time to trigger multiple polls while command is in flight
+      await vi.advanceTimersByTimeAsync(150); // 3 poll intervals
+      expect(pollCount).toBeGreaterThanOrEqual(3);
+
+      // Critical: outputEnabled should still be true (not reverted by poll)
+      expect(session.getState().outputEnabled).toBe(true);
+      // No additional notifications should have been sent
+      expect(notifications.length).toBe(1);
+
+      // Now complete the driver command
+      setOutputResolve!();
+      await setOutputPromiseResult;
+
+      // State should still be true
+      expect(session.getState().outputEnabled).toBe(true);
+    });
+
+    it('should not revert setMode optimistic update while command is in flight', async () => {
+      let pollCount = 0;
+      let setModeResolve: (() => void) | null = null;
+      const setModePromise = new Promise<void>(resolve => {
+        setModeResolve = resolve;
+      });
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // Always return mode: 'CC' to simulate device not yet updated
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+        setModeImpl: async () => {
+          await setModePromise;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+
+      // Let initial poll complete
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().mode).toBe('CC');
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => {
+        if (msg.type === 'field' && msg.field === 'mode') {
+          notifications.push(msg);
+        }
+      });
+
+      // Start setMode (will not complete until we resolve)
+      const setModePromiseResult = session.setMode('CV');
+
+      // Verify optimistic update happened
+      expect(session.getState().mode).toBe('CV');
+      expect(notifications.length).toBe(1);
+      expect(notifications[0].value).toBe('CV');
+
+      // Advance time to trigger multiple polls while command is in flight
+      await vi.advanceTimersByTimeAsync(150);
+
+      // Critical: mode should still be 'CV' (not reverted by poll)
+      expect(session.getState().mode).toBe('CV');
+      expect(notifications.length).toBe(1);
+
+      // Complete the driver command
+      setModeResolve!();
+      await setModePromiseResult;
+
+      expect(session.getState().mode).toBe('CV');
+    });
+
+    it('should allow poll to update values when no command is in flight', async () => {
+      let currentMode = 'CC';
+      let currentOutput = false;
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          return Ok({
+            mode: currentMode,
+            outputEnabled: currentOutput,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+
+      // Let initial poll complete
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().mode).toBe('CC');
+      expect(session.getState().outputEnabled).toBe(false);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => {
+        if (msg.type === 'field') {
+          notifications.push(msg);
+        }
+      });
+
+      // Simulate device state change externally (e.g., front panel toggle)
+      currentMode = 'CV';
+      currentOutput = true;
+
+      // Advance to next poll
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should have updated both values
+      expect(session.getState().mode).toBe('CV');
+      expect(session.getState().outputEnabled).toBe(true);
+      expect(notifications.some(n => n.field === 'mode' && n.value === 'CV')).toBe(true);
+      expect(notifications.some(n => n.field === 'outputEnabled' && n.value === true)).toBe(true);
+    });
+
+    it('should resume poll updates after command completes', async () => {
+      let currentOutput = false;
+      let setOutputResolve: (() => void) | null = null;
+      const setOutputPromise = new Promise<void>(resolve => {
+        setOutputResolve = resolve;
+      });
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          return Ok({
+            mode: 'CC',
+            outputEnabled: currentOutput,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+        setOutputImpl: async () => {
+          await setOutputPromise;
+          // Simulate successful hardware update
+          currentOutput = true;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => {
+        if (msg.type === 'field' && msg.field === 'outputEnabled') {
+          notifications.push(msg);
+        }
+      });
+
+      // Start command
+      const resultPromise = session.setOutput(true);
+      expect(notifications.length).toBe(1); // Optimistic update
+
+      // Advance polls while in flight
+      await vi.advanceTimersByTimeAsync(100);
+      expect(notifications.length).toBe(1); // No poll reverts
+
+      // Complete command
+      setOutputResolve!();
+      await resultPromise;
+
+      // Now simulate device turning off externally
+      currentOutput = false;
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should now be able to update (command no longer in flight)
+      expect(session.getState().outputEnabled).toBe(false);
+      expect(notifications.some(n => n.value === false)).toBe(true);
+    });
+  });
 });

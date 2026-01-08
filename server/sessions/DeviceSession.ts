@@ -103,6 +103,11 @@ export function createDeviceSession(
   let heartbeatInProgress = false;
   let lastHeartbeatSuccess = Date.now();
 
+  // In-flight command tracking - prevents poll from reverting optimistic updates
+  // while hardware commands are being processed
+  let outputCommandInFlight = false;
+  let modeCommandInFlight = false;
+
   // Helper: Broadcast message to all subscribers
   function broadcast(message: ServerMessage): void {
     const timestampedMessage = { ...message, timestamp: Date.now() };
@@ -161,7 +166,8 @@ export function createDeviceSession(
       const status = statusResult.value;
 
       // Check for mode change and broadcast
-      if (status.mode !== mode) {
+      // Skip if a setMode command is in flight to prevent reverting optimistic updates
+      if (status.mode !== mode && !modeCommandInFlight) {
         mode = status.mode;
         broadcast({
           type: 'field',
@@ -172,7 +178,8 @@ export function createDeviceSession(
       }
 
       // Check for output state change and broadcast
-      if (status.outputEnabled !== outputEnabled) {
+      // Skip if a setOutput command is in flight to prevent reverting optimistic updates
+      if (status.outputEnabled !== outputEnabled && !outputCommandInFlight) {
         outputEnabled = status.outputEnabled;
         broadcast({
           type: 'field',
@@ -425,6 +432,9 @@ export function createDeviceSession(
     // Save old value for rollback
     const oldMode = mode;
 
+    // Mark command as in-flight to prevent poll from reverting optimistic update
+    modeCommandInFlight = true;
+
     // Optimistic update - notify before hardware execution
     mode = newMode;
     broadcast({
@@ -434,25 +444,32 @@ export function createDeviceSession(
       value: newMode,
     });
 
-    const result = await driver.setMode(newMode);
-    if (!result.ok) {
-      console.error('setMode error:', result.error);
-      // Rollback to previous value
-      mode = oldMode;
-      broadcast({
-        type: 'field',
-        deviceId: driver.info.id,
-        field: 'mode',
-        value: oldMode,
-      });
-      return result;
+    try {
+      const result = await driver.setMode(newMode);
+      if (!result.ok) {
+        console.error('setMode error:', result.error);
+        // Rollback to previous value
+        mode = oldMode;
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'mode',
+          value: oldMode,
+        });
+        return result;
+      }
+      return Ok();
+    } finally {
+      modeCommandInFlight = false;
     }
-    return Ok();
   }
 
   async function setOutputAction(enabled: boolean): Promise<Result<void, Error>> {
     // Save old value for rollback
     const oldEnabled = outputEnabled;
+
+    // Mark command as in-flight to prevent poll from reverting optimistic update
+    outputCommandInFlight = true;
 
     // Optimistic update
     outputEnabled = enabled;
@@ -463,20 +480,24 @@ export function createDeviceSession(
       value: enabled,
     });
 
-    const result = await driver.setOutput(enabled);
-    if (!result.ok) {
-      console.error('setOutput error:', result.error);
-      // Rollback to previous value
-      outputEnabled = oldEnabled;
-      broadcast({
-        type: 'field',
-        deviceId: driver.info.id,
-        field: 'outputEnabled',
-        value: oldEnabled,
-      });
-      return result;
+    try {
+      const result = await driver.setOutput(enabled);
+      if (!result.ok) {
+        console.error('setOutput error:', result.error);
+        // Rollback to previous value
+        outputEnabled = oldEnabled;
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'outputEnabled',
+          value: oldEnabled,
+        });
+        return result;
+      }
+      return Ok();
+    } finally {
+      outputCommandInFlight = false;
     }
-    return Ok();
   }
 
   async function setValueAction(name: string, value: number, immediate = false): Promise<Result<void, Error>> {
