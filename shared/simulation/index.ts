@@ -30,4 +30,6 @@ export {
 export {
   createOscilloscopeSimulator,
   type OscilloscopeSimulator,
+  type OscilloscopeSimulatorStatus,
+  type ChannelConfig,
 } from './oscilloscope-simulator.js';

@@ -13,9 +13,24 @@
 
 import type { VirtualConnection, BoostConverterState } from './virtual-connection.js';
 
+export interface ChannelConfig {
+  enabled: boolean;
+  scale: number;
+  offset: number;
+}
+
+export interface OscilloscopeSimulatorStatus {
+  running: boolean;
+  triggerStatus: string;
+}
+
 export interface OscilloscopeSimulator {
   handleCommand(cmd: string): string | null;
   handleBinaryCommand(cmd: string): Buffer | null;
+  getChannelConfig(): Record<string, ChannelConfig>;
+  getTimebaseScale(): number;
+  generateWaveformData(channel: string, numPoints: number): number[];
+  getStatus(): OscilloscopeSimulatorStatus;
 }
 
 interface ChannelState {
@@ -610,8 +625,39 @@ export function createOscilloscopeSimulator(
     return null;
   }
 
+  function getChannelConfig(): Record<string, ChannelConfig> {
+    const config: Record<string, ChannelConfig> = {};
+    for (const [name, state] of Object.entries(channels)) {
+      config[name] = {
+        enabled: state.enabled,
+        scale: state.scale,
+        offset: state.offset,
+      };
+    }
+    return config;
+  }
+
+  function getTimebaseScale(): number {
+    return timebase.scale;
+  }
+
+  function generateWaveformData(channel: string, numPoints: number): number[] {
+    return generateWaveform(channel, numPoints);
+  }
+
+  function getStatus(): OscilloscopeSimulatorStatus {
+    return {
+      running,
+      triggerStatus,
+    };
+  }
+
   return {
     handleCommand,
     handleBinaryCommand,
+    getChannelConfig,
+    getTimebaseScale,
+    generateWaveformData,
+    getStatus,
   };
 }
