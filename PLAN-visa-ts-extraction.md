@@ -101,10 +101,17 @@ packages/
    - Add auto-baud detection as option
    - Support different line endings (CR, LF, CRLF)
 
+4. **`src/transports/tcpip.ts`** - TCP/IP socket transport (LXI)
+   - Raw socket connection (port 5025 is standard for SCPI)
+   - Line-based protocol with configurable termination
+   - Connection timeout and keepalive options
+   - No discovery - requires explicit IP/hostname
+
 **Source from signal-drift:**
 - `server/devices/transports/usbtmc.ts` → USB-TMC implementation
 - `server/devices/transports/serial.ts` → Serial implementation
 - `server/devices/types.ts:18-31` → Transport interface
+- (new) TCP socket transport
 
 ---
 
@@ -175,6 +182,28 @@ packages/
 **Source from signal-drift:**
 - `server/devices/registry.ts` → Device registration pattern
 - `server/devices/scanner.ts` → Device discovery logic
+
+**Discovery Model:**
+
+| Transport | Discovery | Notes |
+|-----------|-----------|-------|
+| USB-TMC | Automatic | Enumerate all USB devices, filter by class/vendor |
+| Serial | Semi-auto | List ports, probe with `*IDN?` |
+| TCP/IP | Manual | User provides IP/hostname (no broadcast discovery) |
+
+```typescript
+// USB - fully automatic
+const usbDevices = await rm.listResources('USB?*::INSTR');
+
+// Serial - lists available ports, user picks
+const serialPorts = await rm.listResources('ASRL?*::INSTR');
+
+// TCP/IP - user must know the address
+const instr = await rm.openResource('TCPIP0::192.168.1.100::5025::SOCKET');
+
+// Future: mDNS/DNS-SD discovery for LXI devices
+const lxiDevices = await rm.listResources('TCPIP?*::INSTR');  // Optional enhancement
+```
 
 ---
 
@@ -300,6 +329,7 @@ await rm.close();
 | `server/devices/scanner.ts` | `src/resource-manager.ts` | Merge discovery logic |
 | (new) | `src/resource-string.ts` | VISA string parser |
 | (new) | `src/resources/message-based.ts` | PyVISA-style Resource |
+| (new) | `src/transports/tcpip.ts` | TCP socket for LXI |
 
 ---
 
@@ -318,9 +348,8 @@ await rm.close();
    - Monorepo workspace in signal-drift?
    - npm organization scope? (e.g., `@signal-drift/visa-ts`)
 
-2. **Scope of initial release**:
-   - USB-TMC + Serial only?
-   - Include TCP/IP socket transport?
+2. ~~**Scope of initial release**~~:
+   - ✅ USB-TMC + Serial + TCP/IP (LXI)
 
 3. **Backend plugin system**:
    - Full plugin architecture now?
