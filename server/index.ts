@@ -171,7 +171,7 @@ async function start() {
     console.log('Creating simulated devices...');
 
     try {
-      const { psuDriver, loadDriver, connection } = createSimulatedDevices();
+      const { psuDriver, loadDriver, oscilloscopeDriver, connection } = createSimulatedDevices();
 
       // Log simulation configuration
       const simConfig = connection.getConfig();
@@ -180,22 +180,34 @@ async function start() {
       console.log(`  Measurement noise floor: ${simConfig.measurementNoiseFloorMv} mV`);
       console.log(`  PSU output impedance: ${simConfig.psuOutputImpedance} ohms`);
       console.log(`  Load CV gain: ${simConfig.loadCvGain} A/V`);
+      console.log(`  Boost target voltage: ${simConfig.boostTargetVoltage} V`);
+      console.log(`  Boost switching frequency: ${simConfig.boostSwitchingFrequency / 1000} kHz`);
 
       // Open the simulated transports
       await psuDriver.connect();
       await loadDriver.connect();
+      await oscilloscopeDriver.connect();
 
       // Probe to populate driver info
       await psuDriver.probe();
       await loadDriver.probe();
+      await oscilloscopeDriver.probe();
 
       // Add to registry
       registry.addDevice(psuDriver);
       registry.addDevice(loadDriver);
+      registry.addOscilloscope(oscilloscopeDriver);
 
       console.log('Simulated devices created:');
       console.log(`  - ${psuDriver.info.manufacturer} ${psuDriver.info.model} (${psuDriver.info.type})`);
       console.log(`  - ${loadDriver.info.manufacturer} ${loadDriver.info.model} (${loadDriver.info.type})`);
+      console.log(`  - ${oscilloscopeDriver.info.manufacturer} ${oscilloscopeDriver.info.model} (${oscilloscopeDriver.info.type})`);
+      console.log('');
+      console.log('Boost converter simulation:');
+      console.log('  CH1: PWM gate drive signal');
+      console.log('  CH2: Switching node voltage');
+      console.log('  CH3: Output voltage with ripple');
+      console.log('  CH4: Input current waveform');
 
       // Sync session manager with simulated devices
       await sessionManager.syncDevices();
@@ -225,9 +237,34 @@ async function start() {
       console.error('Device scan failed:', err);
     }
 
+    // Set up force reconnect callback for heartbeat-triggered reconnections
+    // When heartbeat detects a device is unresponsive, it will call this to trigger immediate rescan
+    sessionManager.setForceReconnectCallback(async (deviceId: string) => {
+      console.log(`[Heartbeat] Force reconnect requested for ${deviceId}, triggering scan...`);
+      try {
+        // Pause all heartbeats during the scan to avoid conflicts
+        sessionManager.pauseAllHeartbeats();
+
+        const result = await scanDevices(registry, sessionManager);
+
+        if (result.reconnected > 0) {
+          console.log(`[Heartbeat] Reconnected ${result.reconnected} device(s)`);
+          wsHandler.broadcastDeviceList();
+        }
+      } catch (err) {
+        console.error('[Heartbeat] Force reconnect scan failed:', err);
+      } finally {
+        // Resume heartbeats after scan completes
+        sessionManager.resumeAllHeartbeats();
+      }
+    });
+
     // Periodic scan for device changes (disconnect/reconnect)
     scanIntervalHandle = setInterval(async () => {
       try {
+        // Pause heartbeats during scan to avoid conflicts
+        sessionManager.pauseAllHeartbeats();
+
         // Scan for new devices or reconnect disconnected ones
         const result = await scanDevices(registry, sessionManager);
 
@@ -243,6 +280,9 @@ async function start() {
         }
       } catch (err) {
         console.error('Periodic scan failed:', err);
+      } finally {
+        // Resume heartbeats after scan completes
+        sessionManager.resumeAllHeartbeats();
       }
     }, SCAN_INTERVAL_MS);
   }

@@ -106,14 +106,14 @@ export function createMatrixWPS300S(transport: Transport): DeviceDriver {
       const outputEnabled = outputResult.value.trim() === '1';
 
       // Infer mode from measurements vs setpoints
-      // CC mode: current is at limit AND voltage is below setpoint
-      // CV mode: voltage is at setpoint OR current is below limit (default)
+      // CC mode: current is at limit (within 2% tolerance)
+      // CV mode: current is below limit (default)
+      // Note: With boost converter loads, voltage may stay at setpoint even in CC mode
+      // because the boost output droops, not the PSU input voltage
       let mode = 'CV';
-      if (outputEnabled && currentLimit > 0.001 && voltageSetpoint > 0.001) {
+      if (outputEnabled && currentLimit > 0.001) {
         const currentAtLimit = currentActual >= currentLimit * 0.98;
-        const voltageAtSetpoint = voltageActual >= voltageSetpoint * 0.98;
-        // CC mode: hitting current limit while voltage droops
-        if (currentAtLimit && !voltageAtSetpoint) {
+        if (currentAtLimit) {
           mode = 'CC';
         }
       }

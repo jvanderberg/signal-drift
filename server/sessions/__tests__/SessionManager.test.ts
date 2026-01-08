@@ -185,7 +185,8 @@ describe('SessionManager', () => {
 
   describe('Stop All', () => {
     it('should stop all sessions when manager is stopped', async () => {
-      manager = createSessionManager(registry, { pollIntervalMs: 250 });
+      // Disable heartbeat to ensure predictable getStatus call count
+      manager = createSessionManager(registry, { pollIntervalMs: 250, heartbeatIntervalMs: 0 });
 
       const driver1 = createMockDriver('device-1');
       const driver2 = createMockDriver('device-2');

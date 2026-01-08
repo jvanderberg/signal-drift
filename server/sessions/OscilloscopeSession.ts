@@ -817,34 +817,43 @@ export function createOscilloscopeSession(
     async autoSetup(): Promise<void> {
       await pauseStreaming();
 
-      waveformCache.clear();
-      freqCache.clear();
+      try {
+        waveformCache.clear();
+        freqCache.clear();
 
-      await driver.autoSetup();
-      await new Promise(resolve => setTimeout(resolve, 1500));
+        const result = await driver.autoSetup();
 
-      const statusResult = await driver.getStatus();
-      if (statusResult.ok) {
-        status = statusResult.value;
-        lastUpdated = Date.now();
-
-        // Update streaming channels based on new enabled channels
-        if (status?.channels) {
-          streamingChannels = Object.entries(status.channels)
-            .filter(([_, ch]) => ch.enabled)
-            .map(([name]) => name);
+        if (!result.ok) {
+          console.error(`Failed to auto setup: ${result.error.message}`);
+          return;  // Don't continue on failure
         }
 
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'oscilloscopeStatus',
-          value: status,
-        });
-      }
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
-      broadcastStreamingState();
-      resumeStreaming();
+        const statusResult = await driver.getStatus();
+        if (statusResult.ok) {
+          status = statusResult.value;
+          lastUpdated = Date.now();
+
+          // Update streaming channels based on new enabled channels
+          if (status?.channels) {
+            streamingChannels = Object.entries(status.channels)
+              .filter(([_, ch]) => ch.enabled)
+              .map(([name]) => name);
+          }
+
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'oscilloscopeStatus',
+            value: status,
+          });
+        }
+
+        broadcastStreamingState();
+      } finally {
+        resumeStreaming();  // ALWAYS resume, even on error
+      }
     },
 
     async forceTrigger(): Promise<void> {
@@ -892,55 +901,77 @@ export function createOscilloscopeSession(
     async setChannelScale(channel: string, scale: number): Promise<void> {
       await pauseStreaming();
 
-      waveformCache.delete(channel);
-      freqCache.delete(`${channel}-FREQ`);
+      try {
+        waveformCache.delete(channel);
+        freqCache.delete(`${channel}-FREQ`);
 
-      await driver.setChannelScale(channel, scale);
+        const result = await driver.setChannelScale(channel, scale);
 
-      // Optimistic update and broadcast
-      if (status?.channels?.[channel]) {
-        status = {
-          ...status,
-          channels: {
-            ...status.channels,
-            [channel]: {
-              ...status.channels[channel],
-              scale,
+        if (!result.ok) {
+          console.error(`Failed to set ${channel} scale: ${result.error.message}`);
+          return;  // Don't update status on failure
+        }
+
+        // Optimistic update only on success
+        if (status?.channels?.[channel]) {
+          status = {
+            ...status,
+            channels: {
+              ...status.channels,
+              [channel]: {
+                ...status.channels[channel],
+                scale,
+              },
             },
-          },
-        };
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'oscilloscopeStatus',
-          value: status,
-        });
+          };
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'oscilloscopeStatus',
+            value: status,
+          });
+        }
+      } finally {
+        resumeStreaming();  // ALWAYS resume, even on error
       }
-
-      resumeStreaming();
     },
 
     async setChannelOffset(channel: string, offset: number): Promise<void> {
-      await driver.setChannelOffset(channel, offset);
+      await pauseStreaming();
 
-      // Optimistic update and broadcast
-      if (status?.channels?.[channel]) {
-        status = {
-          ...status,
-          channels: {
-            ...status.channels,
-            [channel]: {
-              ...status.channels[channel],
-              offset,
+      try {
+        // Clear cached waveform data - offset changes affect yOrigin scaling parameter
+        waveformCache.delete(channel);
+        freqCache.delete(`${channel}-FREQ`);  // For consistency with setChannelScale
+
+        const result = await driver.setChannelOffset(channel, offset);
+
+        if (!result.ok) {
+          console.error(`Failed to set ${channel} offset: ${result.error.message}`);
+          return;  // Don't update status on failure
+        }
+
+        // Optimistic update only on success
+        if (status?.channels?.[channel]) {
+          status = {
+            ...status,
+            channels: {
+              ...status.channels,
+              [channel]: {
+                ...status.channels[channel],
+                offset,
+              },
             },
-          },
-        };
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'oscilloscopeStatus',
-          value: status,
-        });
+          };
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'oscilloscopeStatus',
+            value: status,
+          });
+        }
+      } finally {
+        resumeStreaming();  // ALWAYS resume, even on error
       }
     },
 
@@ -1020,53 +1051,67 @@ export function createOscilloscopeSession(
     async setTimebaseScale(scale: number): Promise<void> {
       await pauseStreaming();
 
-      waveformCache.clear();
-      freqCache.clear();
+      try {
+        waveformCache.clear();
+        freqCache.clear();
 
-      await driver.setTimebaseScale(scale);
+        const result = await driver.setTimebaseScale(scale);
 
-      // Optimistic update and broadcast (no hardware poll)
-      if (status?.timebase) {
-        status = {
-          ...status,
-          timebase: { ...status.timebase, scale },
-        };
-        lastUpdated = Date.now();
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'oscilloscopeStatus',
-          value: status,
-        });
+        if (!result.ok) {
+          console.error(`Failed to set timebase scale: ${result.error.message}`);
+          return;  // Don't update status on failure
+        }
+
+        // Optimistic update only on success
+        if (status?.timebase) {
+          status = {
+            ...status,
+            timebase: { ...status.timebase, scale },
+          };
+          lastUpdated = Date.now();
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'oscilloscopeStatus',
+            value: status,
+          });
+        }
+      } finally {
+        resumeStreaming();  // ALWAYS resume, even on error
       }
-
-      resumeStreaming();
     },
 
     async setTimebaseOffset(offset: number): Promise<void> {
       await pauseStreaming();
 
-      waveformCache.clear();
-      freqCache.clear();
+      try {
+        waveformCache.clear();
+        freqCache.clear();
 
-      await driver.setTimebaseOffset(offset);
+        const result = await driver.setTimebaseOffset(offset);
 
-      // Optimistic update and broadcast (no hardware poll)
-      if (status?.timebase) {
-        status = {
-          ...status,
-          timebase: { ...status.timebase, offset },
-        };
-        lastUpdated = Date.now();
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'oscilloscopeStatus',
-          value: status,
-        });
+        if (!result.ok) {
+          console.error(`Failed to set timebase offset: ${result.error.message}`);
+          return;  // Don't update status on failure
+        }
+
+        // Optimistic update only on success
+        if (status?.timebase) {
+          status = {
+            ...status,
+            timebase: { ...status.timebase, offset },
+          };
+          lastUpdated = Date.now();
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'oscilloscopeStatus',
+            value: status,
+          });
+        }
+      } finally {
+        resumeStreaming();  // ALWAYS resume, even on error
       }
-
-      resumeStreaming();
     },
 
     // Trigger

@@ -24,7 +24,8 @@
     "./**/*.tsx",
     "../client/src/**/*.ts",
     "../client/src/**/*.tsx",
-    "../shared/**/*.ts"
+    "../shared/**/*.ts",
+    "../shared/simulation/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

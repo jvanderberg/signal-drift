@@ -11,11 +11,12 @@ import type { DeviceRegistry } from '../devices/registry.js';
 import type { DeviceDriver, OscilloscopeDriver, WaveformData } from '../devices/types.js';
 import type { DeviceSummary, ServerMessage, Result } from '../../shared/types.js';
 import { Ok, Err } from '../../shared/types.js';
-import { createDeviceSession, DeviceSession, DeviceSessionConfig } from './DeviceSession.js';
+import { createDeviceSession, DeviceSession, DeviceSessionConfig, ForceReconnectCallback } from './DeviceSession.js';
 import { createOscilloscopeSession, OscilloscopeSession } from './OscilloscopeSession.js';
 
 export interface SessionManagerConfig extends DeviceSessionConfig {
   scanIntervalMs?: number;
+  // heartbeatIntervalMs is inherited from DeviceSessionConfig
 }
 
 type SubscriberCallback = (message: ServerMessage) => void;
@@ -29,6 +30,13 @@ export interface SessionManager {
   getSession(deviceId: string): DeviceSession | undefined;
   getSessionCount(): number;
   getDeviceSummaries(): DeviceSummary[];
+
+  // Heartbeat coordination - scanner should pause heartbeats during scan
+  pauseAllHeartbeats(): void;
+  resumeAllHeartbeats(): void;
+
+  // Set callback for force reconnection requests from heartbeat
+  setForceReconnectCallback(callback: (deviceId: string) => Promise<void>): void;
 
   subscribe(deviceId: string, clientId: string, callback: SubscriberCallback): boolean;
   unsubscribe(deviceId: string, clientId: string): void;
@@ -89,10 +97,21 @@ export function createSessionManager(
     historyWindowMs: config.historyWindowMs,
     maxConsecutiveErrors: config.maxConsecutiveErrors,
     debounceMs: config.debounceMs,
+    heartbeatIntervalMs: config.heartbeatIntervalMs,
   };
 
   let scanTimer: ReturnType<typeof setInterval> | null = null;
   let isRunning = true;
+
+  // Callback for force reconnection requests from heartbeat
+  let forceReconnectCallback: ((deviceId: string) => Promise<void>) | null = null;
+
+  // Internal callback wrapper for heartbeat force reconnect
+  const handleForceReconnect: ForceReconnectCallback = async (deviceId: string) => {
+    if (forceReconnectCallback) {
+      await forceReconnectCallback(deviceId);
+    }
+  };
 
   // Sync sessions with registry - only creates new sessions, never removes
   async function syncDevices(): Promise<void> {
@@ -103,7 +122,7 @@ export function createSessionManager(
     for (const driver of currentDevices) {
       if (!sessions.has(driver.info.id)) {
         console.log(`[SessionManager] Creating session for: ${driver.info.id}`);
-        const session = createDeviceSession(driver, sessionConfig);
+        const session = createDeviceSession(driver, sessionConfig, handleForceReconnect);
         sessions.set(driver.info.id, session);
       }
     }
@@ -418,6 +437,25 @@ export function createSessionManager(
     return Ok();
   }
 
+  // Pause heartbeats for all device sessions (for scanner coordination)
+  function pauseAllHeartbeats(): void {
+    for (const session of sessions.values()) {
+      session.pauseHeartbeat();
+    }
+  }
+
+  // Resume heartbeats for all device sessions
+  function resumeAllHeartbeats(): void {
+    for (const session of sessions.values()) {
+      session.resumeHeartbeat();
+    }
+  }
+
+  // Set the callback for force reconnection requests from heartbeat
+  function setForceReconnectCallback(callback: (deviceId: string) => Promise<void>): void {
+    forceReconnectCallback = callback;
+  }
+
   async function stop(): Promise<void> {
     isRunning = false;
 
@@ -445,6 +483,9 @@ export function createSessionManager(
     getSession,
     getSessionCount,
     getDeviceSummaries,
+    pauseAllHeartbeats,
+    resumeAllHeartbeats,
+    setForceReconnectCallback,
     subscribe,
     unsubscribe,
     unsubscribeAll,

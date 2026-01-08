@@ -79,7 +79,7 @@ test.describe('PSU + Load Smoke Test', () => {
 
     // Wait for devices to appear (simulated devices should be listed)
     await expect(page.getByText('Matrix')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('Rigol')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Rigol DL3021')).toBeVisible({ timeout: 5000 });
 
     // === STEP 1: Open and configure PSU ===
     console.log('Opening PSU panel...');
@@ -150,7 +150,7 @@ test.describe('PSU + Load Smoke Test', () => {
     // === STEP 2: Open and configure Load ===
     console.log('Opening Load panel...');
     await openSidebar(page);
-    await page.getByText('Rigol').first().click();
+    await page.getByText('Rigol DL3021').first().click();
     await page.waitForTimeout(1500);
 
     // Now we have 2 panels - PSU and Load

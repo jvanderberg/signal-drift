@@ -25,17 +25,26 @@ import type {
   TriggerState,
   DeviceAlias,
   DashboardLayoutData,
+  WaveformData,
 } from '../../shared/types';
-import { createVirtualConnection, type VirtualConnection } from './virtual-connection';
-import { createPsuSimulator, type PsuSimulator } from './psu-simulator';
-import { createLoadSimulator, type LoadSimulator } from './load-simulator';
+import {
+  createVirtualConnection,
+  createPsuSimulator,
+  createLoadSimulator,
+  createOscilloscopeSimulator,
+  type VirtualConnection,
+  type PsuSimulator,
+  type LoadSimulator,
+  type OscilloscopeSimulator,
+} from '../../shared/simulation';
 
 interface SimulatedDevice {
   id: string;
   info: DeviceInfo;
   capabilities: DeviceCapabilities;
-  simulator: PsuSimulator | LoadSimulator;
+  simulator: PsuSimulator | LoadSimulator | OscilloscopeSimulator;
   isPsu: boolean;
+  isOscilloscope?: boolean;
 }
 
 interface DeviceSession {
@@ -151,9 +160,18 @@ export function createDemoServer(): DemoServer {
     triggerStates: Map<string, TriggerState>;
   } | null = null;
 
+  // Oscilloscope streaming state
+  let scopeStreaming: {
+    deviceId: string;
+    channels: string[];
+    intervalMs: number;
+    timer: ReturnType<typeof setInterval> | null;
+  } | null = null;
+
   let connection: VirtualConnection;
   let psuDevice: SimulatedDevice;
   let loadDevice: SimulatedDevice;
+  let scopeDevice: SimulatedDevice;
 
   function broadcast(message: ServerMessage): void {
     for (const handler of messageHandlers) {
@@ -241,9 +259,33 @@ export function createDemoServer(): DemoServer {
       isPsu: false,
     };
 
+    const scopeSimulator = createOscilloscopeSimulator(connection, 'DS1ZA000000001');
+    scopeDevice = {
+      id: 'rigol-ds1054z-demo',
+      info: {
+        id: 'rigol-ds1054z-demo',
+        type: 'oscilloscope',
+        manufacturer: 'Rigol',
+        model: 'DS1054Z',
+        serial: 'DS1ZA000000001',
+      },
+      // Oscilloscope capabilities - simplified for demo
+      capabilities: {
+        deviceClass: 'oscilloscope',
+        channels: 4,
+        maxSampleRate: 1e9,
+        maxBandwidth: 50e6,
+        memoryDepth: 12000,
+      } as unknown as DeviceCapabilities,
+      simulator: scopeSimulator,
+      isPsu: false,
+      isOscilloscope: true,
+    };
+
     // Create sessions
     sessions.set(psuDevice.id, createSession(psuDevice));
     sessions.set(loadDevice.id, createSession(loadDevice));
+    sessions.set(scopeDevice.id, createSession(scopeDevice));
   }
 
   function createSession(device: SimulatedDevice): DeviceSession {
@@ -484,6 +526,132 @@ export function createDemoServer(): DemoServer {
     });
   }
 
+  // ============ Oscilloscope Handlers ============
+
+  function handleScopeStartStreaming(deviceId: string, channels: string[], intervalMs: number): void {
+    // Stop any existing streaming
+    handleScopeStopStreaming();
+
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) {
+      console.log('[Demo] Scope not found:', deviceId);
+      return;
+    }
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+
+    scopeStreaming = {
+      deviceId,
+      channels,
+      intervalMs,
+      timer: setInterval(() => {
+        // Generate and broadcast waveform for each enabled channel
+        const channelConfig = simulator.getChannelConfig();
+        const timebaseScale = simulator.getTimebaseScale();
+
+        for (const channel of channels) {
+          const config = channelConfig[channel];
+          if (!config?.enabled) continue;
+
+          const numPoints = 1200; // Standard waveform length
+          const points = simulator.generateWaveformData(channel, numPoints);
+
+          const waveform: WaveformData = {
+            points,
+            xIncrement: (timebaseScale * 12) / numPoints, // 12 divisions
+            xOrigin: 0,
+            yIncrement: config.scale / 32, // Approximate ADC scaling
+            yOrigin: config.offset,
+            yReference: 128,
+          };
+
+          broadcast({
+            type: 'scopeWaveform',
+            deviceId,
+            channel,
+            waveform,
+            timestamp: Date.now(),
+          });
+        }
+      }, intervalMs),
+    };
+
+    console.log('[Demo] Started scope streaming for channels:', channels);
+  }
+
+  function handleScopeStopStreaming(): void {
+    if (scopeStreaming?.timer) {
+      clearInterval(scopeStreaming.timer);
+      console.log('[Demo] Stopped scope streaming');
+    }
+    scopeStreaming = null;
+  }
+
+  function handleScopeSetChannelEnabled(deviceId: string, channel: string, enabled: boolean): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(`:${channel}:DISP ${enabled ? 'ON' : 'OFF'}`);
+
+    // Update streaming channels if active
+    if (scopeStreaming && scopeStreaming.deviceId === deviceId) {
+      if (enabled && !scopeStreaming.channels.includes(channel)) {
+        scopeStreaming.channels.push(channel);
+      } else if (!enabled) {
+        scopeStreaming.channels = scopeStreaming.channels.filter(ch => ch !== channel);
+      }
+    }
+  }
+
+  function handleScopeSetChannelScale(deviceId: string, channel: string, scale: number): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(`:${channel}:SCAL ${scale}`);
+  }
+
+  function handleScopeSetChannelOffset(deviceId: string, channel: string, offset: number): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(`:${channel}:OFFS ${offset}`);
+  }
+
+  function handleScopeSetTimebaseScale(deviceId: string, scale: number): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(`:TIM:SCAL ${scale}`);
+  }
+
+  function handleScopeRun(deviceId: string): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(':RUN');
+  }
+
+  function handleScopeStop(deviceId: string): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(':STOP');
+  }
+
+  function handleScopeAutoSetup(deviceId: string): void {
+    const session = sessions.get(deviceId);
+    if (!session || !session.device.isOscilloscope) return;
+
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    simulator.handleCommand(':AUT');
+  }
+
   function handleMessage(message: ClientMessage): void {
     switch (message.type) {
       case 'getDevices':
@@ -722,6 +890,43 @@ export function createDemoServer(): DemoServer {
       case 'dashboardLayoutClear':
         dashboardLayout = null;
         broadcast({ type: 'dashboardLayout', layout: null });
+        break;
+
+      // Oscilloscope messages
+      case 'scopeStartStreaming':
+        handleScopeStartStreaming(message.deviceId, message.channels, message.intervalMs);
+        break;
+
+      case 'scopeStopStreaming':
+        handleScopeStopStreaming();
+        break;
+
+      case 'scopeSetChannelEnabled':
+        handleScopeSetChannelEnabled(message.deviceId, message.channel, message.enabled);
+        break;
+
+      case 'scopeSetChannelScale':
+        handleScopeSetChannelScale(message.deviceId, message.channel, message.scale);
+        break;
+
+      case 'scopeSetChannelOffset':
+        handleScopeSetChannelOffset(message.deviceId, message.channel, message.offset);
+        break;
+
+      case 'scopeSetTimebaseScale':
+        handleScopeSetTimebaseScale(message.deviceId, message.scale);
+        break;
+
+      case 'scopeRun':
+        handleScopeRun(message.deviceId);
+        break;
+
+      case 'scopeStop':
+        handleScopeStop(message.deviceId);
+        break;
+
+      case 'scopeAutoSetup':
+        handleScopeAutoSetup(message.deviceId);
         break;
 
       default:
@@ -1029,6 +1234,8 @@ export function createDemoServer(): DemoServer {
       clearInterval(runningTriggerScript.timer);
       runningTriggerScript = null;
     }
+    // Stop scope streaming
+    handleScopeStopStreaming();
 
     for (const session of sessions.values()) {
       stopPolling(session);

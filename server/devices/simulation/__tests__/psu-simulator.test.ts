@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createPsuSimulator, type PsuSimulator } from '../psu-simulator.js';
-import { createVirtualConnection, type VirtualConnection } from '../virtual-connection.js';
+import { createPsuSimulator, type PsuSimulator } from '../../../../shared/simulation/psu-simulator.js';
+import { createVirtualConnection, type VirtualConnection } from '../../../../shared/simulation/virtual-connection.js';
 
 describe('PsuSimulator', () => {
   let conn: VirtualConnection;
   let psu: PsuSimulator;
 
-  // Config for deterministic tests - disable all noise sources
-  const deterministicConfig = { measurementStabilityPPM: 0, measurementNoiseFloorMv: 0 };
+  // Config for deterministic tests - disable all noise sources and boost converter
+  const deterministicConfig = {
+    measurementStabilityPPM: 0,
+    measurementNoiseFloorMv: 0,
+    boostEnabled: false,  // Direct PSU-load connection
+  };
 
   beforeEach(() => {
     conn = createVirtualConnection(deterministicConfig);

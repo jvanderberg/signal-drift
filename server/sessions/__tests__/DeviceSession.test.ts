@@ -727,4 +727,632 @@ describe('DeviceSession', () => {
       expect(session.getState().setpoints.current).toBe(2.5);
     });
   });
+
+  describe('Heartbeat', () => {
+    it('should not run heartbeat when disabled (interval = 0)', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 250,
+        heartbeatIntervalMs: 0,  // Disable heartbeat
+      });
+
+      // Initial poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Advance past what would be heartbeat interval
+      await vi.advanceTimersByTimeAsync(15000);
+
+      // Only polls should have run (250ms * 60 = 60 polls for 15 seconds)
+      // But with 250ms poll interval: 15000/250 = 60 + 1 initial = 61
+      expect(getStatusSpy).toHaveBeenCalledTimes(61);
+    });
+
+    it('should call getStatus on heartbeat interval', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 1000,      // Slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat for testing
+      });
+
+      // Initial poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Advance by 500ms - heartbeat should fire
+      await vi.advanceTimersByTimeAsync(500);
+      // Poll hasn't fired yet (every 1000ms), but heartbeat should have (every 500ms)
+      expect(getStatusSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('should allow pausing and resuming heartbeat', async () => {
+      const driver = createMockDriver();
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      // Pause heartbeat
+      session.pauseHeartbeat();
+      expect(session.isHeartbeatPaused()).toBe(true);
+
+      // Resume heartbeat
+      session.resumeHeartbeat();
+      expect(session.isHeartbeatPaused()).toBe(false);
+    });
+
+    it('should not fire heartbeat when paused', async () => {
+      const driver = createMockDriver();
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      await vi.advanceTimersByTimeAsync(0); // Initial poll
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+
+      // Pause heartbeat before it fires
+      session.pauseHeartbeat();
+
+      // Advance past multiple heartbeat intervals
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Heartbeat should not have fired (paused), and poll hasn't fired yet (every 10s)
+      expect(getStatusSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should disconnect on heartbeat timeout error', async () => {
+      let callCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          callCount++;
+          // First call (poll) succeeds, subsequent calls (heartbeat) timeout
+          if (callCount === 1) {
+            return Ok({
+              mode: 'CC',
+              outputEnabled: false,
+              setpoints: { current: 1.0 },
+              measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+            });
+          }
+          return Err(new Error('Timeout waiting for response'));
+        },
+      });
+
+      const forceReconnectCallback = vi.fn();
+
+      session = createDeviceSession(
+        driver,
+        {
+          pollIntervalMs: 10000,     // Very slow polling
+          heartbeatIntervalMs: 500,  // Fast heartbeat
+        },
+        forceReconnectCallback
+      );
+
+      // Initial poll succeeds
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Advance to trigger heartbeat - should fail and disconnect
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Device should be marked as disconnected due to timeout error
+      expect(session.getState().connectionStatus).toBe('disconnected');
+
+      // Force reconnect callback should have been called
+      expect(forceReconnectCallback).toHaveBeenCalledWith(driver.info.id);
+    });
+
+    it('should not interfere with active poll', async () => {
+      let pollInProgress = false;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          // Simulate a slow poll
+          pollInProgress = true;
+          await new Promise(r => setTimeout(r, 100));
+          pollInProgress = false;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+      const getStatusSpy = vi.spyOn(driver, 'getStatus');
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 200,
+        heartbeatIntervalMs: 150,
+      });
+
+      // Start initial poll
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance by 150ms while poll is still in progress
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should be in progress, heartbeat should skip
+      // This test verifies heartbeat doesn't call getStatus while poll is active
+      expect(getStatusSpy).toHaveBeenCalledTimes(1); // Only the initial poll
+    });
+
+    it('should not disconnect on non-fatal heartbeat error', async () => {
+      let callCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          callCount++;
+          // First call (poll) succeeds, second call (heartbeat) returns non-fatal error
+          if (callCount === 1) {
+            return Ok({
+              mode: 'CC',
+              outputEnabled: false,
+              setpoints: { current: 1.0 },
+              measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+            });
+          }
+          // Non-fatal error (doesn't include Timeout, LIBUSB_ERROR, etc)
+          return Err(new Error('Temporary communication error'));
+        },
+      });
+
+      const forceReconnectCallback = vi.fn();
+
+      session = createDeviceSession(
+        driver,
+        {
+          pollIntervalMs: 10000,     // Very slow polling
+          heartbeatIntervalMs: 500,  // Fast heartbeat
+        },
+        forceReconnectCallback
+      );
+
+      // Initial poll succeeds
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Advance to trigger heartbeat - non-fatal error should not disconnect
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Device should still be connected (non-fatal error doesn't trigger disconnect)
+      expect(session.getState().connectionStatus).toBe('connected');
+
+      // Force reconnect callback should NOT have been called
+      expect(forceReconnectCallback).not.toHaveBeenCalled();
+    });
+
+    it('should skip heartbeat if previous one still running', async () => {
+      let heartbeatCallCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          heartbeatCallCount++;
+          // Simulate slow getStatus (1.5s) - longer than heartbeat interval
+          await new Promise(r => setTimeout(r, 1500));
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,     // Very slow polling (won't interfere)
+        heartbeatIntervalMs: 500,  // Fast heartbeat
+      });
+
+      // Initial poll starts
+      await vi.advanceTimersByTimeAsync(0);
+      expect(heartbeatCallCount).toBe(1); // Initial poll
+
+      // Advance by multiple heartbeat intervals while first heartbeat is running
+      // Heartbeat takes 1.5s but interval is 0.5s - 3 intervals should pass
+      await vi.advanceTimersByTimeAsync(1600);
+
+      // Only 2 calls: initial poll + one heartbeat (others skipped due to in-progress flag)
+      // After 1.5s the first heartbeat completes, then next interval fires
+      expect(heartbeatCallCount).toBeLessThanOrEqual(3);
+    });
+
+    it('should wait for in-flight heartbeat during stop()', async () => {
+      let heartbeatCompleted = false;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          // Slow heartbeat/poll
+          await new Promise(r => setTimeout(r, 500));
+          heartbeatCompleted = true;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0 },
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, {
+        pollIntervalMs: 10000,
+        heartbeatIntervalMs: 100,
+      });
+
+      // Initial poll starts
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Let poll complete
+      await vi.advanceTimersByTimeAsync(500);
+      heartbeatCompleted = false;
+
+      // Trigger heartbeat
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Stop should wait for heartbeat to complete
+      const stopPromise = session.stop();
+
+      // Advance time to let heartbeat complete
+      await vi.advanceTimersByTimeAsync(500);
+
+      await stopPromise;
+
+      // Heartbeat should have completed before stop returned
+      expect(heartbeatCompleted).toBe(true);
+    });
+  });
+
+  describe('Setpoint Change Broadcasting (Safety Critical)', () => {
+    it('should broadcast setpoint changes when device reports different values', async () => {
+      // This test verifies the fix for a critical safety bug:
+      // When a PSU reconnects after power cycle, it may reset to a different voltage.
+      // The UI must be notified of this change to prevent applying dangerous voltages.
+      let pollCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // First poll: device reports voltage = 12.0
+          // Second poll: device reports voltage changed to 5.0 (simulating PSU reset)
+          const voltage = pollCount === 1 ? 12.0 : 5.0;
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints: { current: 1.0, voltage },
+            measurements: { voltage, current: 0.98, power: voltage * 0.98 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // First poll - establishes initial setpoints
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().setpoints.voltage).toBe(12.0);
+
+      // Clear notifications
+      notifications.length = 0;
+
+      // Second poll - device reports different voltage
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value.voltage).toBe(5.0);
+      expect(session.getState().setpoints.voltage).toBe(5.0);
+    });
+
+    it('should broadcast setpoint changes after reconnect with different values', async () => {
+      // Simulates: PSU disconnects, user power cycles it, PSU reconnects with reset voltage
+      const oldDriver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CV',
+          outputEnabled: false,
+          setpoints: { voltage: 24.0, current: 5.0 },
+          measurements: { voltage: 24.0, current: 0.0, power: 0.0 },
+        }),
+      });
+
+      // New driver simulates PSU that has been power cycled and reset to defaults
+      const newDriver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CV',
+          outputEnabled: false,
+          setpoints: { voltage: 0.0, current: 1.0 },  // Reset to dangerous defaults!
+          measurements: { voltage: 0.0, current: 0.0, power: 0.0 },
+        }),
+      });
+
+      session = createDeviceSession(oldDriver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Verify initial state from old driver
+      expect(session.getState().setpoints.voltage).toBe(24.0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Reconnect with new driver (simulating PSU reconnect after power cycle)
+      await session.reconnect(newDriver);
+
+      // Trigger poll with new driver
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change to 0.0
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value.voltage).toBe(0.0);
+      expect(session.getState().setpoints.voltage).toBe(0.0);
+    });
+
+    it('should not broadcast setpoints when they have not changed', async () => {
+      const driver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CC',
+          outputEnabled: false,
+          setpoints: { current: 1.0 },  // Same every time
+          measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+        }),
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+
+      // First poll
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Second poll - same setpoints
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should NOT have broadcast setpoint changes
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeUndefined();
+    });
+
+    it('should detect setpoint changes when new keys are added', async () => {
+      let pollCount = 0;
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // First poll: only current setpoint
+          // Second poll: voltage setpoint added
+          const setpoints: Record<string, number> = pollCount === 1
+            ? { current: 1.0 }
+            : { current: 1.0, voltage: 12.0 };
+          return Ok({
+            mode: 'CC',
+            outputEnabled: false,
+            setpoints,
+            measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+          });
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 250 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Should have broadcast the setpoint change (new key added)
+      const setpointNotification = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointNotification).toBeDefined();
+      expect(setpointNotification.value).toEqual({ current: 1.0, voltage: 12.0 });
+    });
+  });
+
+  describe('Poll Race Condition Prevention', () => {
+    it('should not broadcast stale outputEnabled during setOutput', async () => {
+      // This test verifies the fix for UI flicker when toggling output:
+      // Without the fix, poll could read stale "off" state while setOutput command
+      // is being processed, causing brief UI flicker.
+      let driverOutputState = false;
+      let setOutputDelay = 100; // Simulate slow hardware response
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CC',
+          outputEnabled: driverOutputState, // Returns actual hardware state
+          setpoints: { current: 1.0 },
+          measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+        }),
+        setOutputImpl: async (enabled: boolean) => {
+          // Simulate slow hardware - state changes after delay
+          await new Promise(r => setTimeout(r, setOutputDelay));
+          driverOutputState = enabled;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+
+      // Initial poll
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().outputEnabled).toBe(false);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Start setOutput (don't await - let it run in parallel with polls)
+      const setOutputPromise = session.setOutput(true);
+
+      // Advance time to trigger poll while setOutput is in progress
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should NOT have broadcast outputEnabled: false (stale value)
+      // because outputChangePending is true
+      const staleOutputBroadcast = notifications.find(
+        n => n.type === 'field' && n.field === 'outputEnabled' && n.value === false
+      );
+      expect(staleOutputBroadcast).toBeUndefined();
+
+      // Complete the setOutput operation
+      await vi.advanceTimersByTimeAsync(100);
+      await setOutputPromise;
+
+      // Now output should be true
+      expect(session.getState().outputEnabled).toBe(true);
+    });
+
+    it('should not broadcast stale mode during setMode', async () => {
+      let driverModeState = 'CC';
+      let setModeDelay = 100;
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: driverModeState,
+          outputEnabled: false,
+          setpoints: { current: 1.0 },
+          measurements: { voltage: 12.5, current: 0.98, power: 12.25 },
+        }),
+        setModeImpl: async (newMode: string) => {
+          await new Promise(r => setTimeout(r, setModeDelay));
+          driverModeState = newMode;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50 });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().mode).toBe('CC');
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Start setMode
+      const setModePromise = session.setMode('CV');
+
+      // Advance time to trigger poll while setMode is in progress
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Poll should NOT have broadcast mode: 'CC' (stale value)
+      const staleModeAfterOptimistic = notifications.filter(
+        n => n.type === 'field' && n.field === 'mode'
+      );
+      // Should only have the optimistic 'CV' broadcast, no stale 'CC'
+      expect(staleModeAfterOptimistic.length).toBe(1);
+      expect(staleModeAfterOptimistic[0].value).toBe('CV');
+
+      // Complete the operation
+      await vi.advanceTimersByTimeAsync(100);
+      await setModePromise;
+    });
+
+    it('should not broadcast stale setpoints during debounced setValue', async () => {
+      let driverVoltage = 12.0;
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => Ok({
+          mode: 'CV',
+          outputEnabled: false,
+          setpoints: { voltage: driverVoltage },
+          measurements: { voltage: driverVoltage, current: 0.0, power: 0.0 },
+        }),
+        setValueImpl: async (_name: string, value: number) => {
+          driverVoltage = value;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50, debounceMs: 200 });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.getState().setpoints.voltage).toBe(12.0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // Start debounced setValue (user adjusting voltage slider)
+      session.setValue('voltage', 24.0);
+
+      // During debounce window, polls should NOT broadcast stale voltage
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Check that no stale setpoints were broadcast
+      const setpointBroadcasts = notifications.filter(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      // Should have no broadcasts yet (debounce hasn't fired)
+      // or if there are broadcasts, voltage should be 24.0 (pending value)
+      for (const broadcast of setpointBroadcasts) {
+        expect(broadcast.value.voltage).toBe(24.0);
+      }
+
+      // Let debounce fire and complete
+      await vi.advanceTimersByTimeAsync(200);
+
+      // Now device should have the new value
+      expect(driverVoltage).toBe(24.0);
+    });
+
+    it('should preserve pending setpoint values when other setpoints change', async () => {
+      let driverVoltage = 12.0;
+      let driverCurrent = 1.0;
+      let pollCount = 0;
+
+      const driver = createMockDriver({
+        getStatusImpl: async () => {
+          pollCount++;
+          // Simulate external change to current on second poll
+          if (pollCount >= 2) {
+            driverCurrent = 2.0;
+          }
+          return Ok({
+            mode: 'CV',
+            outputEnabled: false,
+            setpoints: { voltage: driverVoltage, current: driverCurrent },
+            measurements: { voltage: driverVoltage, current: 0.0, power: 0.0 },
+          });
+        },
+        setValueImpl: async (name: string, value: number) => {
+          if (name === 'voltage') driverVoltage = value;
+          if (name === 'current') driverCurrent = value;
+          return Ok();
+        },
+      });
+
+      session = createDeviceSession(driver, { pollIntervalMs: 50, debounceMs: 200 });
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      const notifications: any[] = [];
+      session.subscribe('client-1', (msg) => notifications.push(msg));
+
+      // User starts adjusting voltage (pending)
+      session.setValue('voltage', 24.0);
+
+      // Poll fires, sees current changed externally
+      await vi.advanceTimersByTimeAsync(50);
+
+      // The broadcast should show voltage=24.0 (pending) and current=2.0 (from device)
+      const setpointBroadcast = notifications.find(
+        n => n.type === 'field' && n.field === 'setpoints'
+      );
+      expect(setpointBroadcast).toBeDefined();
+      expect(setpointBroadcast.value.voltage).toBe(24.0); // Pending value preserved
+      expect(setpointBroadcast.value.current).toBe(2.0);  // External change picked up
+    });
+  });
 });
