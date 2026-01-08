@@ -921,6 +921,11 @@ export function createOscilloscopeSession(
     },
 
     async setChannelOffset(channel: string, offset: number): Promise<void> {
+      await pauseStreaming();
+
+      // Clear cached waveform data - offset changes affect yOrigin scaling parameter
+      waveformCache.delete(channel);
+
       await driver.setChannelOffset(channel, offset);
 
       // Optimistic update and broadcast
@@ -942,6 +947,8 @@ export function createOscilloscopeSession(
           value: status,
         });
       }
+
+      resumeStreaming();
     },
 
     async setChannelCoupling(channel: string, coupling: 'AC' | 'DC' | 'GND'): Promise<void> {
