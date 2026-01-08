@@ -377,4 +377,292 @@ describe('OscilloscopeSession Streaming', () => {
       session.stopSession();
     });
   });
+
+  describe('Configuration changes with streaming', () => {
+    describe('setChannelOffset', () => {
+      it('should resume streaming even when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll and auto-streaming to start
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+        (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make setChannelOffset fail
+        (mockDriver.setChannelOffset as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        // Call setChannelOffset - it should fail but not hang
+        await session.setChannelOffset('CHAN1', 2.5);
+
+        // Streaming should resume - advance time and verify waveforms are still being fetched
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mockDriver.getWaveform).toHaveBeenCalled();
+
+        session.stopSession();
+      });
+
+      it('should not broadcast optimistic update when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+
+        // Make setChannelOffset fail
+        (mockDriver.setChannelOffset as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setChannelOffset('CHAN1', 2.5);
+
+        // Should NOT have broadcast the oscilloscopeStatus update with new offset
+        const statusUpdates = callback.mock.calls.filter(
+          call => call[0].type === 'field' && call[0].field === 'oscilloscopeStatus'
+        );
+
+        // No status updates should contain the new offset value
+        for (const call of statusUpdates) {
+          const channels = call[0].value?.channels;
+          if (channels?.CHAN1) {
+            expect(channels.CHAN1.offset).not.toBe(2.5);
+          }
+        }
+
+        session.stopSession();
+      });
+
+      it('should broadcast optimistic update when driver command succeeds', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+
+        await session.setChannelOffset('CHAN1', 2.5);
+
+        // Should have broadcast the oscilloscopeStatus update with new offset
+        const statusUpdate = callback.mock.calls.find(
+          call => call[0].type === 'field' &&
+                  call[0].field === 'oscilloscopeStatus' &&
+                  call[0].value?.channels?.CHAN1?.offset === 2.5
+        );
+        expect(statusUpdate).toBeDefined();
+
+        session.stopSession();
+      });
+    });
+
+    describe('setChannelScale', () => {
+      it('should resume streaming even when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll and auto-streaming to start
+        await vi.advanceTimersByTimeAsync(0);
+        (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make setChannelScale fail
+        (mockDriver.setChannelScale as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setChannelScale('CHAN1', 0.5);
+
+        // Streaming should resume
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mockDriver.getWaveform).toHaveBeenCalled();
+
+        session.stopSession();
+      });
+
+      it('should not broadcast optimistic update when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+
+        // Make setChannelScale fail
+        (mockDriver.setChannelScale as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setChannelScale('CHAN1', 0.5);
+
+        // Should NOT have broadcast the oscilloscopeStatus update with new scale
+        const statusUpdates = callback.mock.calls.filter(
+          call => call[0].type === 'field' && call[0].field === 'oscilloscopeStatus'
+        );
+
+        for (const call of statusUpdates) {
+          const channels = call[0].value?.channels;
+          if (channels?.CHAN1) {
+            expect(channels.CHAN1.scale).not.toBe(0.5);
+          }
+        }
+
+        session.stopSession();
+      });
+    });
+
+    describe('setTimebaseScale', () => {
+      it('should resume streaming even when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll and auto-streaming to start
+        await vi.advanceTimersByTimeAsync(0);
+        (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make setTimebaseScale fail
+        (mockDriver.setTimebaseScale as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setTimebaseScale(0.0001);
+
+        // Streaming should resume
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mockDriver.getWaveform).toHaveBeenCalled();
+
+        session.stopSession();
+      });
+
+      it('should not broadcast optimistic update when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+
+        // Make setTimebaseScale fail
+        (mockDriver.setTimebaseScale as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setTimebaseScale(0.0001);
+
+        // Should NOT have broadcast the oscilloscopeStatus update with new scale
+        const statusUpdates = callback.mock.calls.filter(
+          call => call[0].type === 'field' && call[0].field === 'oscilloscopeStatus'
+        );
+
+        for (const call of statusUpdates) {
+          const timebase = call[0].value?.timebase;
+          if (timebase) {
+            expect(timebase.scale).not.toBe(0.0001);
+          }
+        }
+
+        session.stopSession();
+      });
+    });
+
+    describe('setTimebaseOffset', () => {
+      it('should resume streaming even when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll and auto-streaming to start
+        await vi.advanceTimersByTimeAsync(0);
+        (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make setTimebaseOffset fail
+        (mockDriver.setTimebaseOffset as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setTimebaseOffset(0.001);
+
+        // Streaming should resume
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mockDriver.getWaveform).toHaveBeenCalled();
+
+        session.stopSession();
+      });
+
+      it('should not broadcast optimistic update when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        callback.mockClear();
+
+        // Make setTimebaseOffset fail
+        (mockDriver.setTimebaseOffset as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('USB error')));
+
+        await session.setTimebaseOffset(0.001);
+
+        // Should NOT have broadcast the oscilloscopeStatus update with new offset
+        const statusUpdates = callback.mock.calls.filter(
+          call => call[0].type === 'field' && call[0].field === 'oscilloscopeStatus'
+        );
+
+        for (const call of statusUpdates) {
+          const timebase = call[0].value?.timebase;
+          if (timebase) {
+            expect(timebase.offset).not.toBe(0.001);
+          }
+        }
+
+        session.stopSession();
+      });
+    });
+
+    describe('autoSetup', () => {
+      it('should resume streaming even when driver command fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll and auto-streaming to start
+        await vi.advanceTimersByTimeAsync(0);
+        (mockDriver.getWaveform as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make autoSetup fail
+        (mockDriver.autoSetup as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('Auto setup failed')));
+
+        await session.autoSetup();
+
+        // Streaming should resume
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mockDriver.getWaveform).toHaveBeenCalled();
+
+        session.stopSession();
+      });
+
+      it('should not call getStatus when autoSetup fails', async () => {
+        const session = createOscilloscopeSession(mockDriver);
+        const callback = vi.fn();
+        session.subscribe('client-1', callback);
+
+        // Wait for initial poll
+        await vi.advanceTimersByTimeAsync(0);
+        (mockDriver.getStatus as ReturnType<typeof vi.fn>).mockClear();
+
+        // Make autoSetup fail
+        (mockDriver.autoSetup as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce(Err(new Error('Auto setup failed')));
+
+        await session.autoSetup();
+
+        // getStatus should not be called after autoSetup failure
+        expect(mockDriver.getStatus).not.toHaveBeenCalled();
+
+        session.stopSession();
+      });
+    });
+  });
 });
