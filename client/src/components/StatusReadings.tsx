@@ -21,8 +21,8 @@ export function StatusReadings({ status, capabilities, layout = 'vertical' }: St
         {capabilities.measurements.map(measurement => {
           const value = status.measurements[measurement.name];
           return (
-            <div key={measurement.name} className={isHorizontal ? 'flex items-baseline gap-2' : 'text-center'}>
-              <div className={`text-[10px] uppercase tracking-wide text-[var(--color-text-secondary)] ${isHorizontal ? '' : 'mb-0.5'}`}>
+            <div key={measurement.name} className="text-center">
+              <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-secondary)] mb-0.5">
                 {measurement.name}
               </div>
               <div>

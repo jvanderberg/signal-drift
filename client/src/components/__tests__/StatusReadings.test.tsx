@@ -217,13 +217,13 @@ describe('StatusReadings', () => {
         expect(flexContainer).toHaveClass('flex-wrap');
       });
 
-      it('should render measurements in horizontal flow', () => {
+      it('should render measurements with title on top in horizontal layout', () => {
         const { container } = render(
           <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="horizontal" />
         );
 
-        // In horizontal layout, items have flex items-baseline
-        const measurementItems = container.querySelectorAll('.items-baseline');
+        // In horizontal layout, items still have text-center with title on top
+        const measurementItems = container.querySelectorAll('.text-center');
         expect(measurementItems.length).toBe(3); // voltage, current, power
       });
 
