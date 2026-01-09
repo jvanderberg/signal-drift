@@ -17,7 +17,7 @@ export function StatusReadings({ status, capabilities, layout = 'vertical' }: St
 
   return (
     <div className="bg-[var(--color-bg-readings)] rounded p-2">
-      <div className={isHorizontal ? 'flex flex-wrap gap-x-6 gap-y-2' : 'grid grid-cols-2 lg:grid-cols-1 gap-3'}>
+      <div className={isHorizontal ? 'flex flex-wrap gap-x-6 gap-y-2' : 'grid grid-cols-1 gap-3'}>
         {capabilities.measurements.map(measurement => {
           const value = status.measurements[measurement.name];
           return (

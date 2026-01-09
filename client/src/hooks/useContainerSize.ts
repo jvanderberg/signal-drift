@@ -20,18 +20,20 @@ export function useContainerSize<T extends HTMLElement = HTMLDivElement>(): [
     const element = ref.current;
     if (!element) return;
 
+    // Set initial size before observing to avoid race condition
+    const rect = element.getBoundingClientRect();
+    setSize({ width: rect.width, height: rect.height });
+
     const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
+      // Only process the last entry to avoid multiple state updates
+      const entry = entries[entries.length - 1];
+      if (entry) {
         const { width, height } = entry.contentRect;
         setSize({ width, height });
       }
     });
 
     resizeObserver.observe(element);
-
-    // Get initial size
-    const rect = element.getBoundingClientRect();
-    setSize({ width: rect.width, height: rect.height });
 
     return () => {
       resizeObserver.disconnect();
