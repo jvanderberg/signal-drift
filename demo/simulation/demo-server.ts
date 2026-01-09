@@ -465,6 +465,17 @@ export function createDemoServer(): DemoServer {
         deviceId,
         state: getOscilloscopeSessionState(session),
       });
+
+      // Auto-start streaming for all enabled channels (as documented in OscilloscopePanel.tsx)
+      const simulator = session.device.simulator as OscilloscopeSimulator;
+      const channelConfig = simulator.getChannelConfig();
+      const enabledChannels = Object.entries(channelConfig)
+        .filter(([_, config]) => config.enabled)
+        .map(([name]) => name);
+
+      if (enabledChannels.length > 0) {
+        handleScopeStartStreaming(deviceId, enabledChannels, 100);
+      }
     } else {
       startPolling(session);
       broadcast({
