@@ -37,7 +37,7 @@ export const ROW_HEIGHT = 30;
 // Default panel dimensions (in grid units)
 const DEFAULT_PANEL_WIDTH = 6;
 const DEFAULT_PANEL_HEIGHT = 12;  // ~360px - compact default
-const DEFAULT_PANEL_MIN_WIDTH = 3;
+const DEFAULT_PANEL_MIN_WIDTH = 2;
 const DEFAULT_PANEL_MIN_HEIGHT = 4;  // ~120px - enough for compact responsive mode
 
 // Panel size defaults - passed when adding a panel
