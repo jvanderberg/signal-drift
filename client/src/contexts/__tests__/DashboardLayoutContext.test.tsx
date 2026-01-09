@@ -169,23 +169,8 @@ describe('DashboardLayoutContext', () => {
   describe('DashboardLayoutProvider', () => {
     it('should memoize context value when items are the same', () => {
       const items = [createLayoutItem('device-1', 6)];
-      let contextValue1: ReturnType<typeof usePanelLayout> = null;
-      let contextValue2: ReturnType<typeof usePanelLayout> = null;
 
-      const TestComponent = () => {
-        contextValue1 = usePanelLayout('device-1');
-        return null;
-      };
-
-      const { rerender } = renderHook(() => usePanelLayout('device-1'), {
-        wrapper: ({ children }) => (
-          <DashboardLayoutProvider items={items} cols={12}>
-            {children}
-          </DashboardLayoutProvider>
-        ),
-      });
-
-      contextValue1 = renderHook(() => usePanelLayout('device-1'), {
+      const contextValue1 = renderHook(() => usePanelLayout('device-1'), {
         wrapper: ({ children }) => (
           <DashboardLayoutProvider items={items} cols={12}>
             {children}
@@ -194,7 +179,7 @@ describe('DashboardLayoutContext', () => {
       }).result.current;
 
       // Re-render with same items
-      contextValue2 = renderHook(() => usePanelLayout('device-1'), {
+      const contextValue2 = renderHook(() => usePanelLayout('device-1'), {
         wrapper: ({ children }) => (
           <DashboardLayoutProvider items={items} cols={12}>
             {children}

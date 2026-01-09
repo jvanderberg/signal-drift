@@ -50,6 +50,10 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   const currentBreakpointRef = useRef<DashboardBreakpoint>('lg');
   const [currentBreakpoint, setCurrentBreakpoint] = useState<DashboardBreakpoint>('lg');
 
+  // Track live resize state for WYSIWYG preview
+  // This holds the grid-snapped dimensions during resize drag
+  const [liveResizeItem, setLiveResizeItem] = useState<LayoutItem | null>(null);
+
   // Convert our layout format to react-grid-layout format
   const gridLayouts = useMemo(() => {
     const result: Record<string, Layout> = {};
@@ -91,10 +95,22 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     setCurrentBreakpoint(bp);
   }, []);
 
+  // Handle resize in progress - update live state for WYSIWYG preview
+  // The newItem contains grid-snapped w/h values even during drag
+  const handleResize = useCallback(
+    (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+      setLiveResizeItem(newItem);
+    },
+    []
+  );
+
   // Handle user interaction completion (drag or resize)
   // Updates only the specific item that changed and triggers debounced save
   const handleInteractionStop = useCallback(
     (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+      // Clear live resize state
+      setLiveResizeItem(null);
+
       if (newItem) {
         updateSingleItem(currentBreakpointRef.current, newItem);
         saveLayoutDebounced();
@@ -133,7 +149,19 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   }
 
   // Get current layout items and column count for context provider
-  const currentLayoutItems = layouts[currentBreakpoint];
+  // Merge in live resize state for WYSIWYG preview during drag
+  const currentLayoutItems = useMemo(() => {
+    const baseItems = layouts[currentBreakpoint];
+    if (!liveResizeItem) return baseItems;
+
+    // Replace the item being resized with its live dimensions
+    return baseItems.map(item =>
+      item.i === liveResizeItem.i
+        ? { ...item, w: liveResizeItem.w, h: liveResizeItem.h }
+        : item
+    );
+  }, [layouts, currentBreakpoint, liveResizeItem]);
+
   const currentCols = GRID_COLS[currentBreakpoint];
 
   return (
@@ -149,6 +177,7 @@ export function DashboardGrid({ children }: DashboardGridProps) {
           containerPadding={[0, 0]}
           onLayoutChange={handleLayoutChange}
           onBreakpointChange={handleBreakpointChange}
+          onResize={handleResize}
           onDragStop={handleInteractionStop}
           onResizeStop={handleInteractionStop}
           draggableHandle=".panel-drag-handle"
