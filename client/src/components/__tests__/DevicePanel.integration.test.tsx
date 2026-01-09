@@ -285,14 +285,14 @@ describe('DevicePanel Integration', () => {
   });
 
   describe('Responsive Breakpoints (Column-Based)', () => {
-    // Column breakpoints: large >= 6, medium >= 4, narrow >= 3, very-narrow < 3
+    // Column breakpoints: large >= 4, medium >= 3, narrow >= 2, very-narrow < 2
 
-    describe('Large Panels (>= 6 columns)', () => {
-      it('should show chart and setters when panel has 6+ columns', async () => {
+    describe('Large Panels (>= 4 columns)', () => {
+      it('should show chart and setters when panel has 4+ columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <TestWrapper deviceId="psu-1" columnCount={6}>
+          <TestWrapper deviceId="psu-1" columnCount={4}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -324,11 +324,11 @@ describe('DevicePanel Integration', () => {
         expect(canvas).toBeInTheDocument();
       });
 
-      it('should show setters at exactly 6 columns (boundary test)', async () => {
+      it('should show chart at exactly 4 columns (boundary test)', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
-        render(
-          <TestWrapper deviceId="psu-1" columnCount={6}>
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={4}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -352,15 +352,19 @@ describe('DevicePanel Integration', () => {
           const plusButtons = screen.getAllByText('+');
           expect(plusButtons.length).toBeGreaterThan(0);
         });
+
+        // Chart should be visible at 4 columns
+        const canvas = container.querySelector('canvas');
+        expect(canvas).toBeInTheDocument();
       });
     });
 
-    describe('Medium Panels (4-5 columns)', () => {
-      it('should show setters but no chart when panel has 4-5 columns', async () => {
+    describe('Medium Panels (3 columns)', () => {
+      it('should show setters but no chart when panel has 3 columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <TestWrapper deviceId="psu-1" columnCount={5}>
+          <TestWrapper deviceId="psu-1" columnCount={3}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -395,7 +399,7 @@ describe('DevicePanel Integration', () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <TestWrapper deviceId="psu-1" columnCount={4}>
+          <TestWrapper deviceId="psu-1" columnCount={3}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -423,12 +427,12 @@ describe('DevicePanel Integration', () => {
       });
     });
 
-    describe('Narrow Panels (3 columns)', () => {
-      it('should hide setters when panel has 3 columns', async () => {
+    describe('Narrow Panels (2 columns)', () => {
+      it('should hide setters when panel has 2 columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         render(
-          <TestWrapper deviceId="psu-1" columnCount={3}>
+          <TestWrapper deviceId="psu-1" columnCount={2}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -462,7 +466,7 @@ describe('DevicePanel Integration', () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <TestWrapper deviceId="psu-1" columnCount={3}>
+          <TestWrapper deviceId="psu-1" columnCount={2}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -492,12 +496,12 @@ describe('DevicePanel Integration', () => {
       });
     });
 
-    describe('Very Narrow Panels (< 3 columns)', () => {
-      it('should hide setters when panel has < 3 columns', async () => {
+    describe('Very Narrow Panels (< 2 columns)', () => {
+      it('should hide setters when panel has < 2 columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         render(
-          <TestWrapper deviceId="psu-1" columnCount={2}>
+          <TestWrapper deviceId="psu-1" columnCount={1}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -531,7 +535,7 @@ describe('DevicePanel Integration', () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <TestWrapper deviceId="psu-1" columnCount={2}>
+          <TestWrapper deviceId="psu-1" columnCount={1}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -609,14 +613,14 @@ describe('DevicePanel Integration', () => {
         ],
       };
 
-      it('should hide mode selector when panel is narrow (3 columns)', async () => {
+      it('should hide mode selector when panel is narrow (2 columns)', async () => {
         const device = createMockDeviceSummary({
           id: 'load-1',
           capabilities: loadCapabilities,
         });
 
         render(
-          <TestWrapper deviceId="load-1" columnCount={3}>
+          <TestWrapper deviceId="load-1" columnCount={2}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}
@@ -646,14 +650,14 @@ describe('DevicePanel Integration', () => {
         expect(screen.queryByText('Mode:')).not.toBeInTheDocument();
       });
 
-      it('should show mode selector when panel is medium or larger (4+ columns)', async () => {
+      it('should show mode selector when panel is medium or larger (3+ columns)', async () => {
         const device = createMockDeviceSummary({
           id: 'load-1',
           capabilities: loadCapabilities,
         });
 
         render(
-          <TestWrapper deviceId="load-1" columnCount={5}>
+          <TestWrapper deviceId="load-1" columnCount={3}>
             <DevicePanel
               device={device}
               onClose={mockOnClose}

@@ -89,10 +89,10 @@ export function useGridCols(): number {
 // Column count breakpoints for responsive panel layouts
 // These map grid column counts to container breakpoints
 export const COLUMN_BREAKPOINTS = {
-  large: 6,    // >= 6 columns: show full UI with chart
-  medium: 4,   // >= 4 columns: show readings + setters, no chart
-  narrow: 3,   // >= 3 columns: show readings + toggle only
-  // < 3 columns: very-narrow, readings wrap + toggle
+  large: 4,    // >= 4 columns: show full UI with chart
+  medium: 3,   // >= 3 columns: show readings + setters, no chart
+  narrow: 2,   // >= 2 columns: show readings + toggle only
+  // < 2 columns: very-narrow, readings wrap + toggle
 } as const;
 
 /**

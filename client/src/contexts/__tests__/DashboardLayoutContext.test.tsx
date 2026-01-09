@@ -114,55 +114,50 @@ describe('DashboardLayoutContext', () => {
   });
 
   describe('getBreakpointFromColumns', () => {
-    it('should return "large" for >= 6 columns', () => {
+    it('should return "large" for >= 4 columns', () => {
+      expect(getBreakpointFromColumns(4)).toBe('large');
+      expect(getBreakpointFromColumns(5)).toBe('large');
       expect(getBreakpointFromColumns(6)).toBe('large');
-      expect(getBreakpointFromColumns(7)).toBe('large');
       expect(getBreakpointFromColumns(12)).toBe('large');
     });
 
-    it('should return "medium" for 4-5 columns', () => {
-      expect(getBreakpointFromColumns(4)).toBe('medium');
-      expect(getBreakpointFromColumns(5)).toBe('medium');
+    it('should return "medium" for 3 columns', () => {
+      expect(getBreakpointFromColumns(3)).toBe('medium');
     });
 
-    it('should return "narrow" for 3 columns', () => {
-      expect(getBreakpointFromColumns(3)).toBe('narrow');
+    it('should return "narrow" for 2 columns', () => {
+      expect(getBreakpointFromColumns(2)).toBe('narrow');
     });
 
-    it('should return "very-narrow" for < 3 columns', () => {
-      expect(getBreakpointFromColumns(2)).toBe('very-narrow');
+    it('should return "very-narrow" for < 2 columns', () => {
       expect(getBreakpointFromColumns(1)).toBe('very-narrow');
       expect(getBreakpointFromColumns(0)).toBe('very-narrow');
     });
 
     describe('Boundary Tests', () => {
-      it('should return "large" at exactly 6 columns', () => {
-        expect(getBreakpointFromColumns(6)).toBe('large');
+      it('should return "large" at exactly 4 columns', () => {
+        expect(getBreakpointFromColumns(4)).toBe('large');
       });
 
-      it('should return "medium" at exactly 5 columns (one below large)', () => {
-        expect(getBreakpointFromColumns(5)).toBe('medium');
+      it('should return "medium" at exactly 3 columns (one below large)', () => {
+        expect(getBreakpointFromColumns(3)).toBe('medium');
       });
 
-      it('should return "medium" at exactly 4 columns', () => {
-        expect(getBreakpointFromColumns(4)).toBe('medium');
+      it('should return "narrow" at exactly 2 columns (one below medium)', () => {
+        expect(getBreakpointFromColumns(2)).toBe('narrow');
       });
 
-      it('should return "narrow" at exactly 3 columns (one below medium)', () => {
-        expect(getBreakpointFromColumns(3)).toBe('narrow');
-      });
-
-      it('should return "very-narrow" at exactly 2 columns (one below narrow)', () => {
-        expect(getBreakpointFromColumns(2)).toBe('very-narrow');
+      it('should return "very-narrow" at exactly 1 column (one below narrow)', () => {
+        expect(getBreakpointFromColumns(1)).toBe('very-narrow');
       });
     });
   });
 
   describe('COLUMN_BREAKPOINTS', () => {
     it('should export correct breakpoint thresholds', () => {
-      expect(COLUMN_BREAKPOINTS.large).toBe(6);
-      expect(COLUMN_BREAKPOINTS.medium).toBe(4);
-      expect(COLUMN_BREAKPOINTS.narrow).toBe(3);
+      expect(COLUMN_BREAKPOINTS.large).toBe(4);
+      expect(COLUMN_BREAKPOINTS.medium).toBe(3);
+      expect(COLUMN_BREAKPOINTS.narrow).toBe(2);
     });
   });
 
