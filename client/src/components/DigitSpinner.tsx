@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import {
+  formatValue,
+  getTotalDigits,
+  adjustDigitWithCarry,
+} from './digitSpinnerUtils';
 
 interface DigitSpinnerProps {
   value: number;
@@ -19,63 +24,27 @@ export function DigitSpinner({
   unit,
   disabled,
 }: DigitSpinnerProps) {
-  // Format the value into digit columns
-  const totalDigits = Math.max(
-    Math.floor(Math.log10(Math.max(max, 1))) + 1 + decimals,
-    decimals + 1
-  );
+  const totalDigits = getTotalDigits(max, decimals);
   const integerDigits = totalDigits - decimals;
 
-  // Convert value to string with proper padding
-  const formatValue = (v: number): string[] => {
-    const clamped = Math.max(min, Math.min(max, v));
-    const multiplier = Math.pow(10, decimals);
-    const intVal = Math.round(clamped * multiplier);
-    const str = intVal.toString().padStart(totalDigits, '0');
-    return str.split('');
-  };
-
-  const [digits, setDigits] = useState(() => formatValue(value));
+  const [digits, setDigits] = useState(() => formatValue(value, decimals, min, max));
   const [flashIndex, setFlashIndex] = useState<number | null>(null);
   const flashTimeoutRef = useRef<number>();
 
   // Sync with external value changes
   useEffect(() => {
-    setDigits(formatValue(value));
-  }, [value, decimals, max]);
-
-  const digitsToNumber = (d: string[]): number => {
-    const intVal = parseInt(d.join(''), 10);
-    return intVal / Math.pow(10, decimals);
-  };
+    setDigits(formatValue(value, decimals, min, max));
+  }, [value, decimals, min, max]);
 
   const adjustDigit = (index: number, delta: number) => {
     if (disabled) return;
 
-    const newDigits = [...digits];
-    let carry = delta;
-    let i = index;
-
-    // Propagate carry/borrow through digits (always moves left)
-    while (carry !== 0 && i >= 0) {
-      let currentDigit = parseInt(newDigits[i], 10) + carry;
-      if (currentDigit > 9) {
-        carry = 1;
-        currentDigit = 0;
-      } else if (currentDigit < 0) {
-        carry = -1;
-        currentDigit = 9;
-      } else {
-        carry = 0;
-      }
-      newDigits[i] = currentDigit.toString();
-      i--; // Always move left for carry/borrow
-    }
-
-    const newValue = digitsToNumber(newDigits);
-    if (newValue >= min && newValue <= max) {
+    const newDigits = adjustDigitWithCarry(digits, index, delta, decimals, min, max);
+    if (newDigits) {
       setDigits(newDigits);
-      onChange(newValue);
+      onChange(
+        parseInt(newDigits.join(''), 10) / Math.pow(10, decimals)
+      );
 
       // Flash feedback
       setFlashIndex(index);
