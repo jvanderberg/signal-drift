@@ -26,6 +26,10 @@ import type {
   DeviceAlias,
   DashboardLayoutData,
   WaveformData,
+  OscilloscopeStatus,
+  TriggerStatus,
+  OscilloscopeSessionState,
+  OscilloscopeCapabilities,
 } from '../../shared/types';
 import {
   createVirtualConnection,
@@ -423,6 +427,23 @@ export function createDemoServer(): DemoServer {
     });
   }
 
+  function getOscilloscopeSessionState(session: DeviceSession): OscilloscopeSessionState {
+    const simulator = session.device.simulator as OscilloscopeSimulator;
+    return {
+      info: session.device.info,
+      capabilities: session.device.capabilities as OscilloscopeCapabilities,
+      connectionStatus: session.connectionStatus,
+      consecutiveErrors: 0,
+      status: buildOscilloscopeStatus(simulator),
+      lastUpdated: session.lastUpdated,
+      streaming: {
+        isStreaming: scopeStreaming?.deviceId === session.device.id,
+        channels: scopeStreaming?.deviceId === session.device.id ? scopeStreaming.channels : [],
+        fps: scopeStreaming?.deviceId === session.device.id ? Math.round(1000 / scopeStreaming.intervalMs) : 0,
+      },
+    };
+  }
+
   function handleSubscribe(deviceId: string): void {
     const session = sessions.get(deviceId);
     if (!session) {
@@ -436,13 +457,22 @@ export function createDemoServer(): DemoServer {
     }
 
     subscriptions.add(deviceId);
-    startPolling(session);
 
-    broadcast({
-      type: 'subscribed',
-      deviceId,
-      state: getSessionState(session),
-    });
+    // For oscilloscopes, return oscilloscope-specific state
+    if (session.device.isOscilloscope) {
+      broadcast({
+        type: 'subscribed',
+        deviceId,
+        state: getOscilloscopeSessionState(session),
+      });
+    } else {
+      startPolling(session);
+      broadcast({
+        type: 'subscribed',
+        deviceId,
+        state: getSessionState(session),
+      });
+    }
   }
 
   function handleUnsubscribe(deviceId: string): void {
@@ -628,12 +658,72 @@ export function createDemoServer(): DemoServer {
     simulator.handleCommand(`:TIM:SCAL ${scale}`);
   }
 
+  function mapTriggerStatus(status: string): TriggerStatus {
+    switch (status) {
+      case 'TD': return 'triggered';
+      case 'WAIT': return 'wait';
+      case 'RUN': return 'auto';
+      case 'AUTO': return 'auto';
+      case 'STOP': return 'stopped';
+      default: return 'auto';
+    }
+  }
+
+  function buildOscilloscopeStatus(simulator: OscilloscopeSimulator): OscilloscopeStatus {
+    const simStatus = simulator.getStatus();
+    const channelConfig = simulator.getChannelConfig();
+    const timebaseScale = simulator.getTimebaseScale();
+
+    // Build full channel config with required fields
+    const channels: OscilloscopeStatus['channels'] = {};
+    for (const [name, config] of Object.entries(channelConfig)) {
+      channels[name] = {
+        enabled: config.enabled,
+        scale: config.scale,
+        offset: config.offset,
+        coupling: 'DC',
+        probe: 1,
+        bwLimit: false,
+      };
+    }
+
+    return {
+      running: simStatus.running,
+      triggerStatus: mapTriggerStatus(simStatus.triggerStatus),
+      sampleRate: 1e9,
+      memoryDepth: 12000,
+      channels,
+      timebase: {
+        scale: timebaseScale,
+        offset: 0,
+        mode: 'main',
+      },
+      trigger: {
+        source: 'CHAN1',
+        mode: 'edge',
+        coupling: 'DC',
+        level: 2.5,
+        edge: 'rising',
+        sweep: 'auto',
+      },
+      measurements: [],
+    };
+  }
+
   function handleScopeRun(deviceId: string): void {
     const session = sessions.get(deviceId);
     if (!session || !session.device.isOscilloscope) return;
 
     const simulator = session.device.simulator as OscilloscopeSimulator;
     simulator.handleCommand(':RUN');
+
+    // Broadcast updated status
+    broadcastToSubscribed(deviceId, {
+      type: 'field',
+      deviceId,
+      field: 'oscilloscopeStatus',
+      value: buildOscilloscopeStatus(simulator),
+    });
   }
 
   function handleScopeStop(deviceId: string): void {
@@ -642,6 +732,14 @@ export function createDemoServer(): DemoServer {
 
     const simulator = session.device.simulator as OscilloscopeSimulator;
     simulator.handleCommand(':STOP');
+
+    // Broadcast updated status
+    broadcastToSubscribed(deviceId, {
+      type: 'field',
+      deviceId,
+      field: 'oscilloscopeStatus',
+      value: buildOscilloscopeStatus(simulator),
+    });
   }
 
   function handleScopeAutoSetup(deviceId: string): void {
@@ -650,6 +748,14 @@ export function createDemoServer(): DemoServer {
 
     const simulator = session.device.simulator as OscilloscopeSimulator;
     simulator.handleCommand(':AUT');
+
+    // Broadcast updated status (auto setup may change channel/timebase settings)
+    broadcastToSubscribed(deviceId, {
+      type: 'field',
+      deviceId,
+      field: 'oscilloscopeStatus',
+      value: buildOscilloscopeStatus(simulator),
+    });
   }
 
   function handleMessage(message: ClientMessage): void {
