@@ -181,12 +181,12 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
       {/* Status & Controls - only when connected */}
       {hasState && status && (
         <>
-          {/* Chart + Live Data - only when large */}
+          {/* Chart + Live Data - only when large (container-based) */}
           {showChart && (
             <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-              <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+              <div className="flex flex-row items-start gap-3">
                 {/* Chart - fixed height */}
-                <div className="min-w-0 h-[280px] lg:flex-1">
+                <div className="min-w-0 h-[280px] flex-1">
                   <LiveChart
                     history={history}
                     capabilities={capabilities}
@@ -195,18 +195,20 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                     onHistoryWindowChange={handleHistoryWindowChange}
                   />
                 </div>
-                {/* Status readings - beside chart on large screens only */}
-                <div className="hidden lg:block lg:w-48 shrink-0">
+                {/* Status readings - beside chart */}
+                <div className="w-48 shrink-0">
                   <StatusReadings status={status} capabilities={capabilities} />
                 </div>
               </div>
             </div>
           )}
 
-          {/* Status readings - horizontal flow layout (hidden on lg when chart is visible) */}
-          <div className={`bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2 ${showChart ? 'lg:hidden' : ''}`}>
-            <StatusReadings status={status} capabilities={capabilities} layout="horizontal" />
-          </div>
+          {/* Status readings - horizontal flow layout (only when chart is hidden) */}
+          {!showChart && (
+            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
+              <StatusReadings status={status} capabilities={capabilities} layout="horizontal" />
+            </div>
+          )}
 
           {/* Output + Setpoint Controls */}
           <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 min-h-[72px]">
@@ -226,7 +228,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                   {/* Setpoint controls - layout based on device class */}
                   {capabilities.deviceClass === 'psu' ? (
                     // PSU: Show all outputs (voltage + current) side by side
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
                       {capabilities.outputs.map(output => {
                         const setpointValue = status.setpoints[output.name] ?? 0;
                         return (
@@ -244,7 +246,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                     </div>
                   ) : (
                     // Load: Mode selector + single active setpoint
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       {capabilities.modesSettable && (
                         <ModeSelector
                           modes={capabilities.modes}
