@@ -465,6 +465,28 @@ export function createDemoServer(): DemoServer {
         deviceId,
         state: getOscilloscopeSessionState(session),
       });
+
+      // Auto-start streaming for all enabled channels (as documented in OscilloscopePanel.tsx)
+      const simulator = session.device.simulator as OscilloscopeSimulator;
+      const channelConfig = simulator.getChannelConfig();
+      const enabledChannels = Object.entries(channelConfig)
+        .filter(([_, config]) => config.enabled)
+        .map(([name]) => name);
+
+      if (enabledChannels.length > 0) {
+        handleScopeStartStreaming(deviceId, enabledChannels, 100);
+        // Broadcast streaming state update so client knows streaming has started
+        broadcastToSubscribed(deviceId, {
+          type: 'field',
+          deviceId,
+          field: 'streaming',
+          value: {
+            isStreaming: true,
+            channels: enabledChannels,
+            fps: Math.round(1000 / 100),
+          },
+        });
+      }
     } else {
       startPolling(session);
       broadcast({
@@ -587,6 +609,7 @@ export function createDemoServer(): DemoServer {
           const points = simulator.generateWaveformData(channel, numPoints);
 
           const waveform: WaveformData = {
+            channel,
             points,
             xIncrement: (timebaseScale * 12) / numPoints, // 12 divisions
             xOrigin: 0,

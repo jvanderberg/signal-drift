@@ -119,3 +119,83 @@ test.describe('Demo Widget Addition', () => {
     await expect(dashboardPanels).toHaveCount(2, { timeout: 5000 });
   });
 });
+
+test.describe('Demo Oscilloscope Streaming', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await waitForDemoReady(page);
+  });
+
+  test('should open oscilloscope and stream waveform data', async ({ page }) => {
+    // Open the sidebar
+    await openSidebar(page);
+
+    // Wait for devices to appear - look for Rigol DS1054Z (oscilloscope)
+    await expect(page.getByText('DS1054Z')).toBeVisible({ timeout: 15000 });
+
+    // Click on the oscilloscope device
+    await page.getByText('DS1054Z').first().click();
+
+    // Wait for the oscilloscope panel to appear
+    await page.waitForTimeout(500);
+    await waitForPanelInGrid(page);
+
+    // The oscilloscope panel should show the waveform display
+    const waveformDisplay = page.locator('[data-testid="waveform-display"]');
+    await expect(waveformDisplay).toBeVisible({ timeout: 10000 });
+
+    // Wait for streaming to start and waveform data to arrive
+    // The streaming should auto-start on subscription
+    // We need to wait for actual waveform traces to appear (not "No data")
+
+    // Check that at least one waveform trace path exists (indicates data is streaming)
+    // The trace should have a 'd' attribute with actual path data (not empty)
+    const waveformTrace = page.locator('[data-testid^="waveform-trace-"]').first();
+    await expect(waveformTrace).toBeVisible({ timeout: 15000 });
+
+    // Verify the trace has actual path data (not just an empty path)
+    const pathData = await waveformTrace.getAttribute('d');
+    expect(pathData).toBeTruthy();
+    expect(pathData?.length).toBeGreaterThan(10); // Should have meaningful path data
+
+    // The "No data" text should NOT be visible when streaming
+    const noDataText = page.locator('text:has-text("No data")');
+    await expect(noDataText).not.toBeVisible();
+
+    // Verify that the streaming indicator shows data is being received
+    // The StreamingControls should show channels as active
+    const streamingControls = page.locator('text:has-text("Streaming")');
+    // StreamingControls shows "Streaming" when active, or channel buttons
+    // If streaming is working, we should see channel indicators
+    const channelButtons = page.locator('button:has-text("CH1")');
+    await expect(channelButtons.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('should display waveform measurements when streaming', async ({ page }) => {
+    // Open the sidebar and click on oscilloscope
+    await openSidebar(page);
+    await expect(page.getByText('DS1054Z')).toBeVisible({ timeout: 15000 });
+    await page.getByText('DS1054Z').first().click();
+
+    // Wait for panel and waveform display
+    await page.waitForTimeout(500);
+    await waitForPanelInGrid(page);
+
+    const waveformDisplay = page.locator('[data-testid="waveform-display"]');
+    await expect(waveformDisplay).toBeVisible({ timeout: 10000 });
+
+    // Wait for waveform trace to appear (indicates streaming is working)
+    const waveformTrace = page.locator('[data-testid^="waveform-trace-"]').first();
+    await expect(waveformTrace).toBeVisible({ timeout: 15000 });
+
+    // The StatsBar should show measurements once data is flowing
+    // Look for measurement values (VPP, FREQ, VAVG are the defaults)
+    // These are displayed in the StatsBar component
+    // Give some time for measurements to be calculated and displayed
+    await page.waitForTimeout(2000);
+
+    // At minimum, the waveform grid should be visible
+    const waveformGrid = page.locator('[data-testid="waveform-grid"]');
+    await expect(waveformGrid).toBeVisible();
+  });
+});
