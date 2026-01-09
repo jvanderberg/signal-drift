@@ -475,6 +475,17 @@ export function createDemoServer(): DemoServer {
 
       if (enabledChannels.length > 0) {
         handleScopeStartStreaming(deviceId, enabledChannels, 100);
+        // Broadcast streaming state update so client knows streaming has started
+        broadcastToSubscribed(deviceId, {
+          type: 'field',
+          deviceId,
+          field: 'streaming',
+          value: {
+            isStreaming: true,
+            channels: enabledChannels,
+            fps: Math.round(1000 / 100),
+          },
+        });
       }
     } else {
       startPolling(session);
@@ -598,6 +609,7 @@ export function createDemoServer(): DemoServer {
           const points = simulator.generateWaveformData(channel, numPoints);
 
           const waveform: WaveformData = {
+            channel,
             points,
             xIncrement: (timebaseScale * 12) / numPoints, // 12 divisions
             xOrigin: 0,
