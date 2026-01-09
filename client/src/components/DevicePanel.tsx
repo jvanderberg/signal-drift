@@ -32,7 +32,8 @@ import { useState, useEffect } from 'react';
 import type { DeviceSummary, DeviceCapabilities } from '../types';
 import { isDeviceCapabilities } from '../types';
 import { useDeviceSocket } from '../hooks/useDeviceSocket';
-import { useContainerSize, getContainerBreakpoint } from '../hooks/useContainerSize';
+import { usePanelLayout, getBreakpointFromColumns } from '../contexts/DashboardLayoutContext';
+import { getDevicePanelKey } from './DashboardGrid';
 import { StatusReadings } from './StatusReadings';
 import { OutputControl } from './OutputControl';
 import { DigitSpinner } from './DigitSpinner';
@@ -69,8 +70,17 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   } = useDeviceSocket(device.id);
 
   const [historyWindow, setHistoryWindow] = useState(2);
-  const [containerRef, containerSize] = useContainerSize<HTMLDivElement>();
-  const breakpoint = getContainerBreakpoint(containerSize.width);
+
+  // Get panel layout from grid context for WYSIWYG responsive behavior
+  // Uses grid column count instead of pixel width for consistent preview during resize
+  const panelKey = getDevicePanelKey(device.id);
+  const panelLayout = usePanelLayout(panelKey);
+
+  // Calculate breakpoint from column count (grid-snapped) for predictable resize behavior
+  // Falls back to 'large' if not in grid context (e.g., during tests)
+  const breakpoint = panelLayout
+    ? getBreakpointFromColumns(panelLayout.w)
+    : 'large';
 
   // Responsive visibility flags
   const showChart = breakpoint === 'large';
@@ -170,7 +180,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
     : 'disconnected';
 
   return (
-    <div ref={containerRef}>
+    <div>
       {/* Header */}
       <EditableDeviceHeader
         info={device.info}

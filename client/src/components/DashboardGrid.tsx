@@ -5,7 +5,7 @@
  * can be dragged and resized. Layout is persisted to the database.
  */
 
-import { useMemo, useCallback, useRef, ReactNode, isValidElement } from 'react';
+import { useMemo, useCallback, useRef, useState, ReactNode, isValidElement } from 'react';
 import { Responsive, WidthProvider, type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import {
   useLayoutStore,
@@ -15,6 +15,7 @@ import {
   ROW_HEIGHT,
 } from '../stores';
 import type { DashboardBreakpoint } from '../../../shared/types';
+import { DashboardLayoutProvider } from '../contexts/DashboardLayoutContext';
 
 // Base styles from library, custom overrides in index.css
 import 'react-grid-layout/css/styles.css';
@@ -46,7 +47,8 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   const updateLayout = useLayoutStore((state) => state.updateLayout);
   const updateSingleItem = useLayoutStore((state) => state.updateSingleItem);
   const saveLayoutDebounced = useLayoutStore((state) => state.saveLayoutDebounced);
-  const currentBreakpoint = useRef<DashboardBreakpoint>('lg');
+  const currentBreakpointRef = useRef<DashboardBreakpoint>('lg');
+  const [currentBreakpoint, setCurrentBreakpoint] = useState<DashboardBreakpoint>('lg');
 
   // Convert our layout format to react-grid-layout format
   const gridLayouts = useMemo(() => {
@@ -82,9 +84,11 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     [updateLayout]
   );
 
-  // Track breakpoint changes
+  // Track breakpoint changes - update both ref (for callbacks) and state (for re-render)
   const handleBreakpointChange = useCallback((breakpoint: string) => {
-    currentBreakpoint.current = breakpoint as DashboardBreakpoint;
+    const bp = breakpoint as DashboardBreakpoint;
+    currentBreakpointRef.current = bp;
+    setCurrentBreakpoint(bp);
   }, []);
 
   // Handle user interaction completion (drag or resize)
@@ -92,7 +96,7 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   const handleInteractionStop = useCallback(
     (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
       if (newItem) {
-        updateSingleItem(currentBreakpoint.current, newItem);
+        updateSingleItem(currentBreakpointRef.current, newItem);
         saveLayoutDebounced();
       }
     },
@@ -128,28 +132,34 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     );
   }
 
+  // Get current layout items and column count for context provider
+  const currentLayoutItems = layouts[currentBreakpoint];
+  const currentCols = GRID_COLS[currentBreakpoint];
+
   return (
     <div className="dashboard-grid">
-      <ResponsiveGridLayout
-        className="layout"
-        layouts={gridLayouts}
-        breakpoints={GRID_BREAKPOINTS}
-        cols={GRID_COLS}
-        rowHeight={ROW_HEIGHT}
-        margin={[16, 16]}
-        containerPadding={[0, 0]}
-        onLayoutChange={handleLayoutChange}
-        onBreakpointChange={handleBreakpointChange}
-        onDragStop={handleInteractionStop}
-        onResizeStop={handleInteractionStop}
-        draggableHandle=".panel-drag-handle"
-        resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
-        useCSSTransforms={true}
-        compactType={null}
-        preventCollision={true}
-      >
-        {wrappedChildren}
-      </ResponsiveGridLayout>
+      <DashboardLayoutProvider items={currentLayoutItems} cols={currentCols}>
+        <ResponsiveGridLayout
+          className="layout"
+          layouts={gridLayouts}
+          breakpoints={GRID_BREAKPOINTS}
+          cols={GRID_COLS}
+          rowHeight={ROW_HEIGHT}
+          margin={[16, 16]}
+          containerPadding={[0, 0]}
+          onLayoutChange={handleLayoutChange}
+          onBreakpointChange={handleBreakpointChange}
+          onDragStop={handleInteractionStop}
+          onResizeStop={handleInteractionStop}
+          draggableHandle=".panel-drag-handle"
+          resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
+          useCSSTransforms={true}
+          compactType={null}
+          preventCollision={true}
+        >
+          {wrappedChildren}
+        </ResponsiveGridLayout>
+      </DashboardLayoutProvider>
     </div>
   );
 }

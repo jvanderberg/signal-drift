@@ -5,11 +5,13 @@
  * Covers PSU and Load device interactions including:
  * - Subscription lifecycle
  * - Output control
+ * - Responsive breakpoints (column-based)
  */
 
+import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import type { ServerMessage } from '../../../../shared/types';
+import type { ServerMessage, DashboardLayoutItem } from '../../../../shared/types';
 import {
   createMockDeviceSummary,
   createMockSessionState,
@@ -66,52 +68,11 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock ResizeObserver with width simulation capability
-let resizeObserverCallback: ResizeObserverCallback | null = null;
-let mockContainerWidth = 800; // Default to large
-
+// Mock ResizeObserver (still needed for chart and other components)
 class MockResizeObserver {
-  callback: ResizeObserverCallback;
-
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
-    resizeObserverCallback = callback;
-  }
-
-  observe = vi.fn((element: Element) => {
-    // Trigger initial callback with current mock width
-    const entries: ResizeObserverEntry[] = [{
-      target: element,
-      contentRect: { width: mockContainerWidth, height: 400, x: 0, y: 0, top: 0, left: 0, bottom: 400, right: mockContainerWidth, toJSON: () => ({}) } as DOMRectReadOnly,
-      borderBoxSize: [],
-      contentBoxSize: [],
-      devicePixelContentBoxSize: [],
-    }];
-    this.callback(entries, this);
-  });
-
+  observe = vi.fn();
   unobserve = vi.fn();
   disconnect = vi.fn();
-}
-
-function setMockContainerWidth(width: number) {
-  mockContainerWidth = width;
-}
-
-function triggerResize(width: number) {
-  mockContainerWidth = width;
-  if (resizeObserverCallback) {
-    const entries: ResizeObserverEntry[] = [{
-      target: document.createElement('div'),
-      contentRect: { width, height: 400, x: 0, y: 0, top: 0, left: 0, bottom: 400, right: width, toJSON: () => ({}) } as DOMRectReadOnly,
-      borderBoxSize: [],
-      contentBoxSize: [],
-      devicePixelContentBoxSize: [],
-    }];
-    act(() => {
-      resizeObserverCallback!(entries, new MockResizeObserver(resizeObserverCallback!));
-    });
-  }
 }
 
 vi.stubGlobal('ResizeObserver', MockResizeObserver);
@@ -129,6 +90,36 @@ function simulateMessage(msg: ServerMessage): void {
 // Import after mocking
 import { DevicePanel } from '../DevicePanel';
 import { useDeviceStore, cleanupDeviceStore } from '../../stores/deviceStore';
+import { DashboardLayoutProvider } from '../../contexts/DashboardLayoutContext';
+
+// Helper to create layout items for testing
+function createLayoutItem(deviceId: string, w: number, h: number = 12): DashboardLayoutItem {
+  return {
+    i: `device-${deviceId}`,
+    x: 0,
+    y: 0,
+    w,
+    h,
+    minW: 3,
+    minH: 4,
+  };
+}
+
+// Wrapper component that provides layout context
+interface TestWrapperProps {
+  children: React.ReactNode;
+  deviceId: string;
+  columnCount: number;
+}
+
+function TestWrapper({ children, deviceId, columnCount }: TestWrapperProps) {
+  const items = [createLayoutItem(deviceId, columnCount)];
+  return (
+    <DashboardLayoutProvider items={items} cols={12}>
+      {children}
+    </DashboardLayoutProvider>
+  );
+}
 
 describe('DevicePanel Integration', () => {
   const mockOnClose = vi.fn();
@@ -140,8 +131,6 @@ describe('DevicePanel Integration', () => {
     mockState.onMessageHandlers = [];
     mockState.onStateHandlers = [];
     mockState.connectionState = 'connected';
-    resizeObserverCallback = null;
-    setMockContainerWidth(800); // Reset to large
 
     // Cleanup and reset device store
     cleanupDeviceStore();
@@ -295,55 +284,26 @@ describe('DevicePanel Integration', () => {
     });
   });
 
-  describe('Responsive Breakpoints', () => {
-    describe('Large Containers (>=600px)', () => {
-      beforeEach(() => {
-        setMockContainerWidth(800);
-      });
+  describe('Responsive Breakpoints (Column-Based)', () => {
+    // Column breakpoints: large >= 6, medium >= 4, narrow >= 3, very-narrow < 3
 
-      it('should show horizontal StatusReadings on large viewports', async () => {
+    describe('Large Panels (>= 6 columns)', () => {
+      it('should show chart and setters when panel has 6+ columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={6}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
           measurements: { voltage: 12.0, current: 1.0, power: 12.0 },
-        });
-
-        simulateMessage({
-          type: 'subscribed',
-          deviceId: 'psu-1',
-          state: sessionState,
-        });
-
-        await waitFor(() => {
-          // Should have StatusReadings with horizontal layout
-          const flexContainers = container.querySelectorAll('.flex.flex-wrap');
-          expect(flexContainers.length).toBeGreaterThan(0);
-        });
-      });
-
-      it('should show setters when container width >= 600px', async () => {
-        setMockContainerWidth(600);
-        const device = createMockDeviceSummary({ id: 'psu-1' });
-
-        render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
-        );
-
-        const sessionState = createMockSessionState({
           setpoints: { voltage: 12.0, current: 1.0 },
         });
 
@@ -358,24 +318,56 @@ describe('DevicePanel Integration', () => {
           const plusButtons = screen.getAllByText('+');
           expect(plusButtons.length).toBeGreaterThan(0);
         });
-      });
-    });
 
-    describe('Medium Containers (400-599px)', () => {
-      beforeEach(() => {
-        setMockContainerWidth(500);
+        // Chart section should be present (canvas element)
+        const canvas = container.querySelector('canvas');
+        expect(canvas).toBeInTheDocument();
       });
 
-      it('should show setters when container width is 400-599px', async () => {
+      it('should show setters at exactly 6 columns (boundary test)', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={6}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          const plusButtons = screen.getAllByText('+');
+          expect(plusButtons.length).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    describe('Medium Panels (4-5 columns)', () => {
+      it('should show setters but no chart when panel has 4-5 columns', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={5}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -393,18 +385,24 @@ describe('DevicePanel Integration', () => {
           const plusButtons = screen.getAllByText('+');
           expect(plusButtons.length).toBeGreaterThan(0);
         });
+
+        // Chart section should NOT be present (no canvas for chart)
+        const canvas = container.querySelector('canvas');
+        expect(canvas).not.toBeInTheDocument();
       });
 
       it('should show horizontal StatusReadings in medium width', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={4}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -425,21 +423,19 @@ describe('DevicePanel Integration', () => {
       });
     });
 
-    describe('Narrow Containers (300-399px)', () => {
-      beforeEach(() => {
-        setMockContainerWidth(350);
-      });
-
-      it('should hide setters when container width is 300-399px', async () => {
+    describe('Narrow Panels (3 columns)', () => {
+      it('should hide setters when panel has 3 columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -466,12 +462,14 @@ describe('DevicePanel Integration', () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -494,21 +492,19 @@ describe('DevicePanel Integration', () => {
       });
     });
 
-    describe('Very Narrow Containers (<300px)', () => {
-      beforeEach(() => {
-        setMockContainerWidth(250);
-      });
-
-      it('should hide setters when container width < 300px', async () => {
+    describe('Very Narrow Panels (< 3 columns)', () => {
+      it('should hide setters when panel has < 3 columns', async () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={2}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -535,12 +531,14 @@ describe('DevicePanel Integration', () => {
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
         const { container } = render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="psu-1" columnCount={2}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -561,12 +559,12 @@ describe('DevicePanel Integration', () => {
       });
     });
 
-    describe('Container Resize', () => {
-      it('should update layout when container is resized from large to narrow', async () => {
-        setMockContainerWidth(800);
+    describe('Fallback Behavior', () => {
+      it('should default to large breakpoint when not in grid context', async () => {
+        // Render without TestWrapper (no DashboardLayoutProvider)
         const device = createMockDeviceSummary({ id: 'psu-1' });
 
-        render(
+        const { container } = render(
           <DevicePanel
             device={device}
             onClose={mockOnClose}
@@ -585,59 +583,12 @@ describe('DevicePanel Integration', () => {
           state: sessionState,
         });
 
-        // Initially at large width, setters should be visible
         await waitFor(() => {
+          // Should show chart (large breakpoint default)
+          const canvas = container.querySelector('canvas');
+          expect(canvas).toBeInTheDocument();
+          // Setters should be visible
           const plusButtons = screen.getAllByText('+');
-          expect(plusButtons.length).toBeGreaterThan(0);
-        });
-
-        // Resize to narrow
-        triggerResize(350);
-
-        // Setters should now be hidden
-        await waitFor(() => {
-          const plusButtons = screen.queryAllByText('+');
-          expect(plusButtons.length).toBe(0);
-        });
-      });
-
-      it('should update layout when container is resized from narrow to large', async () => {
-        setMockContainerWidth(350);
-        const device = createMockDeviceSummary({ id: 'psu-1' });
-
-        render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
-        );
-
-        const sessionState = createMockSessionState({
-          setpoints: { voltage: 12.0, current: 1.0 },
-        });
-
-        simulateMessage({
-          type: 'subscribed',
-          deviceId: 'psu-1',
-          state: sessionState,
-        });
-
-        // Initially at narrow width, setters should be hidden
-        await waitFor(() => {
-          expect(screen.getByText('OFF')).toBeInTheDocument();
-        });
-
-        let plusButtons = screen.queryAllByText('+');
-        expect(plusButtons.length).toBe(0);
-
-        // Resize to large
-        triggerResize(800);
-
-        // Setters should now be visible
-        await waitFor(() => {
-          plusButtons = screen.getAllByText('+');
           expect(plusButtons.length).toBeGreaterThan(0);
         });
       });
@@ -658,20 +609,21 @@ describe('DevicePanel Integration', () => {
         ],
       };
 
-      it('should hide mode selector when container is narrow', async () => {
-        setMockContainerWidth(350);
+      it('should hide mode selector when panel is narrow (3 columns)', async () => {
         const device = createMockDeviceSummary({
           id: 'load-1',
           capabilities: loadCapabilities,
         });
 
         render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="load-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
@@ -690,24 +642,25 @@ describe('DevicePanel Integration', () => {
           expect(screen.getByText('OFF')).toBeInTheDocument();
         });
 
-        // Mode selector should be hidden
+        // Mode selector should be hidden (it's part of setters)
         expect(screen.queryByText('Mode:')).not.toBeInTheDocument();
       });
 
-      it('should show mode selector when container is medium or larger', async () => {
-        setMockContainerWidth(500);
+      it('should show mode selector when panel is medium or larger (4+ columns)', async () => {
         const device = createMockDeviceSummary({
           id: 'load-1',
           capabilities: loadCapabilities,
         });
 
         render(
-          <DevicePanel
-            device={device}
-            onClose={mockOnClose}
-            onError={mockOnError}
-            onSuccess={mockOnSuccess}
-          />
+          <TestWrapper deviceId="load-1" columnCount={5}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
         );
 
         const sessionState = createMockSessionState({
