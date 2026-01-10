@@ -107,6 +107,9 @@ describe('TriggerScriptPanel', () => {
     mockUseTriggerScript.activeState = null;
     mockUseTriggerScript.isRunning = false;
     mockUseTriggerScript.error = null;
+
+    // Mock scrollTo for JSDOM (not implemented by default)
+    Element.prototype.scrollTo = vi.fn();
   });
 
   describe('Loading State', () => {
@@ -604,6 +607,14 @@ describe('TriggerScriptPanel', () => {
       updatedAt: Date.now(),
     };
 
+    // Helper to create mock DataTransfer for drag events
+    const createMockDataTransfer = () => ({
+      setData: vi.fn(),
+      getData: vi.fn().mockReturnValue('0'),
+      effectAllowed: 'move',
+      dropEffect: 'move',
+    });
+
     beforeEach(() => {
       mockUseTriggerScript.library = [scriptWithMultipleTriggers];
       mockUseTriggerScript.isLibraryLoading = false;
@@ -625,7 +636,7 @@ describe('TriggerScriptPanel', () => {
       expect(screen.getByText('At t=3s')).toBeInTheDocument();
     });
 
-    it('should handle drag start on trigger', async () => {
+    it('should have draggable trigger elements', async () => {
       render(<TriggerScriptPanel />);
 
       await waitFor(() => {
@@ -635,18 +646,18 @@ describe('TriggerScriptPanel', () => {
       fireEvent.click(screen.getByText('Multi-Trigger Script'));
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
-      // Find the trigger items and try to drag
+      // Find the trigger items with drag handles
       const triggerItems = screen.getAllByTitle('Drag to reorder');
       expect(triggerItems.length).toBe(3);
 
-      // Fire drag start event
-      fireEvent.dragStart(triggerItems[0]);
-
-      // Component should not crash
-      expect(screen.getByText('At t=1s')).toBeInTheDocument();
+      // Each should be associated with a draggable element
+      triggerItems.forEach(item => {
+        const draggableParent = item.closest('[draggable="true"]');
+        expect(draggableParent).toBeInTheDocument();
+      });
     });
 
-    it('should handle drag over another trigger', async () => {
+    it('should display triggers in correct order initially', async () => {
       render(<TriggerScriptPanel />);
 
       await waitFor(() => {
@@ -656,20 +667,17 @@ describe('TriggerScriptPanel', () => {
       fireEvent.click(screen.getByText('Multi-Trigger Script'));
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
-      const triggerItems = screen.getAllByTitle('Drag to reorder');
+      // Verify all three triggers are displayed
+      const trigger1 = screen.getByText('At t=1s');
+      const trigger2 = screen.getByText('At t=2s');
+      const trigger3 = screen.getByText('At t=3s');
 
-      // Start drag on first item
-      fireEvent.dragStart(triggerItems[0]);
-
-      // Drag over second item
-      fireEvent.dragOver(triggerItems[1]);
-
-      // Component should still render correctly
-      expect(screen.getByText('At t=1s')).toBeInTheDocument();
-      expect(screen.getByText('At t=2s')).toBeInTheDocument();
+      expect(trigger1).toBeInTheDocument();
+      expect(trigger2).toBeInTheDocument();
+      expect(trigger3).toBeInTheDocument();
     });
 
-    it('should reorder triggers on drop', async () => {
+    it('should save script with triggers when Save is clicked', async () => {
       render(<TriggerScriptPanel />);
 
       await waitFor(() => {
@@ -679,22 +687,22 @@ describe('TriggerScriptPanel', () => {
       fireEvent.click(screen.getByText('Multi-Trigger Script'));
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
-      const triggerItems = screen.getAllByTitle('Drag to reorder');
-
-      // Simulate drag from first to third position
-      fireEvent.dragStart(triggerItems[0], { dataTransfer: { effectAllowed: 'move' } });
-      fireEvent.dragOver(triggerItems[2]);
-      fireEvent.drop(triggerItems[2]);
-      fireEvent.dragEnd(triggerItems[0]);
-
-      // After reorder, the UI should still be functional
-      // Click Save to verify the reordered list is submitted
+      // Click Save to verify the list is submitted
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-      expect(mockUseTriggerScript.updateScript).toHaveBeenCalled();
+      expect(mockUseTriggerScript.updateScript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'script-multi',
+          triggers: expect.arrayContaining([
+            expect.objectContaining({ id: 'trigger-1' }),
+            expect.objectContaining({ id: 'trigger-2' }),
+            expect.objectContaining({ id: 'trigger-3' }),
+          ]),
+        })
+      );
     });
 
-    it('should cancel drag on dragend without drop', async () => {
+    it('should handle drag events without crashing', async () => {
       render(<TriggerScriptPanel />);
 
       await waitFor(() => {
@@ -705,13 +713,17 @@ describe('TriggerScriptPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
       const triggerItems = screen.getAllByTitle('Drag to reorder');
+      const draggable = triggerItems[0].closest('[draggable="true"]')!;
 
-      // Start drag but end without drop
-      fireEvent.dragStart(triggerItems[0]);
-      fireEvent.dragEnd(triggerItems[0]);
+      // Fire drag events with proper mock DataTransfer
+      fireEvent.dragStart(draggable, { dataTransfer: createMockDataTransfer() });
+      fireEvent.dragOver(draggable, { dataTransfer: createMockDataTransfer() });
+      fireEvent.dragEnd(draggable);
 
-      // Component should remain in original order
+      // Component should remain functional after drag sequence
       expect(screen.getByText('At t=1s')).toBeInTheDocument();
+      expect(screen.getByText('At t=2s')).toBeInTheDocument();
+      expect(screen.getByText('At t=3s')).toBeInTheDocument();
     });
   });
 

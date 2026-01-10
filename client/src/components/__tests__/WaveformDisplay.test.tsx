@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { WaveformDisplay } from '../WaveformDisplay';
 import type { WaveformData } from '../../../../shared/types';
 
@@ -237,6 +237,140 @@ describe('WaveformDisplay', () => {
       // Should render in reasonable time (< 100ms)
       expect(renderTime).toBeLessThan(100);
       expect(screen.getByTestId('waveform-trace-CHAN1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Multiple channels', () => {
+    it('should display multiple waveforms simultaneously', () => {
+      const waveforms = [
+        createWaveform({ channel: 'CHAN1', points: [0, 1, 0] }),
+        createWaveform({ channel: 'CHAN2', points: [1, 0, 1] }),
+      ];
+      render(<WaveformDisplay waveforms={waveforms} />);
+
+      expect(screen.getByTestId('waveform-trace-CHAN1')).toBeInTheDocument();
+      expect(screen.getByTestId('waveform-trace-CHAN2')).toBeInTheDocument();
+    });
+
+    it('should render each channel with distinct path data', () => {
+      const waveforms = [
+        createWaveform({ channel: 'CHAN1', points: [0, 1, 0, -1, 0] }),
+        createWaveform({ channel: 'CHAN2', points: [1, 0, -1, 0, 1] }),
+      ];
+      render(<WaveformDisplay waveforms={waveforms} />);
+
+      const chan1Trace = screen.getByTestId('waveform-trace-CHAN1');
+      const chan2Trace = screen.getByTestId('waveform-trace-CHAN2');
+
+      const chan1Path = chan1Trace.getAttribute('d');
+      const chan2Path = chan2Trace.getAttribute('d');
+
+      expect(chan1Path).not.toBe(chan2Path);
+    });
+
+    it('should handle empty waveforms array', () => {
+      render(<WaveformDisplay waveforms={[]} />);
+
+      expect(screen.getByTestId('waveform-display')).toBeInTheDocument();
+    });
+  });
+
+  describe('Trigger level dragging', () => {
+    it('should render trigger level line when triggerLevel prop is provided', () => {
+      const waveform = createWaveform({
+        points: [-1, 0, 1, 0, -1],
+      });
+      render(
+        <WaveformDisplay
+          waveform={waveform}
+          triggerLevel={0.5}
+        />
+      );
+
+      expect(screen.getByTestId('trigger-level-line')).toBeInTheDocument();
+    });
+
+    it('should render drag handle for trigger level', () => {
+      const waveform = createWaveform({
+        points: [-1, 0, 1, 0, -1],
+      });
+      const onTriggerChange = vi.fn();
+      render(
+        <WaveformDisplay
+          waveform={waveform}
+          triggerLevel={0}
+          onTriggerLevelChange={onTriggerChange}
+          height={200}
+        />
+      );
+
+      const dragHandle = screen.getByTestId('trigger-drag-handle');
+      expect(dragHandle).toBeInTheDocument();
+    });
+
+    it('should handle drag movement', () => {
+      const waveform = createWaveform({
+        points: [-2, -1, 0, 1, 2],
+      });
+      const onTriggerChange = vi.fn();
+      render(
+        <WaveformDisplay
+          waveform={waveform}
+          triggerLevel={0}
+          onTriggerLevelChange={onTriggerChange}
+          height={200}
+        />
+      );
+
+      const dragHandle = screen.getByTestId('trigger-drag-handle');
+
+      fireEvent.mouseDown(dragHandle, { clientY: 100 });
+      fireEvent.mouseMove(document, { clientY: 80 });
+      fireEvent.mouseUp(document);
+
+      expect(screen.getByTestId('waveform-display')).toBeInTheDocument();
+    });
+  });
+
+  describe('Y-axis behavior', () => {
+    it('should handle zero-amplitude waveform', () => {
+      const waveform = createWaveform({
+        points: [0, 0, 0, 0, 0],
+      });
+      render(<WaveformDisplay waveform={waveform} />);
+
+      expect(screen.getByTestId('waveform-display')).toBeInTheDocument();
+      expect(screen.getByTestId('waveform-trace-CHAN1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Resize behavior', () => {
+    it('should maintain aspect ratio via viewBox', () => {
+      const waveform = createWaveform({});
+      render(<WaveformDisplay waveform={waveform} height={300} />);
+
+      const svg = screen.getByTestId('waveform-svg');
+      const viewBox = svg.getAttribute('viewBox');
+      expect(viewBox).toBeDefined();
+
+      const parts = viewBox!.split(' ');
+      expect(parts).toHaveLength(4);
+    });
+
+    it('should use absolute positioning for responsive layout', () => {
+      const waveform = createWaveform({});
+      render(<WaveformDisplay waveform={waveform} />);
+
+      const svg = screen.getByTestId('waveform-svg');
+      expect(svg).toHaveClass('absolute');
+    });
+
+    it('should fill container width', () => {
+      const waveform = createWaveform({});
+      render(<WaveformDisplay waveform={waveform} />);
+
+      const container = screen.getByTestId('waveform-display');
+      expect(container).toHaveClass('w-full');
     });
   });
 });
