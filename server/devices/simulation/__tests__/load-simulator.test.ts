@@ -331,4 +331,224 @@ describe('LoadSimulator', () => {
       expect(conn.getLoadCurrent()).toBeCloseTo(4, 1);
     });
   });
+
+  describe('CC Mode Behavior', () => {
+    beforeEach(() => {
+      conn.setPsuVoltage(24);
+      conn.setPsuCurrentLimit(10);
+      conn.setPsuOutputEnabled(true);
+    });
+
+    it('should draw exact setpoint current in CC mode', () => {
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 2.5');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // Verify actual current drawn matches setpoint
+      expect(conn.getLoadCurrent()).toBeCloseTo(2.5, 2);
+
+      // Verify via measurement command
+      const measuredCurrent = parseFloat(load.handleCommand(':MEAS:CURR?')!);
+      expect(measuredCurrent).toBeCloseTo(2.5, 1);
+    });
+
+    it('should maintain constant current at different voltages', () => {
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 2');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // At 24V
+      expect(conn.getLoadCurrent()).toBeCloseTo(2, 1);
+
+      // Change PSU voltage to 12V
+      conn.setPsuVoltage(12);
+      expect(conn.getLoadCurrent()).toBeCloseTo(2, 1);
+    });
+
+    it('should draw zero current when input disabled', () => {
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 5');
+      load.handleCommand(':SOUR:INP:STAT OFF');
+
+      expect(conn.getLoadCurrent()).toBeCloseTo(0, 2);
+    });
+  });
+
+  describe('CV Mode Behavior', () => {
+    beforeEach(() => {
+      conn.setPsuVoltage(24);
+      conn.setPsuCurrentLimit(10);
+      conn.setPsuOutputEnabled(true);
+    });
+
+    it('should regulate voltage to setpoint in CV mode', () => {
+      load.handleCommand(':SOUR:FUNC VOLT');
+      load.handleCommand(':SOUR:VOLT:LEV 12');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // In CV mode, load regulates to setpoint voltage
+      const measuredVoltage = parseFloat(load.handleCommand(':MEAS:VOLT?')!);
+      expect(measuredVoltage).toBeCloseTo(12, 0);
+    });
+
+    it('should draw no current when setpoint equals source voltage', () => {
+      load.handleCommand(':SOUR:FUNC VOLT');
+      load.handleCommand(':SOUR:VOLT:LEV 24'); // Same as PSU voltage
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // At equilibrium, no current needed
+      expect(conn.getLoadCurrent()).toBeCloseTo(0, 1);
+    });
+  });
+
+  describe('CR Mode Behavior', () => {
+    beforeEach(() => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(10);
+      conn.setPsuOutputEnabled(true);
+    });
+
+    it('should follow V/R relationship in CR mode', () => {
+      load.handleCommand(':SOUR:FUNC RES');
+      load.handleCommand(':SOUR:RES:LEV 6'); // 6 ohms
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // At 12V, 6 ohms should draw 2A (I = V/R = 12/6 = 2A)
+      const current = conn.getLoadCurrent();
+      expect(current).toBeCloseTo(2, 1);
+    });
+
+    it('should calculate power correctly in CR mode (P = V^2/R)', () => {
+      load.handleCommand(':SOUR:FUNC RES');
+      load.handleCommand(':SOUR:RES:LEV 4'); // 4 ohms
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // At 12V, 4 ohms: P = V^2/R = 144/4 = 36W
+      const power = parseFloat(load.handleCommand(':MEAS:POW?')!);
+      expect(power).toBeCloseTo(36, 0);
+    });
+
+    it('should draw more current at lower resistance', () => {
+      load.handleCommand(':SOUR:FUNC RES');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      load.handleCommand(':SOUR:RES:LEV 12'); // 12 ohms -> 1A
+      const current1 = conn.getLoadCurrent();
+
+      load.handleCommand(':SOUR:RES:LEV 6'); // 6 ohms -> 2A
+      const current2 = conn.getLoadCurrent();
+
+      expect(current2).toBeGreaterThan(current1);
+      expect(current1).toBeCloseTo(1, 1);
+      expect(current2).toBeCloseTo(2, 1);
+    });
+  });
+
+  describe('CP Mode Behavior', () => {
+    beforeEach(() => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(10);
+      conn.setPsuOutputEnabled(true);
+    });
+
+    it('should achieve setpoint power in CP mode', () => {
+      load.handleCommand(':SOUR:FUNC POW');
+      load.handleCommand(':SOUR:POW:LEV 24'); // 24W at 12V = 2A
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      const power = parseFloat(load.handleCommand(':MEAS:POW?')!);
+      expect(power).toBeCloseTo(24, 0);
+
+      // Verify current: P = V*I, so I = P/V = 24/12 = 2A
+      const current = conn.getLoadCurrent();
+      expect(current).toBeCloseTo(2, 1);
+    });
+
+    it('should maintain constant power at different voltages', () => {
+      load.handleCommand(':SOUR:FUNC POW');
+      load.handleCommand(':SOUR:POW:LEV 24');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // At 12V, 24W requires 2A
+      expect(conn.getLoadCurrent()).toBeCloseTo(2, 1);
+
+      // At 24V, 24W requires 1A
+      conn.setPsuVoltage(24);
+      expect(conn.getLoadCurrent()).toBeCloseTo(1, 1);
+    });
+  });
+
+  describe('PSU Current Limiting', () => {
+    it('should trigger PSU CC mode when load exceeds current limit', () => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(2); // Low limit
+      conn.setPsuOutputEnabled(true);
+
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 5'); // Request 5A but PSU limited to 2A
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // PSU should be in CC mode, current limited to 2A
+      expect(conn.getPsuCurrent()).toBeCloseTo(2, 1);
+      expect(conn.getPsuMode()).toBe('CC');
+    });
+
+    it('should stay in CV mode when load is within limit', () => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(5);
+      conn.setPsuOutputEnabled(true);
+
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 2'); // Well within limit
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      expect(conn.getPsuMode()).toBe('CV');
+    });
+
+    it('should transition between CV and CC as load changes', () => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(3);
+      conn.setPsuOutputEnabled(true);
+
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      // Start low - CV mode
+      load.handleCommand(':SOUR:CURR:LEV 1');
+      expect(conn.getPsuMode()).toBe('CV');
+
+      // Exceed limit - CC mode
+      load.handleCommand(':SOUR:CURR:LEV 5');
+      expect(conn.getPsuMode()).toBe('CC');
+
+      // Go back low - CV mode
+      load.handleCommand(':SOUR:CURR:LEV 1');
+      expect(conn.getPsuMode()).toBe('CV');
+    });
+  });
+
+  describe('Load with PSU Off', () => {
+    it('should not draw current when PSU output is off', () => {
+      conn.setPsuVoltage(12);
+      conn.setPsuCurrentLimit(5);
+      conn.setPsuOutputEnabled(false); // PSU off
+
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 2');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      expect(conn.getLoadCurrent()).toBeCloseTo(0, 2);
+    });
+
+    it('should show zero voltage measurement when PSU is off', () => {
+      conn.setPsuOutputEnabled(false);
+
+      load.handleCommand(':SOUR:FUNC CURR');
+      load.handleCommand(':SOUR:CURR:LEV 2');
+      load.handleCommand(':SOUR:INP:STAT ON');
+
+      const voltage = parseFloat(load.handleCommand(':MEAS:VOLT?')!);
+      expect(voltage).toBeCloseTo(0, 1);
+    });
+  });
 });

@@ -155,4 +155,84 @@ describe('TriggerSettings', () => {
       expect(screen.getByTestId('trigger-sweep-select')).toBeDisabled();
     });
   });
+
+  describe('Level input behavior', () => {
+    it('should show level input', () => {
+      render(<TriggerSettings />);
+      expect(screen.getByTestId('trigger-level-input')).toBeInTheDocument();
+    });
+
+    it('should display current level value', () => {
+      render(<TriggerSettings currentLevel={1.234} />);
+      const input = screen.getByTestId('trigger-level-input') as HTMLInputElement;
+      expect(input.value).toBe('1.234');
+    });
+
+    it('should call onLevelChange when Enter key is pressed', () => {
+      const onChange = vi.fn();
+      render(<TriggerSettings currentLevel={0} onLevelChange={onChange} />);
+
+      const input = screen.getByTestId('trigger-level-input');
+      fireEvent.change(input, { target: { value: '2.5' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onChange).toHaveBeenCalledWith(2.5);
+    });
+
+    it('should call onLevelChange on blur', () => {
+      const onChange = vi.fn();
+      render(<TriggerSettings currentLevel={0} onLevelChange={onChange} />);
+
+      const input = screen.getByTestId('trigger-level-input');
+      fireEvent.change(input, { target: { value: '3.14' } });
+      fireEvent.blur(input);
+
+      expect(onChange).toHaveBeenCalledWith(3.14);
+    });
+
+    it('should update input when currentLevel prop changes', () => {
+      const { rerender } = render(<TriggerSettings currentLevel={1.0} />);
+      const input = screen.getByTestId('trigger-level-input') as HTMLInputElement;
+      expect(input.value).toBe('1.000');
+
+      rerender(<TriggerSettings currentLevel={2.5} />);
+      expect(input.value).toBe('2.500');
+    });
+
+    it('should not call onLevelChange for invalid input', () => {
+      const onChange = vi.fn();
+      render(<TriggerSettings currentLevel={0} onLevelChange={onChange} />);
+
+      const input = screen.getByTestId('trigger-level-input');
+      fireEvent.change(input, { target: { value: 'not-a-number' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('should handle negative values', () => {
+      const onChange = vi.fn();
+      render(<TriggerSettings currentLevel={0} onLevelChange={onChange} />);
+
+      const input = screen.getByTestId('trigger-level-input');
+      fireEvent.change(input, { target: { value: '-1.5' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onChange).toHaveBeenCalledWith(-1.5);
+    });
+
+    it('should disable level input when disabled prop is true', () => {
+      render(<TriggerSettings disabled />);
+      expect(screen.getByTestId('trigger-level-input')).toBeDisabled();
+    });
+
+    it('should allow typing in the input', () => {
+      render(<TriggerSettings currentLevel={0} />);
+
+      const input = screen.getByTestId('trigger-level-input') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: '5.678' } });
+
+      expect(input.value).toBe('5.678');
+    });
+  });
 });
