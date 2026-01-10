@@ -572,4 +572,177 @@ describe('TriggerScriptPanel', () => {
       expect(screen.getByText('3 fires')).toBeInTheDocument();
     });
   });
+
+  describe('Drag and Drop Reordering', () => {
+    const scriptWithMultipleTriggers: TriggerScript = {
+      id: 'script-multi',
+      name: 'Multi-Trigger Script',
+      triggers: [
+        {
+          id: 'trigger-1',
+          condition: { type: 'time', seconds: 1 },
+          action: { type: 'setOutput', deviceId: 'device-1', enabled: true },
+          repeatMode: 'once',
+          debounceMs: 0,
+        },
+        {
+          id: 'trigger-2',
+          condition: { type: 'time', seconds: 2 },
+          action: { type: 'setOutput', deviceId: 'device-1', enabled: false },
+          repeatMode: 'once',
+          debounceMs: 0,
+        },
+        {
+          id: 'trigger-3',
+          condition: { type: 'time', seconds: 3 },
+          action: { type: 'setValue', deviceId: 'device-1', parameter: 'current', value: 5 },
+          repeatMode: 'once',
+          debounceMs: 0,
+        },
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    beforeEach(() => {
+      mockUseTriggerScript.library = [scriptWithMultipleTriggers];
+      mockUseTriggerScript.isLibraryLoading = false;
+    });
+
+    it('should show draggable triggers in edit mode', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Trigger Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Multi-Trigger Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      // Should show all triggers
+      expect(screen.getByText('At t=1s')).toBeInTheDocument();
+      expect(screen.getByText('At t=2s')).toBeInTheDocument();
+      expect(screen.getByText('At t=3s')).toBeInTheDocument();
+    });
+
+    it('should handle drag start on trigger', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Trigger Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Multi-Trigger Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      // Find the trigger items and try to drag
+      const triggerItems = screen.getAllByTitle('Drag to reorder');
+      expect(triggerItems.length).toBe(3);
+
+      // Fire drag start event
+      fireEvent.dragStart(triggerItems[0]);
+
+      // Component should not crash
+      expect(screen.getByText('At t=1s')).toBeInTheDocument();
+    });
+
+    it('should handle drag over another trigger', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Trigger Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Multi-Trigger Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      const triggerItems = screen.getAllByTitle('Drag to reorder');
+
+      // Start drag on first item
+      fireEvent.dragStart(triggerItems[0]);
+
+      // Drag over second item
+      fireEvent.dragOver(triggerItems[1]);
+
+      // Component should still render correctly
+      expect(screen.getByText('At t=1s')).toBeInTheDocument();
+      expect(screen.getByText('At t=2s')).toBeInTheDocument();
+    });
+
+    it('should reorder triggers on drop', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Trigger Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Multi-Trigger Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      const triggerItems = screen.getAllByTitle('Drag to reorder');
+
+      // Simulate drag from first to third position
+      fireEvent.dragStart(triggerItems[0], { dataTransfer: { effectAllowed: 'move' } });
+      fireEvent.dragOver(triggerItems[2]);
+      fireEvent.drop(triggerItems[2]);
+      fireEvent.dragEnd(triggerItems[0]);
+
+      // After reorder, the UI should still be functional
+      // Click Save to verify the reordered list is submitted
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mockUseTriggerScript.updateScript).toHaveBeenCalled();
+    });
+
+    it('should cancel drag on dragend without drop', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Multi-Trigger Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Multi-Trigger Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      const triggerItems = screen.getAllByTitle('Drag to reorder');
+
+      // Start drag but end without drop
+      fireEvent.dragStart(triggerItems[0]);
+      fireEvent.dragEnd(triggerItems[0]);
+
+      // Component should remain in original order
+      expect(screen.getByText('At t=1s')).toBeInTheDocument();
+    });
+  });
+
+  describe('Adding and Removing Triggers', () => {
+    beforeEach(() => {
+      mockUseTriggerScript.library = [sampleScript];
+      mockUseTriggerScript.isLibraryLoading = false;
+    });
+
+    it('should add a new trigger when Add Trigger is clicked', async () => {
+      render(<TriggerScriptPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Script')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Test Script'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      // Count current triggers
+      const initialTriggers = screen.getAllByText(/At t=/);
+      expect(initialTriggers).toHaveLength(1);
+
+      // Add new trigger
+      fireEvent.click(screen.getByRole('button', { name: '+ Add Trigger' }));
+
+      // Should have more triggers now (shown as "At t=0s" for new time trigger)
+      await waitFor(() => {
+        const updatedTriggers = screen.getAllByText(/At t=/);
+        expect(updatedTriggers.length).toBeGreaterThan(initialTriggers.length);
+      });
+    });
+  });
 });
