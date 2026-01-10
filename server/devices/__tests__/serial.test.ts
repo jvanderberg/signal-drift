@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 
 // Create mock instances outside so we can access them
@@ -98,8 +98,43 @@ describe('Serial Transport', () => {
       expect(mockPortInstance.write).toHaveBeenCalledWith('VOLT?\n', expect.any(Function));
     });
 
-    // Note: Timeout tests removed due to vitest fake timer issues with async rejections.
-    // The timeout functionality is still implemented and works correctly.
+    it('should timeout if no response is received', async () => {
+      // Use a very short timeout for testing
+      const transport = createSerialTransport({
+        path: '/dev/test',
+        baudRate: 115200,
+        commandDelay: 0,
+        timeout: 50, // 50ms timeout for fast test
+      });
+      await transport.open();
+
+      // Start query but don't emit a response
+      const result = await transport.query('VOLT?');
+
+      // Should timeout and return an error
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message.toLowerCase()).toContain('timeout');
+      }
+    }, 10000); // Allow up to 10s for this test
+
+    it('should not timeout if response comes in time', async () => {
+      const transport = createSerialTransport({
+        path: '/dev/test',
+        baudRate: 115200,
+        commandDelay: 0,
+        timeout: 5000, // 5s timeout
+      });
+      await transport.open();
+
+      // Start query and emit response quickly
+      const queryPromise = transport.query('VOLT?');
+      await new Promise(resolve => setImmediate(resolve));
+      mockParserInstance.emit('data', '12.5\n');
+
+      const result = await queryPromise;
+      expect(result.ok).toBe(true);
+    });
 
     it('should return Err if port is disconnected', async () => {
       const transport = createSerialTransport({ path: '/dev/test', baudRate: 115200 });
