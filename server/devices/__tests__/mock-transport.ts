@@ -6,6 +6,8 @@ export interface MockTransportOptions {
   responses?: Record<string, string>;
   binaryResponses?: Record<string, Buffer>;
   defaultResponse?: string;
+  simulateError?: boolean;
+  simulateBinaryError?: boolean;
 }
 
 export interface MockTransport extends Transport {
@@ -19,6 +21,8 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
   const responses: Record<string, string> = { ...options.responses };
   const binaryResponses: Record<string, Buffer> = { ...options.binaryResponses };
   const defaultResponse = options.defaultResponse ?? '';
+  const simulateError = options.simulateError ?? false;
+  const simulateBinaryError = options.simulateBinaryError ?? false;
   let opened = false;
   const sentCommands: string[] = [];
 
@@ -64,6 +68,10 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
       if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
 
+      if (simulateError) {
+        return Err(new Error('Simulated transport error'));
+      }
+
       // Check for exact match first
       if (cmd in responses) {
         return Ok(responses[cmd]);
@@ -81,6 +89,10 @@ export function createMockTransport(options: MockTransportOptions = {}): MockTra
     async queryBinary(cmd: string): Promise<Result<Buffer, Error>> {
       if (!opened) return Err(new Error('Transport not opened'));
       sentCommands.push(cmd);
+
+      if (simulateBinaryError) {
+        return Err(new Error('Simulated binary transport error'));
+      }
 
       // Check for exact match first
       if (cmd in binaryResponses) {

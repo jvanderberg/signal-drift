@@ -214,6 +214,67 @@ describe('Rigol DL3021 Driver', () => {
     });
   });
 
+  describe('Mode Change Verification', () => {
+    beforeEach(async () => {
+      await driver.connect();
+    });
+
+    it('should reflect CC mode in status after setMode', async () => {
+      // Update mock to reflect mode change
+      transport.responses[':SOUR:FUNC?'] = 'CURR';
+      await driver.setMode('CC');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CC');
+      }
+    });
+
+    it('should reflect CV mode in status after setMode', async () => {
+      transport.responses[':SOUR:FUNC?'] = 'VOLT';
+      await driver.setMode('CV');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CV');
+      }
+    });
+
+    it('should reflect CR mode in status after setMode', async () => {
+      transport.responses[':SOUR:FUNC?'] = 'RES';
+      await driver.setMode('CR');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CR');
+      }
+    });
+
+    it('should reflect CP mode in status after setMode', async () => {
+      transport.responses[':SOUR:FUNC?'] = 'POW';
+      await driver.setMode('CP');
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.mode).toBe('CP');
+      }
+    });
+
+    it('should use correct setpoint for active mode', async () => {
+      // In CC mode, should read current setpoint
+      transport.responses[':SOUR:FUNC?'] = 'CURR';
+      transport.responses[':SOUR:CURR:LEV?'] = '3.000';
+      await driver.setMode('CC');
+      await driver.setValue('current', 3.0);
+
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.setpoints.current).toBe(3.0);
+      }
+    });
+  });
+
   describe('setValue()', () => {
     beforeEach(async () => {
       await driver.connect();
