@@ -97,6 +97,9 @@ export function createDeviceSession(
   // Debounce state for setValue
   const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout> }>();
 
+  // Track in-flight hardware calls per key to prevent concurrent driver calls
+  const inflightValues = new Set<string>();
+
   // In-flight operation tracking - prevents poll from broadcasting stale values
   // when a user action is being processed by the hardware
   let outputChangePending = false;
@@ -587,66 +590,87 @@ export function createDeviceSession(
       return Ok();
     }
 
+    // Execute a pending setValue on the hardware, retrying if a newer value arrived during execution
+    async function executeSetValue(key: string): Promise<void> {
+      if (inflightValues.has(key)) {
+        // A hardware call is already running for this key.
+        // The pending value has already been updated, so when the current call
+        // finishes it will pick up the latest value and loop.
+        return;
+      }
+
+      inflightValues.add(key);
+      try {
+        // Loop: keep sending to hardware until the pending value stops changing
+        while (pendingValues.has(key)) {
+          const pending = pendingValues.get(key)!;
+          const targetValue = pending.value;
+          const oldValue = setpoints[key];
+
+          console.log(`[Session] setValue executing: ${key} = ${targetValue} (oldValue: ${oldValue})`);
+
+          // Optimistic update
+          setpoints = { ...setpoints, [key]: targetValue };
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'setpoints',
+            value: { ...setpoints },
+          });
+
+          const result = await driver.setValue(key, targetValue);
+          if (!result.ok) {
+            console.error(`[Session] driver.setValue FAILED for ${key} = ${targetValue}:`, result.error);
+            pendingValues.delete(key);
+
+            // Read back actual value from device
+            let actualValue = oldValue;
+            if (driver.getValue) {
+              const getResult = await driver.getValue(key);
+              if (getResult.ok) {
+                actualValue = getResult.value;
+              }
+            }
+
+            setpoints = { ...setpoints, [key]: actualValue };
+            broadcast({
+              type: 'field',
+              deviceId: driver.info.id,
+              field: 'setpoints',
+              value: { ...setpoints },
+            });
+            broadcast({
+              type: 'error',
+              deviceId: driver.info.id,
+              code: 'SET_VALUE_FAILED',
+              message: result.error.message,
+            });
+            return;
+          }
+
+          console.log(`[Session] driver.setValue succeeded for ${key} = ${targetValue}`);
+
+          // Check if a newer value arrived while we were talking to hardware
+          const current = pendingValues.get(key);
+          if (!current || current.value === targetValue) {
+            // No new value arrived — we're done. Leave in pendingValues for poll confirmation.
+            break;
+          }
+          // A newer value arrived — loop and send that one too
+        }
+      } finally {
+        inflightValues.delete(key);
+      }
+    }
+
     // Debounced execution
     const existing = pendingValues.get(name);
     if (existing) {
       clearTimeout(existing.timer);
     }
 
-    const timer = setTimeout(async () => {
-      // Save old value before updating
-      const oldValue = setpoints[name];
-      console.log(`[Session] setValue debounce fired: ${name} = ${value} (oldValue: ${oldValue})`);
-
-      // Optimistic update
-      setpoints = { ...setpoints, [name]: value };
-      console.log(`[Session] Broadcasting optimistic setpoints:`, { ...setpoints });
-      broadcast({
-        type: 'field',
-        deviceId: driver.info.id,
-        field: 'setpoints',
-        value: { ...setpoints },
-      });
-
-      const result = await driver.setValue(name, value);
-      // Don't delete from pendingValues — poll will clear it when device confirms
-      if (result.ok) {
-        console.log(`[Session] driver.setValue succeeded for ${name} = ${value}`);
-      } else {
-        console.error(`[Session] driver.setValue FAILED for ${name} = ${value}:`, result.error);
-
-        // Clear pending so poll can take over
-        pendingValues.delete(name);
-
-        // Read back actual value from device (if driver supports it)
-        let actualValue = oldValue;
-        if (driver.getValue) {
-          const getResult = await driver.getValue(name);
-          if (getResult.ok) {
-            actualValue = getResult.value;
-            console.log(`[Session] Read back actual value from device: ${name} = ${actualValue}`);
-          } else {
-            console.error(`[Session] Failed to read back value, using oldValue:`, getResult.error);
-          }
-        }
-
-        // Revert to actual device value and broadcast
-        setpoints = { ...setpoints, [name]: actualValue };
-        console.log(`[Session] Broadcasting reverted setpoints:`, { ...setpoints });
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'setpoints',
-          value: { ...setpoints },
-        });
-        // Notify subscribers of the error (can't re-throw from setTimeout)
-        broadcast({
-          type: 'error',
-          deviceId: driver.info.id,
-          code: 'SET_VALUE_FAILED',
-          message: result.error.message,
-        });
-      }
+    const timer = setTimeout(() => {
+      executeSetValue(name);
     }, cfg.debounceMs);
 
     pendingValues.set(name, { value, timer });
