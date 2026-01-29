@@ -95,15 +95,19 @@ export function createDeviceSession(
   let pollInProgress: Promise<void> | null = null;
 
   // Debounce state for setValue
-  const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout> }>();
+  const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout>; since: number }>();
 
   // Track in-flight hardware calls per key to prevent concurrent driver calls
-  const inflightValues = new Set<string>();
+  const inflightValues = new Map<string, Promise<void>>();
 
   // In-flight operation tracking - prevents poll from broadcasting stale values
-  // when a user action is being processed by the hardware
+  // when a user action is being processed by the hardware.
+  // Timestamps track when the pending state started, for timeout fallback.
+  const PENDING_TIMEOUT_MS = 5000; // Max time to wait for device confirmation
   let outputChangePending = false;
+  let outputChangePendingSince = 0;
   let modeChangePending = false;
+  let modeChangePendingSince = 0;
 
   // Heartbeat control - independent health check that runs alongside polling
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -170,11 +174,21 @@ export function createDeviceSession(
 
       // Check for mode change and broadcast
       // If a mode change is pending, clear it once the device confirms the expected value
+      // Timeout fallback: accept device state if confirmation takes too long
       if (modeChangePending) {
         if (status.mode === mode) {
           modeChangePending = false;
+        } else if (Date.now() - modeChangePendingSince > PENDING_TIMEOUT_MS) {
+          console.warn(`[Session] Mode change pending timeout for ${driver.info.id}, accepting device state: ${status.mode}`);
+          modeChangePending = false;
+          mode = status.mode;
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'mode',
+            value: mode,
+          });
         }
-        // Otherwise keep waiting — don't broadcast stale device state
       } else if (status.mode !== mode) {
         mode = status.mode;
         broadcast({
@@ -187,11 +201,21 @@ export function createDeviceSession(
 
       // Check for output state change and broadcast
       // If an output change is pending, clear it once the device confirms the expected value
+      // Timeout fallback: accept device state if confirmation takes too long
       if (outputChangePending) {
         if (status.outputEnabled === outputEnabled) {
           outputChangePending = false;
+        } else if (Date.now() - outputChangePendingSince > PENDING_TIMEOUT_MS) {
+          console.warn(`[Session] Output change pending timeout for ${driver.info.id}, accepting device state: ${status.outputEnabled}`);
+          outputChangePending = false;
+          outputEnabled = status.outputEnabled;
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'outputEnabled',
+            value: outputEnabled,
+          });
         }
-        // Otherwise keep waiting — don't broadcast stale device state
       } else if (status.outputEnabled !== outputEnabled) {
         outputEnabled = status.outputEnabled;
         broadcast({
@@ -203,8 +227,14 @@ export function createDeviceSession(
       }
 
       // Clear confirmed pending values — device now reports the expected value
+      // Use tolerance to handle device rounding (e.g., requested 12.35, device reports 12.3)
+      // Timeout fallback: accept device state if confirmation takes too long
       for (const [key, pending] of pendingValues.entries()) {
-        if (status.setpoints[key] === pending.value) {
+        const deviceValue = status.setpoints[key];
+        if (deviceValue !== undefined && Math.abs(deviceValue - pending.value) < 0.02) {
+          pendingValues.delete(key);
+        } else if (Date.now() - pending.since > PENDING_TIMEOUT_MS) {
+          console.warn(`[Session] Setpoint pending timeout for ${driver.info.id}:${key}, accepting device state: ${deviceValue}`);
           pendingValues.delete(key);
         }
       }
@@ -482,6 +512,7 @@ export function createDeviceSession(
 
     // Mark as pending to prevent poll from broadcasting stale values
     modeChangePending = true;
+    modeChangePendingSince = Date.now();
 
     // Optimistic update - notify before hardware execution
     mode = newMode;
@@ -516,6 +547,7 @@ export function createDeviceSession(
 
     // Mark as pending to prevent poll from broadcasting stale values
     outputChangePending = true;
+    outputChangePendingSince = Date.now();
 
     // Optimistic update
     outputEnabled = enabled;
@@ -551,7 +583,7 @@ export function createDeviceSession(
 
       // Add to pendingValues to block poll from overwriting during hardware call
       // Use a dummy timer since immediate doesn't need debounce
-      pendingValues.set(name, { value, timer: setTimeout(() => {}, 0) });
+      pendingValues.set(name, { value, timer: setTimeout(() => {}, 0), since: Date.now() });
 
       // Optimistic update
       setpoints = { ...setpoints, [name]: value };
@@ -599,7 +631,12 @@ export function createDeviceSession(
         return;
       }
 
-      inflightValues.add(key);
+      const promise = doExecuteSetValue(key);
+      inflightValues.set(key, promise);
+      await promise;
+    }
+
+    async function doExecuteSetValue(key: string): Promise<void> {
       try {
         // Loop: keep sending to hardware until the pending value stops changing
         while (pendingValues.has(key)) {
@@ -673,7 +710,7 @@ export function createDeviceSession(
       executeSetValue(name);
     }, cfg.debounceMs);
 
-    pendingValues.set(name, { value, timer });
+    pendingValues.set(name, { value, timer, since: Date.now() });
 
     // Debounced: return Ok immediately, actual result comes via broadcast
     return Ok();
@@ -742,6 +779,11 @@ export function createDeviceSession(
 
     if (heartbeatInProgress) {
       waitPromises.push(waitForHeartbeat(STOP_TIMEOUT));
+    }
+
+    // Wait for in-flight setValue hardware calls
+    for (const promise of inflightValues.values()) {
+      waitPromises.push(promise);
     }
 
     if (waitPromises.length > 0) {
