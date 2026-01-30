@@ -116,6 +116,7 @@ export function createWebSocketHandler(
         break;
 
       case 'setValue':
+        console.log(`[WS] setValue received: ${message.name} = ${message.value} at ${Date.now()}`);
         handleSetValue(clientState, message.deviceId, message.name, message.value, message.immediate ?? false);
         break;
 

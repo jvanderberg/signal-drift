@@ -38,10 +38,14 @@ describe('DebouncedQueue', () => {
     await vi.advanceTimersByTimeAsync(50);
     q.enqueue('voltage', 12.3);
 
-    // Timer from first enqueue fires at 250ms, but value is only 100ms old
-    // so it reschedules. Advance to 500ms total to be sure.
-    await vi.advanceTimersByTimeAsync(300);
+    // Each enqueue restarts the 250ms timer. Last enqueue at t=150ms,
+    // so timer fires at t=400ms. At t=350ms (200ms after last enqueue)
+    // it should NOT have fired yet.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(executor).not.toHaveBeenCalled();
 
+    // Advance past the 250ms window from last enqueue
+    await vi.advanceTimersByTimeAsync(100);
     expect(executor).toHaveBeenCalledTimes(1);
     expect(executor).toHaveBeenCalledWith('voltage', 12.3);
   });
@@ -97,12 +101,15 @@ describe('DebouncedQueue', () => {
     // Still only 1 call — executor is blocked
     expect(executor).toHaveBeenCalledTimes(1);
 
-    // Complete first execution
+    // Complete first execution — debounce window restarts for queued value
     resolveExecution!();
     await vi.advanceTimersByTimeAsync(0);
 
-    // Now the queued value should execute
-    // It was enqueued 250ms ago so it should drain immediately
+    // Not yet — debounce window restarted when inflight completed
+    expect(executor).toHaveBeenCalledTimes(1);
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(250);
     expect(executor).toHaveBeenCalledTimes(2);
     expect(executor).toHaveBeenCalledWith('voltage', 12.5);
   });
@@ -167,9 +174,13 @@ describe('DebouncedQueue', () => {
     // Still just 1 call
     expect(executor).toHaveBeenCalledTimes(1);
 
-    // Complete first execution
+    // Complete first execution — debounce restarts for queued value
     resolveExecution!();
     await vi.advanceTimersByTimeAsync(0);
+    expect(executor).toHaveBeenCalledTimes(1);
+
+    // Advance past debounce
+    await vi.advanceTimersByTimeAsync(100);
 
     // Should execute only once more with the latest value (4)
     expect(executor).toHaveBeenCalledTimes(2);
@@ -187,6 +198,10 @@ describe('DebouncedQueue', () => {
     expect(q.hasPending('current')).toBe(false);
 
     await vi.advanceTimersByTimeAsync(250);
+    // Still pending — awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(true);
+
+    q.confirm('voltage');
     expect(q.hasPending('voltage')).toBe(false);
   });
 
@@ -209,7 +224,25 @@ describe('DebouncedQueue', () => {
     resolveExecution!();
     await vi.advanceTimersByTimeAsync(0);
 
+    // Still pending — awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(true);
+
+    q.confirm('voltage');
     expect(q.hasPending('voltage')).toBe(false);
+  });
+
+  it('should return executed value via getPendingValue while awaiting confirmation', async () => {
+    const executor = vi.fn().mockResolvedValue(undefined);
+    const q = createDebouncedQueue(executor, { debounceMs: 100 });
+
+    q.enqueue('voltage', 12.0);
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Executor ran, value is now awaiting confirmation
+    expect(q.getPendingValue('voltage')).toBe(12.0);
+
+    q.confirm('voltage');
+    expect(q.getPendingValue('voltage')).toBeUndefined();
   });
 
   it('should return pending value via getPendingValue', async () => {

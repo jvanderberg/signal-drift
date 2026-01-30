@@ -29,6 +29,8 @@ export function createDebouncedQueue<T>(
   enqueue: (key: string, value: T) => void;
   hasPending: (key: string) => boolean;
   getPendingValue: (key: string) => T | undefined;
+  /** Mark a key as confirmed (no longer pending). Call when external state matches. */
+  confirm: (key: string) => void;
   clear: () => void;
   /** Wait for all in-flight executions to complete */
   flush: () => Promise<void>;
@@ -38,27 +40,26 @@ export function createDebouncedQueue<T>(
   const queue = new Map<string, QueueEntry<T>>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const inflight = new Map<string, Promise<void>>();
+  // Tracks keys where executor completed but external confirmation hasn't arrived yet
+  const awaitingConfirm = new Map<string, T>();
 
   function enqueue(key: string, value: T): void {
     queue.set(key, { value, enqueuedAt: Date.now() });
 
-    // Start a timer if one isn't already running for this key
-    if (!timers.has(key)) {
-      scheduleTimer(key);
-    }
+    // If inflight, just update the queue — .finally() will pick it up
+    if (inflight.has(key)) return;
+
+    // Restart the timer on every enqueue — 250ms of silence before firing
+    const existing = timers.get(key);
+    if (existing) clearTimeout(existing);
+    scheduleTimer(key);
   }
 
   function scheduleTimer(key: string): void {
-    const entry = queue.get(key);
-    if (!entry) return;
-
-    const age = Date.now() - entry.enqueuedAt;
-    const remaining = Math.max(0, debounceMs - age);
-
     const timer = setTimeout(() => {
       timers.delete(key);
       drain(key);
-    }, remaining);
+    }, debounceMs);
 
     timers.set(key, timer);
   }
@@ -66,13 +67,6 @@ export function createDebouncedQueue<T>(
   function drain(key: string): void {
     const entry = queue.get(key);
     if (!entry) return;
-
-    const age = Date.now() - entry.enqueuedAt;
-    if (age < debounceMs) {
-      // Value is too recent — reschedule
-      scheduleTimer(key);
-      return;
-    }
 
     // Don't start if already executing for this key
     if (inflight.has(key)) return;
@@ -87,16 +81,12 @@ export function createDebouncedQueue<T>(
       })
       .finally(() => {
         inflight.delete(key);
+        // Keep as awaiting confirmation until externally confirmed
+        awaitingConfirm.set(key, value);
 
-        // If a new value arrived during execution, drain again
-        if (queue.has(key)) {
-          const pending = queue.get(key)!;
-          const pendingAge = Date.now() - pending.enqueuedAt;
-          if (pendingAge >= debounceMs) {
-            drain(key);
-          } else if (!timers.has(key)) {
-            scheduleTimer(key);
-          }
+        // If a new value arrived during execution, start a new debounce
+        if (queue.has(key) && !timers.has(key)) {
+          scheduleTimer(key);
         }
       });
 
@@ -104,11 +94,15 @@ export function createDebouncedQueue<T>(
   }
 
   function hasPending(key: string): boolean {
-    return queue.has(key) || inflight.has(key);
+    return queue.has(key) || inflight.has(key) || awaitingConfirm.has(key);
   }
 
   function getPendingValue(key: string): T | undefined {
-    return queue.get(key)?.value;
+    return queue.get(key)?.value ?? awaitingConfirm.get(key);
+  }
+
+  function confirm(key: string): void {
+    awaitingConfirm.delete(key);
   }
 
   function clear(): void {
@@ -117,6 +111,7 @@ export function createDebouncedQueue<T>(
     }
     timers.clear();
     queue.clear();
+    awaitingConfirm.clear();
     // Note: inflight executions continue to completion
   }
 
@@ -127,5 +122,5 @@ export function createDebouncedQueue<T>(
     }
   }
 
-  return { enqueue, hasPending, getPendingValue, clear, flush };
+  return { enqueue, hasPending, getPendingValue, confirm, clear, flush };
 }

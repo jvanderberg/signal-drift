@@ -269,6 +269,21 @@ export function createDeviceSession(
         });
       }
 
+      // Confirm any awaiting-confirmation keys where device now matches
+      for (const key of Object.keys(status.setpoints)) {
+        const pendingValue = setValueQueue.getPendingValue(key);
+        if (pendingValue !== undefined) {
+          if (status.setpoints[key] === pendingValue) {
+            console.log(`[Poll] Confirmed ${key}: device=${status.setpoints[key]} matches pending=${pendingValue}`);
+            setValueQueue.confirm(key);
+            // Adopt the pending value so no stale diff is broadcast this cycle
+            setpoints = { ...setpoints, [key]: pendingValue };
+          } else {
+            console.log(`[Poll] Suppressing ${key}: device=${status.setpoints[key]} != pending=${pendingValue}`);
+          }
+        }
+      }
+
       // Check for setpoint changes and broadcast
       // This is critical for safety: when a PSU reconnects after power cycle,
       // it may have reset to a different voltage than what the UI shows
@@ -279,6 +294,7 @@ export function createDeviceSession(
         key => !setValueQueue.hasPending(key) && status.setpoints[key] !== setpoints[key]
       );
       if (setpointsChanged) {
+        console.log(`[Poll] Broadcasting setpoint change`);
         // Merge: keep pending values at their optimistic state, update others from device
         const mergedSetpoints = { ...status.setpoints };
         for (const key of Object.keys(mergedSetpoints)) {
