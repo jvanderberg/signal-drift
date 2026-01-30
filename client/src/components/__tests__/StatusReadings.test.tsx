@@ -172,4 +172,83 @@ describe('StatusReadings', () => {
       expect(screen.getByText('100000.00')).toBeInTheDocument();
     });
   });
+
+  describe('Layout prop', () => {
+    describe('Vertical Layout', () => {
+      it('should use grid layout when layout="vertical"', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="vertical" />
+        );
+
+        const gridContainer = container.querySelector('.grid');
+        expect(gridContainer).toBeInTheDocument();
+        expect(gridContainer).toHaveClass('grid-cols-1');
+      });
+
+      it('should render measurements with centered text in vertical layout', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="vertical" />
+        );
+
+        const measurementItems = container.querySelectorAll('.text-center');
+        expect(measurementItems.length).toBe(3); // voltage, current, power
+      });
+
+      it('should apply correct CSS classes for vertical layout', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="vertical" />
+        );
+
+        const gridContainer = container.querySelector('.grid');
+        expect(gridContainer).toHaveClass('grid');
+        expect(gridContainer).toHaveClass('grid-cols-1');
+        expect(gridContainer).toHaveClass('gap-3');
+      });
+    });
+
+    describe('Horizontal Layout', () => {
+      it('should use flex layout when layout="horizontal"', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="horizontal" />
+        );
+
+        const flexContainer = container.querySelector('.flex');
+        expect(flexContainer).toBeInTheDocument();
+        expect(flexContainer).toHaveClass('flex-wrap');
+      });
+
+      it('should render measurements with title on top in horizontal layout', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="horizontal" />
+        );
+
+        // In horizontal layout, items still have text-center with title on top
+        const measurementItems = container.querySelectorAll('.text-center');
+        expect(measurementItems.length).toBe(3); // voltage, current, power
+      });
+
+      it('should apply correct CSS classes for horizontal layout', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} layout="horizontal" />
+        );
+
+        const flexContainer = container.querySelector('.flex.flex-wrap');
+        expect(flexContainer).toBeInTheDocument();
+        expect(flexContainer).toHaveClass('gap-x-6');
+        expect(flexContainer).toHaveClass('gap-y-2');
+      });
+    });
+
+    describe('Default Behavior', () => {
+      it('should default to vertical layout when prop is omitted', () => {
+        const { container } = render(
+          <StatusReadings status={mockStatus} capabilities={mockCapabilities} />
+        );
+
+        const gridContainer = container.querySelector('.grid');
+        expect(gridContainer).toBeInTheDocument();
+        expect(gridContainer).toHaveClass('grid-cols-1');
+      });
+    });
+  });
 });

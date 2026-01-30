@@ -32,6 +32,8 @@ import { useState, useEffect } from 'react';
 import type { DeviceSummary, DeviceCapabilities } from '../types';
 import { isDeviceCapabilities } from '../types';
 import { useDeviceSocket } from '../hooks/useDeviceSocket';
+import { usePanelLayout, getBreakpointFromColumns } from '../contexts/DashboardLayoutContext';
+import { getDevicePanelKey } from './DashboardGrid';
 import { StatusReadings } from './StatusReadings';
 import { OutputControl } from './OutputControl';
 import { DigitSpinner } from './DigitSpinner';
@@ -68,6 +70,21 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
   } = useDeviceSocket(device.id);
 
   const [historyWindow, setHistoryWindow] = useState(2);
+
+  // Get panel layout from grid context for WYSIWYG responsive behavior
+  // Uses grid column count instead of pixel width for consistent preview during resize
+  const panelKey = getDevicePanelKey(device.id);
+  const panelLayout = usePanelLayout(panelKey);
+
+  // Calculate breakpoint from column count (grid-snapped) for predictable resize behavior
+  // Falls back to 'large' if not in grid context (e.g., during tests)
+  const breakpoint = panelLayout
+    ? getBreakpointFromColumns(panelLayout.w)
+    : 'large';
+
+  // Responsive visibility flags
+  const showChart = breakpoint === 'large';
+  const showSetters = breakpoint === 'large' || breakpoint === 'medium';
 
   // Type guard: DevicePanel only works with standard devices (PSU/Load), not oscilloscopes
   const capabilities: DeviceCapabilities | null = isDeviceCapabilities(device.capabilities)
@@ -174,30 +191,34 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
       {/* Status & Controls - only when connected */}
       {hasState && status && (
         <>
-          {/* Chart + Live Data in responsive row */}
-          <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
-            <div className="flex flex-col lg:flex-row lg:items-start gap-3">
-              {/* Chart - fixed height */}
-              <div className="min-w-0 h-[280px] lg:flex-1">
-                <LiveChart
-                  history={history}
-                  capabilities={capabilities}
-                  status={status}
-                  historyWindow={historyWindow}
-                  onHistoryWindowChange={handleHistoryWindowChange}
-                />
-              </div>
-              {/* Status readings - beside chart on large screens only */}
-              <div className="hidden lg:block lg:w-48 shrink-0">
-                <StatusReadings status={status} capabilities={capabilities} />
+          {/* Chart + Live Data - only when large (container-based) */}
+          {showChart && (
+            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2">
+              <div className="flex flex-row items-start gap-3">
+                {/* Chart - fixed height */}
+                <div className="min-w-0 h-[280px] flex-1">
+                  <LiveChart
+                    history={history}
+                    capabilities={capabilities}
+                    status={status}
+                    historyWindow={historyWindow}
+                    onHistoryWindowChange={handleHistoryWindowChange}
+                  />
+                </div>
+                {/* Status readings - beside chart */}
+                <div className="w-48 shrink-0">
+                  <StatusReadings status={status} capabilities={capabilities} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Status readings - compact row on small screens only */}
-          <div className="lg:hidden bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
-            <StatusReadings status={status} capabilities={capabilities} />
-          </div>
+          {/* Status readings - horizontal flow layout (only when chart is hidden) */}
+          {!showChart && (
+            <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-2 mb-2">
+              <StatusReadings status={status} capabilities={capabilities} layout="horizontal" />
+            </div>
+          )}
 
           {/* Output + Setpoint Controls */}
           <div className="bg-[var(--color-bg-panel)] border border-[var(--color-border-dark)] rounded-md p-3 mb-2 min-h-[72px]">
@@ -209,48 +230,53 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                 onToggle={handleOutputToggle}
               />
 
-              <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
+              {/* Divider and setpoint controls - only when showSetters is true */}
+              {showSetters && (
+                <>
+                  <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
 
-              {/* Setpoint controls - layout based on device class */}
-              {capabilities.deviceClass === 'psu' ? (
-                // PSU: Show all outputs (voltage + current) side by side
-                <div className="flex items-center gap-4 flex-wrap">
-                  {capabilities.outputs.map(output => {
-                    const setpointValue = status.setpoints[output.name] ?? 0;
-                    return (
-                      <DigitSpinner
-                        key={output.name}
-                        value={setpointValue}
-                        decimals={output.decimals}
-                        min={output.min ?? 0}
-                        max={output.max ?? 100}
-                        unit={output.unit}
-                        onChange={v => handleValueChange(output.name, v)}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                // Load: Mode selector + single active setpoint
-                <div className="flex items-center gap-3 flex-wrap">
-                  {capabilities.modesSettable && (
-                    <ModeSelector
-                      modes={capabilities.modes}
-                      currentMode={status.mode}
-                      onChange={handleModeChange}
-                    />
+                  {/* Setpoint controls - layout based on device class */}
+                  {capabilities.deviceClass === 'psu' ? (
+                    // PSU: Show all outputs (voltage + current) side by side
+                    <div className="flex items-center gap-4 flex-wrap">
+                      {capabilities.outputs.map(output => {
+                        const setpointValue = status.setpoints[output.name] ?? 0;
+                        return (
+                          <DigitSpinner
+                            key={output.name}
+                            value={setpointValue}
+                            decimals={output.decimals}
+                            min={output.min ?? 0}
+                            max={output.max ?? 100}
+                            unit={output.unit}
+                            onChange={v => handleValueChange(output.name, v)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    // Load: Mode selector + single active setpoint
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {capabilities.modesSettable && (
+                        <ModeSelector
+                          modes={capabilities.modes}
+                          currentMode={status.mode}
+                          onChange={handleModeChange}
+                        />
+                      )}
+                      {currentOutput && (
+                        <DigitSpinner
+                          value={status.setpoints[currentOutput.name] ?? 0}
+                          decimals={currentOutput.decimals}
+                          min={currentOutput.min ?? 0}
+                          max={currentOutput.max ?? 100}
+                          unit={currentOutput.unit}
+                          onChange={v => handleValueChange(currentOutput.name, v)}
+                        />
+                      )}
+                    </div>
                   )}
-                  {currentOutput && (
-                    <DigitSpinner
-                      value={status.setpoints[currentOutput.name] ?? 0}
-                      decimals={currentOutput.decimals}
-                      min={currentOutput.min ?? 0}
-                      max={currentOutput.max ?? 100}
-                      unit={currentOutput.unit}
-                      onChange={v => handleValueChange(currentOutput.name, v)}
-                    />
-                  )}
-                </div>
+                </>
               )}
             </div>
           </div>

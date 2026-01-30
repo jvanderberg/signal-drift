@@ -5,11 +5,13 @@
  * Covers PSU and Load device interactions including:
  * - Subscription lifecycle
  * - Output control
+ * - Responsive breakpoints (column-based)
  */
 
+import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import type { ServerMessage } from '../../../../shared/types';
+import type { ServerMessage, DashboardLayoutItem } from '../../../../shared/types';
 import {
   createMockDeviceSummary,
   createMockSessionState,
@@ -66,12 +68,13 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock ResizeObserver
+// Mock ResizeObserver (still needed for chart and other components)
 class MockResizeObserver {
   observe = vi.fn();
   unobserve = vi.fn();
   disconnect = vi.fn();
 }
+
 vi.stubGlobal('ResizeObserver', MockResizeObserver);
 
 // Mock canvas context for Chart.js
@@ -87,6 +90,36 @@ function simulateMessage(msg: ServerMessage): void {
 // Import after mocking
 import { DevicePanel } from '../DevicePanel';
 import { useDeviceStore, cleanupDeviceStore } from '../../stores/deviceStore';
+import { DashboardLayoutProvider } from '../../contexts/DashboardLayoutContext';
+
+// Helper to create layout items for testing
+function createLayoutItem(deviceId: string, w: number, h: number = 12): DashboardLayoutItem {
+  return {
+    i: `device-${deviceId}`,
+    x: 0,
+    y: 0,
+    w,
+    h,
+    minW: 3,
+    minH: 4,
+  };
+}
+
+// Wrapper component that provides layout context
+interface TestWrapperProps {
+  children: React.ReactNode;
+  deviceId: string;
+  columnCount: number;
+}
+
+function TestWrapper({ children, deviceId, columnCount }: TestWrapperProps) {
+  const items = [createLayoutItem(deviceId, columnCount)];
+  return (
+    <DashboardLayoutProvider items={items} cols={12}>
+      {children}
+    </DashboardLayoutProvider>
+  );
+}
 
 describe('DevicePanel Integration', () => {
   const mockOnClose = vi.fn();
@@ -247,6 +280,409 @@ describe('DevicePanel Integration', () => {
 
       await waitFor(() => {
         expect(screen.getByText('ON')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Responsive Breakpoints (Column-Based)', () => {
+    // Column breakpoints: large >= 4, medium >= 3, narrow >= 2, very-narrow < 2
+
+    describe('Large Panels (>= 4 columns)', () => {
+      it('should show chart and setters when panel has 4+ columns', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={4}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          measurements: { voltage: 12.0, current: 1.0, power: 12.0 },
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Setters should be visible - look for the + buttons from DigitSpinner
+          const plusButtons = screen.getAllByText('+');
+          expect(plusButtons.length).toBeGreaterThan(0);
+        });
+
+        // Chart section should be present (canvas element)
+        const canvas = container.querySelector('canvas');
+        expect(canvas).toBeInTheDocument();
+      });
+
+      it('should show chart at exactly 4 columns (boundary test)', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={4}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          const plusButtons = screen.getAllByText('+');
+          expect(plusButtons.length).toBeGreaterThan(0);
+        });
+
+        // Chart should be visible at 4 columns
+        const canvas = container.querySelector('canvas');
+        expect(canvas).toBeInTheDocument();
+      });
+    });
+
+    describe('Medium Panels (3 columns)', () => {
+      it('should show setters but no chart when panel has 3 columns', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Setters should still be visible
+          const plusButtons = screen.getAllByText('+');
+          expect(plusButtons.length).toBeGreaterThan(0);
+        });
+
+        // Chart section should NOT be present (no canvas for chart)
+        const canvas = container.querySelector('canvas');
+        expect(canvas).not.toBeInTheDocument();
+      });
+
+      it('should show horizontal StatusReadings in medium width', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          measurements: { voltage: 12.0, current: 1.0, power: 12.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Should have StatusReadings with horizontal layout
+          const flexContainers = container.querySelectorAll('.flex.flex-wrap');
+          expect(flexContainers.length).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    describe('Narrow Panels (2 columns)', () => {
+      it('should hide setters when panel has 2 columns', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        render(
+          <TestWrapper deviceId="psu-1" columnCount={2}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Output control should still be visible
+          expect(screen.getByText('OFF')).toBeInTheDocument();
+        });
+
+        // Setters should be hidden - no + buttons visible
+        const plusButtons = screen.queryAllByText('+');
+        expect(plusButtons.length).toBe(0);
+      });
+
+      it('should show only output toggle and horizontal readings', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={2}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          measurements: { voltage: 12.0, current: 1.0, power: 12.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Output toggle should be visible
+          expect(screen.getByText('OFF')).toBeInTheDocument();
+          // Readings should be in horizontal flex layout
+          const flexContainers = container.querySelectorAll('.flex.flex-wrap');
+          expect(flexContainers.length).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    describe('Very Narrow Panels (< 2 columns)', () => {
+      it('should hide setters when panel has < 2 columns', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        render(
+          <TestWrapper deviceId="psu-1" columnCount={1}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Output control should still be visible
+          expect(screen.getByText('OFF')).toBeInTheDocument();
+        });
+
+        // Setters should be hidden
+        const plusButtons = screen.queryAllByText('+');
+        expect(plusButtons.length).toBe(0);
+      });
+
+      it('should wrap readings in horizontal layout', async () => {
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <TestWrapper deviceId="psu-1" columnCount={1}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          measurements: { voltage: 12.0, current: 1.0, power: 12.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Should have flex-wrap for readings to wrap
+          const flexContainers = container.querySelectorAll('.flex-wrap');
+          expect(flexContainers.length).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    describe('Fallback Behavior', () => {
+      it('should default to large breakpoint when not in grid context', async () => {
+        // Render without TestWrapper (no DashboardLayoutProvider)
+        const device = createMockDeviceSummary({ id: 'psu-1' });
+
+        const { container } = render(
+          <DevicePanel
+            device={device}
+            onClose={mockOnClose}
+            onError={mockOnError}
+            onSuccess={mockOnSuccess}
+          />
+        );
+
+        const sessionState = createMockSessionState({
+          setpoints: { voltage: 12.0, current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'psu-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Should show chart (large breakpoint default)
+          const canvas = container.querySelector('canvas');
+          expect(canvas).toBeInTheDocument();
+          // Setters should be visible
+          const plusButtons = screen.getAllByText('+');
+          expect(plusButtons.length).toBeGreaterThan(0);
+        });
+      });
+    });
+
+    describe('Load Device Responsive Behavior', () => {
+      const loadCapabilities = {
+        deviceClass: 'load' as const,
+        features: {},
+        modes: ['CC', 'CV', 'CR', 'CP'],
+        modesSettable: true,
+        outputs: [
+          { name: 'current', unit: 'A', decimals: 3, min: 0, max: 10 },
+        ],
+        measurements: [
+          { name: 'voltage', unit: 'V', decimals: 3 },
+          { name: 'current', unit: 'A', decimals: 3 },
+        ],
+      };
+
+      it('should hide mode selector when panel is narrow (2 columns)', async () => {
+        const device = createMockDeviceSummary({
+          id: 'load-1',
+          capabilities: loadCapabilities,
+        });
+
+        render(
+          <TestWrapper deviceId="load-1" columnCount={2}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          mode: 'CC',
+          capabilities: loadCapabilities,
+          setpoints: { current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'load-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          expect(screen.getByText('OFF')).toBeInTheDocument();
+        });
+
+        // Mode selector should be hidden (it's part of setters)
+        expect(screen.queryByText('Mode:')).not.toBeInTheDocument();
+      });
+
+      it('should show mode selector when panel is medium or larger (3+ columns)', async () => {
+        const device = createMockDeviceSummary({
+          id: 'load-1',
+          capabilities: loadCapabilities,
+        });
+
+        render(
+          <TestWrapper deviceId="load-1" columnCount={3}>
+            <DevicePanel
+              device={device}
+              onClose={mockOnClose}
+              onError={mockOnError}
+              onSuccess={mockOnSuccess}
+            />
+          </TestWrapper>
+        );
+
+        const sessionState = createMockSessionState({
+          mode: 'CC',
+          capabilities: loadCapabilities,
+          setpoints: { current: 1.0 },
+        });
+
+        simulateMessage({
+          type: 'subscribed',
+          deviceId: 'load-1',
+          state: sessionState,
+        });
+
+        await waitFor(() => {
+          // Mode selector should be visible
+          expect(screen.getByText('Mode:')).toBeInTheDocument();
+        });
       });
     });
   });

@@ -5,7 +5,7 @@
  * can be dragged and resized. Layout is persisted to the database.
  */
 
-import { useMemo, useCallback, useRef, ReactNode, isValidElement } from 'react';
+import { useMemo, useCallback, useRef, useState, ReactNode, isValidElement } from 'react';
 import { Responsive, WidthProvider, type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import {
   useLayoutStore,
@@ -15,6 +15,7 @@ import {
   ROW_HEIGHT,
 } from '../stores';
 import type { DashboardBreakpoint } from '../../../shared/types';
+import { DashboardLayoutProvider } from '../contexts/DashboardLayoutContext';
 
 // Base styles from library, custom overrides in index.css
 import 'react-grid-layout/css/styles.css';
@@ -46,7 +47,12 @@ export function DashboardGrid({ children }: DashboardGridProps) {
   const updateLayout = useLayoutStore((state) => state.updateLayout);
   const updateSingleItem = useLayoutStore((state) => state.updateSingleItem);
   const saveLayoutDebounced = useLayoutStore((state) => state.saveLayoutDebounced);
-  const currentBreakpoint = useRef<DashboardBreakpoint>('lg');
+  const currentBreakpointRef = useRef<DashboardBreakpoint>('lg');
+  const [currentBreakpoint, setCurrentBreakpoint] = useState<DashboardBreakpoint>('lg');
+
+  // Track live resize state for WYSIWYG preview
+  // This holds the grid-snapped dimensions during resize drag
+  const [liveResizeItem, setLiveResizeItem] = useState<LayoutItem | null>(null);
 
   // Convert our layout format to react-grid-layout format
   const gridLayouts = useMemo(() => {
@@ -82,17 +88,31 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     [updateLayout]
   );
 
-  // Track breakpoint changes
+  // Track breakpoint changes - update both ref (for callbacks) and state (for re-render)
   const handleBreakpointChange = useCallback((breakpoint: string) => {
-    currentBreakpoint.current = breakpoint as DashboardBreakpoint;
+    const bp = breakpoint as DashboardBreakpoint;
+    currentBreakpointRef.current = bp;
+    setCurrentBreakpoint(bp);
   }, []);
+
+  // Handle resize in progress - update live state for WYSIWYG preview
+  // The newItem contains grid-snapped w/h values even during drag
+  const handleResize = useCallback(
+    (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+      setLiveResizeItem(newItem);
+    },
+    []
+  );
 
   // Handle user interaction completion (drag or resize)
   // Updates only the specific item that changed and triggers debounced save
   const handleInteractionStop = useCallback(
     (_layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+      // Clear live resize state
+      setLiveResizeItem(null);
+
       if (newItem) {
-        updateSingleItem(currentBreakpoint.current, newItem);
+        updateSingleItem(currentBreakpointRef.current, newItem);
         saveLayoutDebounced();
       }
     },
@@ -128,28 +148,47 @@ export function DashboardGrid({ children }: DashboardGridProps) {
     );
   }
 
+  // Get current layout items and column count for context provider
+  // Merge in live resize state for WYSIWYG preview during drag
+  const currentLayoutItems = useMemo(() => {
+    const baseItems = layouts[currentBreakpoint];
+    if (!liveResizeItem) return baseItems;
+
+    // Replace the item being resized with its live dimensions
+    return baseItems.map(item =>
+      item.i === liveResizeItem.i
+        ? { ...item, w: liveResizeItem.w, h: liveResizeItem.h }
+        : item
+    );
+  }, [layouts, currentBreakpoint, liveResizeItem]);
+
+  const currentCols = GRID_COLS[currentBreakpoint];
+
   return (
     <div className="dashboard-grid">
-      <ResponsiveGridLayout
-        className="layout"
-        layouts={gridLayouts}
-        breakpoints={GRID_BREAKPOINTS}
-        cols={GRID_COLS}
-        rowHeight={ROW_HEIGHT}
-        margin={[16, 16]}
-        containerPadding={[0, 0]}
-        onLayoutChange={handleLayoutChange}
-        onBreakpointChange={handleBreakpointChange}
-        onDragStop={handleInteractionStop}
-        onResizeStop={handleInteractionStop}
-        draggableHandle=".panel-drag-handle"
-        resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
-        useCSSTransforms={true}
-        compactType={null}
-        preventCollision={true}
-      >
-        {wrappedChildren}
-      </ResponsiveGridLayout>
+      <DashboardLayoutProvider items={currentLayoutItems} cols={currentCols}>
+        <ResponsiveGridLayout
+          className="layout"
+          layouts={gridLayouts}
+          breakpoints={GRID_BREAKPOINTS}
+          cols={GRID_COLS}
+          rowHeight={ROW_HEIGHT}
+          margin={[16, 16]}
+          containerPadding={[0, 0]}
+          onLayoutChange={handleLayoutChange}
+          onBreakpointChange={handleBreakpointChange}
+          onResize={handleResize}
+          onDragStop={handleInteractionStop}
+          onResizeStop={handleInteractionStop}
+          draggableHandle=".panel-drag-handle"
+          resizeHandles={['se', 'sw', 'ne', 'nw', 'e', 'w', 's', 'n']}
+          useCSSTransforms={true}
+          compactType={null}
+          preventCollision={true}
+        >
+          {wrappedChildren}
+        </ResponsiveGridLayout>
+      </DashboardLayoutProvider>
     </div>
   );
 }

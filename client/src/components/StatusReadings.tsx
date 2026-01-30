@@ -3,17 +3,21 @@ import type { DeviceStatus, DeviceCapabilities } from '../types';
 interface StatusReadingsProps {
   status: DeviceStatus;
   capabilities: DeviceCapabilities;
+  /** Layout mode: 'vertical' for sidebar, 'horizontal' for flow layout */
+  layout?: 'vertical' | 'horizontal';
 }
 
-export function StatusReadings({ status, capabilities }: StatusReadingsProps) {
+export function StatusReadings({ status, capabilities, layout = 'vertical' }: StatusReadingsProps) {
   const formatValue = (value: number | undefined, decimals: number): string => {
     if (value === undefined || value === null) return '---';
     return value.toFixed(decimals);
   };
 
+  const isHorizontal = layout === 'horizontal';
+
   return (
     <div className="bg-[var(--color-bg-readings)] rounded p-2">
-      <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
+      <div className={isHorizontal ? 'flex flex-wrap gap-x-6 gap-y-2' : 'grid grid-cols-1 gap-3'}>
         {capabilities.measurements.map(measurement => {
           const value = status.measurements[measurement.name];
           return (
