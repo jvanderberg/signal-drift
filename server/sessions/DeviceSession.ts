@@ -99,7 +99,6 @@ export function createDeviceSession(
   const setValueQueue = createDebouncedQueue<number>(
     async (name: string, value: number) => {
       const oldValue = setpoints[name];
-      console.log(`[Session] setValue executing: ${name} = ${value} (oldValue: ${oldValue})`);
 
       // Optimistic update
       setpoints = { ...setpoints, [name]: value };
@@ -136,8 +135,6 @@ export function createDeviceSession(
           code: 'SET_VALUE_FAILED',
           message: result.error.message,
         });
-      } else {
-        console.log(`[Session] driver.setValue succeeded for ${name} = ${value}`);
       }
     },
     { debounceMs: cfg.debounceMs }
@@ -274,12 +271,9 @@ export function createDeviceSession(
         const pendingValue = setValueQueue.getPendingValue(key);
         if (pendingValue !== undefined) {
           if (status.setpoints[key] === pendingValue) {
-            console.log(`[Poll] Confirmed ${key}: device=${status.setpoints[key]} matches pending=${pendingValue}`);
             setValueQueue.confirm(key);
             // Adopt the pending value so no stale diff is broadcast this cycle
             setpoints = { ...setpoints, [key]: pendingValue };
-          } else {
-            console.log(`[Poll] Suppressing ${key}: device=${status.setpoints[key]} != pending=${pendingValue}`);
           }
         }
       }
@@ -294,7 +288,6 @@ export function createDeviceSession(
         key => !setValueQueue.hasPending(key) && status.setpoints[key] !== setpoints[key]
       );
       if (setpointsChanged) {
-        console.log(`[Poll] Broadcasting setpoint change`);
         // Merge: keep pending values at their optimistic state, update others from device
         const mergedSetpoints = { ...status.setpoints };
         for (const key of Object.keys(mergedSetpoints)) {

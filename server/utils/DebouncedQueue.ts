@@ -3,16 +3,20 @@
  *
  * Each key has an independent queue. When a value is enqueued:
  * - It replaces any previously queued value for that key
- * - A drain timer is started (if not already running)
- * - When the timer fires, if the value is old enough (>= debounceMs), execute it
- * - If the value is too recent, reschedule the timer
+ * - The debounce timer restarts (trailing-edge: fires after silence)
  *
  * Only one execution per key runs at a time. If a new value arrives during
  * execution, it will be picked up after the current execution completes.
+ *
+ * After execution succeeds, the key enters "awaiting confirmation" state.
+ * hasPending() remains true until confirm(key) is called externally
+ * (e.g., when a poll confirms the device applied the value).
  */
 
 export interface DebouncedQueueOptions {
   debounceMs: number;
+  /** Timeout for awaiting confirmation. Key auto-confirms after this. Default: 5000ms */
+  confirmTimeoutMs?: number;
 }
 
 interface QueueEntry<T> {
@@ -35,13 +39,16 @@ export function createDebouncedQueue<T>(
   /** Wait for all in-flight executions to complete */
   flush: () => Promise<void>;
 } {
-  const { debounceMs } = options;
+  const { debounceMs, confirmTimeoutMs = 5000 } = options;
 
   const queue = new Map<string, QueueEntry<T>>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const inflight = new Map<string, Promise<void>>();
-  // Tracks keys where executor completed but external confirmation hasn't arrived yet
+  // Value currently being executed (so getPendingValue works during inflight)
+  const inflightValues = new Map<string, T>();
+  // Keys where executor succeeded but external confirmation hasn't arrived yet
   const awaitingConfirm = new Map<string, T>();
+  const confirmTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function enqueue(key: string, value: T): void {
     queue.set(key, { value, enqueuedAt: Date.now() });
@@ -49,7 +56,7 @@ export function createDebouncedQueue<T>(
     // If inflight, just update the queue — .finally() will pick it up
     if (inflight.has(key)) return;
 
-    // Restart the timer on every enqueue — 250ms of silence before firing
+    // Restart the timer on every enqueue — debounceMs of silence before firing
     const existing = timers.get(key);
     if (existing) clearTimeout(existing);
     scheduleTimer(key);
@@ -74,15 +81,31 @@ export function createDebouncedQueue<T>(
     // Take the value and execute
     const { value } = entry;
     queue.delete(key);
+    inflightValues.set(key, value);
 
+    let succeeded = false;
     const promise = executor(key, value)
+      .then(() => {
+        succeeded = true;
+      })
       .catch((err) => {
         console.error(`[DebouncedQueue] Executor failed for key=${key}:`, err);
       })
       .finally(() => {
         inflight.delete(key);
-        // Keep as awaiting confirmation until externally confirmed
-        awaitingConfirm.set(key, value);
+        inflightValues.delete(key);
+
+        if (succeeded) {
+          // Keep as awaiting confirmation until externally confirmed
+          awaitingConfirm.set(key, value);
+
+          // Auto-confirm after timeout to prevent permanent suppression
+          const ct = setTimeout(() => {
+            confirmTimers.delete(key);
+            awaitingConfirm.delete(key);
+          }, confirmTimeoutMs);
+          confirmTimers.set(key, ct);
+        }
 
         // If a new value arrived during execution, start a new debounce
         if (queue.has(key) && !timers.has(key)) {
@@ -98,20 +121,30 @@ export function createDebouncedQueue<T>(
   }
 
   function getPendingValue(key: string): T | undefined {
-    return queue.get(key)?.value ?? awaitingConfirm.get(key);
+    return queue.get(key)?.value ?? inflightValues.get(key) ?? awaitingConfirm.get(key);
   }
 
   function confirm(key: string): void {
     awaitingConfirm.delete(key);
+    const ct = confirmTimers.get(key);
+    if (ct) {
+      clearTimeout(ct);
+      confirmTimers.delete(key);
+    }
   }
 
   function clear(): void {
     for (const timer of timers.values()) {
       clearTimeout(timer);
     }
+    for (const ct of confirmTimers.values()) {
+      clearTimeout(ct);
+    }
     timers.clear();
     queue.clear();
+    inflightValues.clear();
     awaitingConfirm.clear();
+    confirmTimers.clear();
     // Note: inflight executions continue to completion
   }
 

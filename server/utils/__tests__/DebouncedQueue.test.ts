@@ -133,7 +133,6 @@ describe('DebouncedQueue', () => {
 
     q.enqueue('voltage', 2);
     await vi.advanceTimersByTimeAsync(50);
-    // Timer fires but inflight guard prevents concurrent execution
 
     q.enqueue('voltage', 3);
     await vi.advanceTimersByTimeAsync(50);
@@ -231,6 +230,32 @@ describe('DebouncedQueue', () => {
     expect(q.hasPending('voltage')).toBe(false);
   });
 
+  it('should return getPendingValue during inflight execution', async () => {
+    let resolveExecution: () => void;
+    const executor = vi.fn().mockImplementation(() => {
+      return new Promise<void>((resolve) => {
+        resolveExecution = resolve;
+      });
+    });
+
+    const q = createDebouncedQueue(executor, { debounceMs: 100 });
+
+    q.enqueue('voltage', 12.0);
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Value was taken from queue, now inflight — getPendingValue should still return it
+    expect(q.getPendingValue('voltage')).toBe(12.0);
+
+    resolveExecution!();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Now awaiting confirmation — still available
+    expect(q.getPendingValue('voltage')).toBe(12.0);
+
+    q.confirm('voltage');
+    expect(q.getPendingValue('voltage')).toBeUndefined();
+  });
+
   it('should return executed value via getPendingValue while awaiting confirmation', async () => {
     const executor = vi.fn().mockResolvedValue(undefined);
     const q = createDebouncedQueue(executor, { debounceMs: 100 });
@@ -256,6 +281,37 @@ describe('DebouncedQueue', () => {
 
     q.enqueue('voltage', 12.5);
     expect(q.getPendingValue('voltage')).toBe(12.5);
+  });
+
+  it('should not set awaitingConfirm on executor failure', async () => {
+    const executor = vi.fn().mockRejectedValue(new Error('hardware error'));
+    const q = createDebouncedQueue(executor, { debounceMs: 100 });
+
+    q.enqueue('voltage', 12.0);
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Executor failed — should NOT be awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(false);
+    expect(q.getPendingValue('voltage')).toBeUndefined();
+  });
+
+  it('should auto-confirm after confirmTimeoutMs', async () => {
+    const executor = vi.fn().mockResolvedValue(undefined);
+    const q = createDebouncedQueue(executor, { debounceMs: 100, confirmTimeoutMs: 1000 });
+
+    q.enqueue('voltage', 12.0);
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(true);
+
+    // Not yet auto-confirmed
+    await vi.advanceTimersByTimeAsync(500);
+    expect(q.hasPending('voltage')).toBe(true);
+
+    // Auto-confirm fires at 1000ms after executor completed
+    await vi.advanceTimersByTimeAsync(500);
+    expect(q.hasPending('voltage')).toBe(false);
   });
 
   it('should clear all pending timers and queued values', async () => {
@@ -312,11 +368,19 @@ describe('DebouncedQueue', () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(executor).toHaveBeenCalledTimes(1);
 
+    // Failed — not awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(false);
+
     // Queue should still work after error
     q.enqueue('voltage', 13.0);
     await vi.advanceTimersByTimeAsync(100);
     expect(executor).toHaveBeenCalledTimes(2);
     expect(executor).toHaveBeenLastCalledWith('voltage', 13.0);
+
+    // Second call succeeded — awaiting confirmation
+    expect(q.hasPending('voltage')).toBe(true);
+    q.confirm('voltage');
+    expect(q.hasPending('voltage')).toBe(false);
   });
 
   it('should handle sustained rapid clicking (value every 50ms for 2 seconds)', async () => {
@@ -336,9 +400,10 @@ describe('DebouncedQueue', () => {
     // Let everything drain
     await vi.advanceTimersByTimeAsync(2000);
 
-    // Should have far fewer executions than 40 clicks
-    // The exact count depends on timing, but it should be small
-    expect(executor.mock.calls.length).toBeLessThan(10);
+    // Timer restarts every 50ms, so no execution during clicking.
+    // After clicking stops: one debounce fires, then possibly one more
+    // from queued value during first execution.
+    expect(executor.mock.calls.length).toBeLessThanOrEqual(2);
 
     // Last execution should have the final value
     const lastCall = executor.mock.calls[executor.mock.calls.length - 1];
@@ -371,5 +436,19 @@ describe('DebouncedQueue', () => {
     if (executedValues.length > 0) {
       expect(executedValues[executedValues.length - 1]).toBe(29);
     }
+  });
+
+  it('should work after clear()', async () => {
+    const executor = vi.fn().mockResolvedValue(undefined);
+    const q = createDebouncedQueue(executor, { debounceMs: 100 });
+
+    q.enqueue('voltage', 12.0);
+    q.clear();
+
+    q.enqueue('voltage', 13.0);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledWith('voltage', 13.0);
   });
 });
