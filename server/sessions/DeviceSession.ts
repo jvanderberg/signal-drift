@@ -10,6 +10,7 @@
  */
 
 import type { DeviceDriver, DeviceStatus } from '../devices/types.js';
+import { createDebouncedQueue } from '../utils/DebouncedQueue.js';
 import type {
   DeviceSessionState,
   ConnectionStatus,
@@ -94,13 +95,59 @@ export function createDeviceSession(
   let isRunning = true;
   let pollInProgress: Promise<void> | null = null;
 
-  // Debounce state for setValue
-  const pendingValues = new Map<string, { value: number; timer: ReturnType<typeof setTimeout> }>();
+  // Debounced setValue queue — coalesces rapid value changes per key
+  const setValueQueue = createDebouncedQueue<number>(
+    async (name: string, value: number) => {
+      const oldValue = setpoints[name];
+
+      // Optimistic update
+      setpoints = { ...setpoints, [name]: value };
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'setpoints',
+        value: { ...setpoints },
+      });
+
+      const result = await driver.setValue(name, value);
+      if (!result.ok) {
+        console.error(`[Session] driver.setValue FAILED for ${name} = ${value}:`, result.error);
+
+        // Read back actual value from device
+        let actualValue = oldValue;
+        if (driver.getValue) {
+          const getResult = await driver.getValue(name);
+          if (getResult.ok) {
+            actualValue = getResult.value;
+          }
+        }
+
+        setpoints = { ...setpoints, [name]: actualValue };
+        broadcast({
+          type: 'field',
+          deviceId: driver.info.id,
+          field: 'setpoints',
+          value: { ...setpoints },
+        });
+        broadcast({
+          type: 'error',
+          deviceId: driver.info.id,
+          code: 'SET_VALUE_FAILED',
+          message: result.error.message,
+        });
+      }
+    },
+    { debounceMs: cfg.debounceMs }
+  );
 
   // In-flight operation tracking - prevents poll from broadcasting stale values
-  // when a user action is being processed by the hardware
+  // when a user action is being processed by the hardware.
+  // Timestamps track when the pending state started, for timeout fallback.
+  const PENDING_TIMEOUT_MS = 5000; // Max time to wait for device confirmation
   let outputChangePending = false;
+  let outputChangePendingSince = 0;
   let modeChangePending = false;
+  let modeChangePendingSince = 0;
 
   // Heartbeat control - independent health check that runs alongside polling
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -166,8 +213,23 @@ export function createDeviceSession(
       const status = statusResult.value;
 
       // Check for mode change and broadcast
-      // Skip if a mode change is in-flight to avoid UI flicker from stale reads
-      if (status.mode !== mode && !modeChangePending) {
+      // If a mode change is pending, clear it once the device confirms the expected value
+      // Timeout fallback: accept device state if confirmation takes too long
+      if (modeChangePending) {
+        if (status.mode === mode) {
+          modeChangePending = false;
+        } else if (Date.now() - modeChangePendingSince > PENDING_TIMEOUT_MS) {
+          console.warn(`[Session] Mode change pending timeout for ${driver.info.id}, accepting device state: ${status.mode}`);
+          modeChangePending = false;
+          mode = status.mode;
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'mode',
+            value: mode,
+          });
+        }
+      } else if (status.mode !== mode) {
         mode = status.mode;
         broadcast({
           type: 'field',
@@ -178,8 +240,23 @@ export function createDeviceSession(
       }
 
       // Check for output state change and broadcast
-      // Skip if an output change is in-flight to avoid UI flicker from stale reads
-      if (status.outputEnabled !== outputEnabled && !outputChangePending) {
+      // If an output change is pending, clear it once the device confirms the expected value
+      // Timeout fallback: accept device state if confirmation takes too long
+      if (outputChangePending) {
+        if (status.outputEnabled === outputEnabled) {
+          outputChangePending = false;
+        } else if (Date.now() - outputChangePendingSince > PENDING_TIMEOUT_MS) {
+          console.warn(`[Session] Output change pending timeout for ${driver.info.id}, accepting device state: ${status.outputEnabled}`);
+          outputChangePending = false;
+          outputEnabled = status.outputEnabled;
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'outputEnabled',
+            value: outputEnabled,
+          });
+        }
+      } else if (status.outputEnabled !== outputEnabled) {
         outputEnabled = status.outputEnabled;
         broadcast({
           type: 'field',
@@ -189,20 +266,35 @@ export function createDeviceSession(
         });
       }
 
+      // Confirm any awaiting-confirmation keys where device now matches
+      for (const key of Object.keys(status.setpoints)) {
+        const pendingValue = setValueQueue.getPendingValue(key);
+        if (pendingValue !== undefined) {
+          if (status.setpoints[key] === pendingValue) {
+            setValueQueue.confirm(key);
+            // Adopt the pending value so no stale diff is broadcast this cycle
+            setpoints = { ...setpoints, [key]: pendingValue };
+          }
+        }
+      }
+
       // Check for setpoint changes and broadcast
       // This is critical for safety: when a PSU reconnects after power cycle,
       // it may have reset to a different voltage than what the UI shows
-      // Skip keys that have pending debounced values to avoid UI flicker
+      // Skip keys that have pending queued values to avoid UI flicker
       const setpointsChanged = Object.keys(status.setpoints).some(
-        key => !pendingValues.has(key) && status.setpoints[key] !== setpoints[key]
+        key => !setValueQueue.hasPending(key) && status.setpoints[key] !== setpoints[key]
       ) || Object.keys(setpoints).some(
-        key => !pendingValues.has(key) && status.setpoints[key] !== setpoints[key]
+        key => !setValueQueue.hasPending(key) && status.setpoints[key] !== setpoints[key]
       );
       if (setpointsChanged) {
         // Merge: keep pending values at their optimistic state, update others from device
         const mergedSetpoints = { ...status.setpoints };
-        for (const [key, pending] of pendingValues.entries()) {
-          mergedSetpoints[key] = pending.value;
+        for (const key of Object.keys(mergedSetpoints)) {
+          const pendingValue = setValueQueue.getPendingValue(key);
+          if (pendingValue !== undefined) {
+            mergedSetpoints[key] = pendingValue;
+          }
         }
         setpoints = mergedSetpoints;
         broadcast({
@@ -214,8 +306,11 @@ export function createDeviceSession(
       } else {
         // Update remaining state (preserving pending values)
         const mergedSetpoints = { ...status.setpoints };
-        for (const [key, pending] of pendingValues.entries()) {
-          mergedSetpoints[key] = pending.value;
+        for (const key of Object.keys(mergedSetpoints)) {
+          const pendingValue = setValueQueue.getPendingValue(key);
+          if (pendingValue !== undefined) {
+            mergedSetpoints[key] = pendingValue;
+          }
         }
         setpoints = mergedSetpoints;
       }
@@ -462,6 +557,7 @@ export function createDeviceSession(
 
     // Mark as pending to prevent poll from broadcasting stale values
     modeChangePending = true;
+    modeChangePendingSince = Date.now();
 
     // Optimistic update - notify before hardware execution
     mode = newMode;
@@ -472,24 +568,22 @@ export function createDeviceSession(
       value: newMode,
     });
 
-    try {
-      const result = await driver.setMode(newMode);
-      if (!result.ok) {
-        console.error('setMode error:', result.error);
-        // Rollback to previous value
-        mode = oldMode;
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'mode',
-          value: oldMode,
-        });
-        return result;
-      }
-      return Ok();
-    } finally {
+    const result = await driver.setMode(newMode);
+    if (!result.ok) {
+      console.error('setMode error:', result.error);
+      // Rollback to previous value
+      mode = oldMode;
       modeChangePending = false;
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'mode',
+        value: oldMode,
+      });
+      return result;
     }
+    // Keep modeChangePending = true — poll will clear it when device confirms
+    return Ok();
   }
 
   async function setOutputAction(enabled: boolean): Promise<Result<void, Error>> {
@@ -498,6 +592,7 @@ export function createDeviceSession(
 
     // Mark as pending to prevent poll from broadcasting stale values
     outputChangePending = true;
+    outputChangePendingSince = Date.now();
 
     // Optimistic update
     outputEnabled = enabled;
@@ -508,29 +603,27 @@ export function createDeviceSession(
       value: enabled,
     });
 
-    try {
-      const result = await driver.setOutput(enabled);
-      if (!result.ok) {
-        console.error('setOutput error:', result.error);
-        // Rollback to previous value
-        outputEnabled = oldEnabled;
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'outputEnabled',
-          value: oldEnabled,
-        });
-        return result;
-      }
-      return Ok();
-    } finally {
+    const result = await driver.setOutput(enabled);
+    if (!result.ok) {
+      console.error('setOutput error:', result.error);
+      // Rollback to previous value
+      outputEnabled = oldEnabled;
       outputChangePending = false;
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'outputEnabled',
+        value: oldEnabled,
+      });
+      return result;
     }
+    // Keep outputChangePending = true — poll will clear it when device confirms
+    return Ok();
   }
 
   async function setValueAction(name: string, value: number, immediate = false): Promise<Result<void, Error>> {
     if (immediate) {
-      // Save old value before updating
+      // Bypass debounce — execute directly on hardware
       const oldValue = setpoints[name];
 
       // Optimistic update
@@ -555,7 +648,6 @@ export function createDeviceSession(
           }
         }
 
-        // Revert to actual device value and broadcast
         setpoints = { ...setpoints, [name]: actualValue };
         broadcast({
           type: 'field',
@@ -568,69 +660,8 @@ export function createDeviceSession(
       return Ok();
     }
 
-    // Debounced execution
-    const existing = pendingValues.get(name);
-    if (existing) {
-      clearTimeout(existing.timer);
-    }
-
-    const timer = setTimeout(async () => {
-      pendingValues.delete(name);
-
-      // Save old value before updating
-      const oldValue = setpoints[name];
-      console.log(`[Session] setValue debounce fired: ${name} = ${value} (oldValue: ${oldValue})`);
-
-      // Optimistic update
-      setpoints = { ...setpoints, [name]: value };
-      console.log(`[Session] Broadcasting optimistic setpoints:`, { ...setpoints });
-      broadcast({
-        type: 'field',
-        deviceId: driver.info.id,
-        field: 'setpoints',
-        value: { ...setpoints },
-      });
-
-      const result = await driver.setValue(name, value);
-      if (result.ok) {
-        console.log(`[Session] driver.setValue succeeded for ${name} = ${value}`);
-      } else {
-        console.error(`[Session] driver.setValue FAILED for ${name} = ${value}:`, result.error);
-
-        // Read back actual value from device (if driver supports it)
-        let actualValue = oldValue;
-        if (driver.getValue) {
-          const getResult = await driver.getValue(name);
-          if (getResult.ok) {
-            actualValue = getResult.value;
-            console.log(`[Session] Read back actual value from device: ${name} = ${actualValue}`);
-          } else {
-            console.error(`[Session] Failed to read back value, using oldValue:`, getResult.error);
-          }
-        }
-
-        // Revert to actual device value and broadcast
-        setpoints = { ...setpoints, [name]: actualValue };
-        console.log(`[Session] Broadcasting reverted setpoints:`, { ...setpoints });
-        broadcast({
-          type: 'field',
-          deviceId: driver.info.id,
-          field: 'setpoints',
-          value: { ...setpoints },
-        });
-        // Notify subscribers of the error (can't re-throw from setTimeout)
-        broadcast({
-          type: 'error',
-          deviceId: driver.info.id,
-          code: 'SET_VALUE_FAILED',
-          message: result.error.message,
-        });
-      }
-    }, cfg.debounceMs);
-
-    pendingValues.set(name, { value, timer });
-
-    // Debounced: return Ok immediately, actual result comes via broadcast
+    // Enqueue into the debounced queue — it handles coalescing and execution
+    setValueQueue.enqueue(name, value);
     return Ok();
   }
 
@@ -682,10 +713,7 @@ export function createDeviceSession(
       pollTimer = null;
     }
     // Clear any pending debounced values
-    for (const pending of pendingValues.values()) {
-      clearTimeout(pending.timer);
-    }
-    pendingValues.clear();
+    setValueQueue.clear();
 
     // Wait for any in-flight operations to complete (with timeout)
     const STOP_TIMEOUT = 3000;
@@ -698,6 +726,9 @@ export function createDeviceSession(
     if (heartbeatInProgress) {
       waitPromises.push(waitForHeartbeat(STOP_TIMEOUT));
     }
+
+    // Wait for in-flight setValue hardware calls
+    waitPromises.push(setValueQueue.flush());
 
     if (waitPromises.length > 0) {
       await Promise.race([

@@ -68,7 +68,7 @@ export function WaveformDisplay({
   showGrid = true,
   padding = { top: 20, right: 60, bottom: 30, left: 60 },
   timebaseScale,
-  divisions = { x: 10, y: 8 },
+  divisions = { x: 12, y: 8 },
 }: WaveformDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
