@@ -6,6 +6,7 @@
  * - *IDN?                    - Identification
  * - :SOUR:FUNC? / :SOUR:FUNC <mode>  - Operating mode (CC/CV/CR/CP)
  * - :SOUR:INP:STAT? / :SOUR:INP:STAT ON|OFF  - Input enable
+ * - :SOUR:SENS? / :SOUR:SENS ON|OFF - Remote sense enable
  * - :SOUR:CURR:LEV? / :SOUR:CURR:LEV <value> - CC setpoint
  * - :SOUR:VOLT:LEV? / :SOUR:VOLT:LEV <value> - CV setpoint
  * - :SOUR:RES:LEV? / :SOUR:RES:LEV <value>   - CR setpoint
@@ -27,6 +28,7 @@ export function createLoadSimulator(connection: VirtualConnection, serialNumber 
   // Internal state
   let mode: LoadMode = 'CC';
   let inputEnabled = false;
+  let remoteSensing = false;
   let currentSetpoint = 0;
   let voltageSetpoint = 0;
   let resistanceSetpoint = 1000;
@@ -111,6 +113,16 @@ export function createLoadSimulator(connection: VirtualConnection, serialNumber 
       const state = parts[parts.length - 1];
       inputEnabled = state === 'ON' || state === '1';
       updateConnection();
+      return null;
+    }
+
+    if (normalized === 'SOUR:SENS?') {
+      return remoteSensing ? '1' : '0';
+    }
+
+    if (normalized.startsWith('SOUR:SENS ')) {
+      const state = normalized.split(' ').at(-1);
+      remoteSensing = state === 'ON' || state === '1';
       return null;
     }
 

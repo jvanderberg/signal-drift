@@ -10,11 +10,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.SIGNAL_DRIFT_DRIVER_URL ?? 'http://localhost:3001',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: process.env.SIGNAL_DRIFT_DRIVER_URL ?? 'http://localhost:3001',
         ws: true,
       },
     },

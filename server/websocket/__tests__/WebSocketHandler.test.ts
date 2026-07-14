@@ -103,6 +103,7 @@ function createMockSession(deviceId: string): DeviceSession {
     }),
     setMode: vi.fn(),
     setOutput: vi.fn(),
+    setRemoteSensing: vi.fn(),
     setValue: vi.fn(),
     reconnect: vi.fn(),
     stop: vi.fn(),
@@ -176,6 +177,7 @@ function createMockSessionManager(): SessionManager & {
     },
     setMode: vi.fn().mockResolvedValue(Ok()),
     setOutput: vi.fn().mockResolvedValue(Ok()),
+    setRemoteSensing: vi.fn().mockResolvedValue(Ok()),
     setValue: vi.fn().mockResolvedValue(Ok()),
     stop: vi.fn(),
     // Oscilloscope methods
@@ -381,6 +383,17 @@ describe('WebSocketHandler', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(sessionManager.setOutput).toHaveBeenCalledWith('device-1', true);
+    });
+  });
+
+  describe('setRemoteSensing Message', () => {
+    it('should forward setRemoteSensing to session manager', async () => {
+      const client = wss.simulateConnection();
+      client.receiveMessage({ type: 'setRemoteSensing', deviceId: 'device-1', enabled: true });
+
+      await vi.waitFor(() => {
+        expect(sessionManager.setRemoteSensing).toHaveBeenCalledWith('device-1', true);
+      });
     });
   });
 

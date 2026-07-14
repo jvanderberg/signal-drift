@@ -49,6 +49,7 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
     deviceClass: 'load',
     features: {
       listMode: true,
+      remoteSensing: true,
     },
     modes: ['CC', 'CV', 'CR', 'CP'],
     modesSettable: true,
@@ -120,6 +121,10 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
       if (!inputResult.ok) return inputResult;
       const outputEnabled = inputResult.value.includes('ON') || inputResult.value === '1';
 
+      const senseResult = await transport.query(':SOUR:SENS?');
+      if (!senseResult.ok) return senseResult;
+      const remoteSensing = senseResult.value.includes('ON') || senseResult.value.trim() === '1';
+
       // Query all setpoints (so client has them when switching modes)
       const setpoints: Record<string, number> = {};
 
@@ -161,6 +166,7 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
       return Ok({
         mode,
         outputEnabled,
+        remoteSensing,
         setpoints,
         measurements,
       });
@@ -214,6 +220,10 @@ export function createRigolDL3021(transport: Transport): DeviceDriver {
 
     async setOutput(enabled: boolean): Promise<Result<void, Error>> {
       return transport.write(`:SOUR:INP:STAT ${enabled ? 'ON' : 'OFF'}`);
+    },
+
+    async setRemoteSensing(enabled: boolean): Promise<Result<void, Error>> {
+      return transport.write(`:SOUR:SENS ${enabled ? 'ON' : 'OFF'}`);
     },
 
     async uploadList(mode: string, steps: ListStep[], repeat = 0): Promise<Result<void, Error>> {

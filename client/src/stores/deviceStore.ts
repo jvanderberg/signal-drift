@@ -57,6 +57,7 @@ interface DeviceStoreState {
   // Actions - device control
   setMode: (deviceId: string, mode: string) => void;
   setOutput: (deviceId: string, enabled: boolean) => void;
+  setRemoteSensing: (deviceId: string, enabled: boolean) => void;
   setValue: (deviceId: string, name: string, value: number, immediate?: boolean) => void;
 
   // Actions - error handling
@@ -98,6 +99,7 @@ const MAX_HISTORY_POINTS = 10_000;
 let _unsubscribeStateChange: (() => void) | null = null;
 let _unsubscribeMessage: (() => void) | null = null;
 let _isInitialized = false;
+const _subscriptionCounts = new Map<string, number>();
 
 /**
  * Cleanup function for testing and HMR.
@@ -113,6 +115,7 @@ export function cleanupDeviceStore(): void {
     _unsubscribeMessage = null;
   }
   _isInitialized = false;
+  _subscriptionCounts.clear();
 }
 
 // Create store with subscribeWithSelector for fine-grained subscriptions
@@ -185,10 +188,18 @@ export const useDeviceStore = create<DeviceStoreState>()(
 
         // Device subscription actions
         subscribeDevice: (deviceId: string) => {
-          wsManager.send({ type: 'subscribe', deviceId });
+          const count = _subscriptionCounts.get(deviceId) ?? 0;
+          _subscriptionCounts.set(deviceId, count + 1);
+          if (count === 0) wsManager.send({ type: 'subscribe', deviceId });
         },
 
         unsubscribeDevice: (deviceId: string) => {
+          const count = _subscriptionCounts.get(deviceId) ?? 0;
+          if (count > 1) {
+            _subscriptionCounts.set(deviceId, count - 1);
+            return;
+          }
+          _subscriptionCounts.delete(deviceId);
           wsManager.send({ type: 'unsubscribe', deviceId });
           set((state) => ({
             deviceStates: {
@@ -208,6 +219,10 @@ export const useDeviceStore = create<DeviceStoreState>()(
 
         setOutput: (deviceId: string, enabled: boolean) => {
           wsManager.send({ type: 'setOutput', deviceId, enabled });
+        },
+
+        setRemoteSensing: (deviceId: string, enabled: boolean) => {
+          wsManager.send({ type: 'setRemoteSensing', deviceId, enabled });
         },
 
         setValue: (deviceId: string, name: string, value: number, immediate = false) => {

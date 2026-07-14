@@ -13,6 +13,7 @@ describe('Rigol DL3021 Driver', () => {
         '*IDN?': 'RIGOL TECHNOLOGIES,DL3021,DL3A123456789,00.01.02.03.04',
         ':SOUR:FUNC?': 'CC',
         ':SOUR:INP:STAT?': 'ON',
+        ':SOUR:SENS?': '0',
         ':SOUR:CURR:LEV?': '1.500',
         ':SOUR:VOLT:LEV?': '12.000',
         ':SOUR:RES:LEV?': '100.0',
@@ -88,6 +89,10 @@ describe('Rigol DL3021 Driver', () => {
       expect(driver.capabilities.listMode!.maxSteps).toBe(512);
       expect(driver.capabilities.listMode!.supportedModes).toEqual(['CC', 'CV', 'CR', 'CP']);
     });
+
+    it('should support remote sensing', () => {
+      expect(driver.capabilities.features.remoteSensing).toBe(true);
+    });
   });
 
   describe('probe()', () => {
@@ -154,6 +159,12 @@ describe('Rigol DL3021 Driver', () => {
       if (result.ok) {
         expect(result.value.outputEnabled).toBe(true);
       }
+    });
+
+    it('should return remote sensing state', async () => {
+      const result = await driver.getStatus();
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.remoteSensing).toBe(false);
     });
 
     it('should return setpoints for current mode', async () => {
@@ -270,6 +281,20 @@ describe('Rigol DL3021 Driver', () => {
       const result = await driver.setOutput(false);
       expect(result.ok).toBe(true);
       expect(transport.sentCommands).toContain(':SOUR:INP:STAT OFF');
+    });
+  });
+
+  describe('setRemoteSensing()', () => {
+    beforeEach(async () => {
+      await driver.connect();
+    });
+
+    it('should send ON and OFF commands', async () => {
+      transport.reset();
+      expect((await driver.setRemoteSensing!(true)).ok).toBe(true);
+      expect((await driver.setRemoteSensing!(false)).ok).toBe(true);
+      expect(transport.sentCommands).toContain(':SOUR:SENS ON');
+      expect(transport.sentCommands).toContain(':SOUR:SENS OFF');
     });
   });
 

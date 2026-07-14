@@ -19,6 +19,7 @@ import { createSimulatedDevices } from './devices/simulation/index.js';
 import { createSessionManager } from './sessions/SessionManager.js';
 import { createWebSocketHandler } from './websocket/WebSocketHandler.js';
 import { createSequenceManager } from './sequences/SequenceManager.js';
+import { createBatteryTestManager } from './battery-tests/BatteryTestManager.js';
 import { createTriggerScriptManager } from './triggers/TriggerScriptManager.js';
 import {
   createDatabase,
@@ -135,6 +136,7 @@ const settingsManager = createSettingsManager(sequenceStore, triggerScriptStore,
 
 // Create sequence manager (for AWG/sequencing functionality) with SQLite store
 const sequenceManager = createSequenceManager(sessionManager, sequenceStore);
+const batteryTestManager = createBatteryTestManager(sessionManager);
 
 // Create trigger script manager (for reactive automation) with SQLite store
 const triggerScriptManager = createTriggerScriptManager(sessionManager, sequenceManager, triggerScriptStore);
@@ -148,7 +150,8 @@ const wsHandler = createWebSocketHandler(
   triggerScriptManager,
   deviceAliasStore,
   settingsManager,
-  dashboardLayoutStore
+  dashboardLayoutStore,
+  batteryTestManager
 );
 
 // Start server
@@ -323,6 +326,7 @@ async function stop(): Promise<void> {
   wsHandler.close();
 
   // Stop sequence manager (saves pending changes)
+  await batteryTestManager.close();
   await sequenceManager.stop();
 
   // Stop trigger script manager (saves pending changes)

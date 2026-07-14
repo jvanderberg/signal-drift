@@ -46,6 +46,7 @@ export interface SessionManager {
   // Standard device actions
   setMode(deviceId: string, mode: string): Promise<Result<void, Error>>;
   setOutput(deviceId: string, enabled: boolean): Promise<Result<void, Error>>;
+  setRemoteSensing(deviceId: string, enabled: boolean): Promise<Result<void, Error>>;
   setValue(deviceId: string, name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
 
   // Oscilloscope-specific
@@ -275,6 +276,12 @@ export function createSessionManager(
     return session.setOutput(enabled);
   }
 
+  async function setRemoteSensing(deviceId: string, enabled: boolean): Promise<Result<void, Error>> {
+    const session = sessions.get(deviceId);
+    if (!session) return Err(new Error(`Session not found: ${deviceId}`));
+    return session.setRemoteSensing(enabled);
+  }
+
   async function setValue(
     deviceId: string,
     name: string,
@@ -492,6 +499,7 @@ export function createSessionManager(
     isSubscribed,
     setMode,
     setOutput,
+    setRemoteSensing,
     setValue,
     getOscilloscopeSession,
     oscilloscopeRun,

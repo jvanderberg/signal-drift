@@ -167,6 +167,20 @@ describe('deviceStore', () => {
       expect(mockState.send).toHaveBeenCalledWith({ type: 'subscribe', deviceId: 'device-1' });
     });
 
+    it('reference-counts multiple consumers of the same device subscription', () => {
+      act(() => {
+        useDeviceStore.getState().subscribeDevice('shared-device');
+        useDeviceStore.getState().subscribeDevice('shared-device');
+      });
+      expect(mockState.send).toHaveBeenCalledTimes(1);
+
+      act(() => useDeviceStore.getState().unsubscribeDevice('shared-device'));
+      expect(mockState.send).not.toHaveBeenCalledWith({ type: 'unsubscribe', deviceId: 'shared-device' });
+
+      act(() => useDeviceStore.getState().unsubscribeDevice('shared-device'));
+      expect(mockState.send).toHaveBeenCalledWith({ type: 'unsubscribe', deviceId: 'shared-device' });
+    });
+
     it('unsubscribeDevice should send unsubscribe and update state', () => {
       // First set up a subscribed device
       useDeviceStore.setState({
@@ -203,6 +217,16 @@ describe('deviceStore', () => {
       });
 
       expect(mockState.send).toHaveBeenCalledWith({ type: 'setOutput', deviceId: 'device-1', enabled: true });
+    });
+
+    it('setRemoteSensing should send setRemoteSensing message', () => {
+      useDeviceStore.getState().setRemoteSensing('device-1', true);
+
+      expect(mockState.send).toHaveBeenCalledWith({
+        type: 'setRemoteSensing',
+        deviceId: 'device-1',
+        enabled: true,
+      });
     });
 
     it('setValue should send setValue message', () => {

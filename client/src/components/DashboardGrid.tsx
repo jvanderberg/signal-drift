@@ -167,6 +167,10 @@ export function getSequencerPanelKey(): string {
   return 'sequencer';
 }
 
+export function getBatteryTesterPanelKey(): string {
+  return 'battery-tester';
+}
+
 export function getTriggerScriptsPanelKey(): string {
   return 'trigger-scripts';
 }

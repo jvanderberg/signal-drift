@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { ServerMessage } from '../../../../shared/types';
+import { createMockDeviceSummary, createMockLoadCapabilities } from '../../test/testUtils';
 
 // Use vi.hoisted to define mocks before vi.mock hoisting
 const { mockSend, mockConnect, mockDisconnect, mockState } = vi.hoisted(() => {
@@ -209,13 +210,15 @@ describe('App Integration', () => {
       expect(mockSend).toHaveBeenCalledWith({ type: 'scan' });
     });
 
-    it('should show Sequencer and Trigger Scripts widgets', async () => {
+    it('should show the automation widgets', async () => {
       await renderApp();
 
       fireEvent.click(screen.getByTitle('Open menu'));
 
       expect(screen.getByText('Sequencer')).toBeInTheDocument();
       expect(screen.getByText('Software AWG')).toBeInTheDocument();
+      expect(screen.getByText('Battery Tester')).toBeInTheDocument();
+      expect(screen.getByText('Software discharge')).toBeInTheDocument();
       expect(screen.getByText('Trigger Scripts')).toBeInTheDocument();
       expect(screen.getByText('Reactive automation')).toBeInTheDocument();
     });
@@ -247,6 +250,47 @@ describe('App Integration', () => {
       await waitFor(() => {
         expect(mockSend).toHaveBeenCalledWith({ type: 'triggerScriptLibraryList' });
       });
+    });
+
+    it('should open Battery Tester as its own panel', async () => {
+      await renderApp();
+
+      fireEvent.click(screen.getByTitle('Open menu'));
+      mockSend.mockClear();
+      fireEvent.click(screen.getByText('Battery Tester'));
+
+      await waitFor(() => {
+        expect(mockSend).toHaveBeenCalledWith({ type: 'batteryTestGetState' });
+      });
+      expect(screen.getByText('Capacity removed')).toBeInTheDocument();
+      expect(screen.getByText('Energy removed')).toBeInTheDocument();
+      expect(screen.getByText('Max current')).toBeInTheDocument();
+      expect(screen.getByText('Max power')).toBeInTheDocument();
+    });
+
+    it('should include remote sense in battery test configuration for capable loads', async () => {
+      await renderApp();
+      const capabilities = createMockLoadCapabilities({ features: { remoteSensing: true } });
+      const load = createMockDeviceSummary({
+        id: 'load-1',
+        info: { id: 'load-1', type: 'electronic-load', manufacturer: 'Rigol', model: 'DL3021' },
+        capabilities,
+      });
+      simulateMessage({ type: 'deviceList', devices: [load] });
+      fireEvent.click(screen.getByTitle('Open menu'));
+      fireEvent.click(screen.getByText('Battery Tester'));
+      simulateMessage({ type: 'deviceList', devices: [load] });
+      simulateMessage({ type: 'batteryTestState', state: null });
+
+      const senseToggle = await screen.findByRole('checkbox', { name: /use remote sense/i });
+      fireEvent.click(senseToggle);
+      mockSend.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: 'Start test' }));
+
+      expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'batteryTestStart',
+        config: expect.objectContaining({ deviceId: 'load-1', remoteSensing: true }),
+      }));
     });
   });
 

@@ -16,9 +16,11 @@ interface DeviceSidebarProps {
   devices: DeviceSummary[];
   openDeviceIds: Set<string>;
   showSequencer: boolean;
+  showBatteryTester: boolean;
   showTriggerScripts: boolean;
   onDeviceClick: (device: DeviceSummary) => void;
   onSequencerClick: () => void;
+  onBatteryTesterClick: () => void;
   onTriggerScriptsClick: () => void;
   onScan: () => void;
   isScanning: boolean;
@@ -185,9 +187,11 @@ export function DeviceSidebar({
   devices,
   openDeviceIds,
   showSequencer,
+  showBatteryTester,
   showTriggerScripts,
   onDeviceClick,
   onSequencerClick,
+  onBatteryTesterClick,
   onTriggerScriptsClick,
   onScan,
   isScanning,
@@ -326,6 +330,20 @@ export function DeviceSidebar({
                 <div className="font-medium text-sm leading-5">Sequencer</div>
                 <div className="text-xs leading-4 text-[var(--color-text-muted)]">
                   Software AWG
+                </div>
+              </div>
+            </div>
+            <div
+              className={`px-3 py-2 cursor-pointer transition-colors flex items-center gap-2 ${
+                showBatteryTester ? 'bg-[var(--color-bg-secondary)]' : 'hover:bg-[var(--color-bg-secondary)]'
+              }`}
+              onClick={onBatteryTesterClick}
+            >
+              <span className="text-base">🔋</span>
+              <div>
+                <div className="font-medium text-sm leading-5">Battery Tester</div>
+                <div className="text-xs leading-4 text-[var(--color-text-muted)]">
+                  Software discharge
                 </div>
               </div>
             </div>
