@@ -67,6 +67,7 @@ function createMockSession(): DeviceSession {
     unsubscribe: vi.fn(),
     setMode: vi.fn(),
     setOutput: vi.fn(),
+    setRemoteSensing: vi.fn(),
     setValue: vi.fn().mockResolvedValue(Ok()),
     reconnect: vi.fn(),
     stop: vi.fn(),

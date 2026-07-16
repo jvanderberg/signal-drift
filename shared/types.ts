@@ -90,7 +90,7 @@ export type DeviceClass = 'psu' | 'load' | 'oscilloscope' | 'awg';
 export interface DeviceFeatures {
   /** Device supports programmable sequences (list mode) */
   listMode?: boolean;
-  /** PSU supports 4-wire remote sensing */
+  /** Device supports 4-wire remote sensing */
   remoteSensing?: boolean;
   /** Device has external trigger input */
   externalTrigger?: boolean;
@@ -144,6 +144,7 @@ export interface DeviceCapabilities {
 export interface DeviceStatus {
   mode: string;
   outputEnabled: boolean;
+  remoteSensing?: boolean;
   setpoints: Record<string, number>;
   measurements: Record<string, number>;
   listRunning?: boolean;
@@ -276,6 +277,7 @@ export interface DeviceSessionState {
   // Current operating state
   mode: string;                         // CC, CV, CR, CP
   outputEnabled: boolean;
+  remoteSensing?: boolean;
   setpoints: Record<string, number>;    // e.g., { voltage: 12.5, current: 1.0 }
   measurements: Record<string, number>; // e.g., { voltage: 12.48, current: 0.98 }
   listRunning?: boolean;
@@ -322,6 +324,7 @@ export type ClientMessage =
   | { type: 'unsubscribe'; deviceId: string }
   | { type: 'setMode'; deviceId: string; mode: string }
   | { type: 'setOutput'; deviceId: string; enabled: boolean }
+  | { type: 'setRemoteSensing'; deviceId: string; enabled: boolean }
   | { type: 'setValue'; deviceId: string; name: string; value: number; immediate?: boolean }
   | { type: 'startList'; deviceId: string }
   | { type: 'stopList'; deviceId: string }
@@ -359,6 +362,10 @@ export type ClientMessage =
   // Sequence messages - playback
   | { type: 'sequenceRun'; config: SequenceRunConfig }
   | { type: 'sequenceAbort' }
+  // Software battery discharge test (electronic loads only)
+  | { type: 'batteryTestStart'; config: BatteryTestConfig }
+  | { type: 'batteryTestStop' }
+  | { type: 'batteryTestGetState' }
   // Trigger script messages - library
   | { type: 'triggerScriptLibraryList' }
   | { type: 'triggerScriptLibrarySave'; script: Omit<TriggerScript, 'id' | 'createdAt' | 'updatedAt'> }
@@ -408,6 +415,10 @@ export type ServerMessage =
   | { type: 'sequenceCompleted'; sequenceId: string }
   | { type: 'sequenceAborted'; sequenceId: string }
   | { type: 'sequenceError'; sequenceId: string; error: string }
+  // Software battery discharge test responses
+  | { type: 'batteryTestState'; state: BatteryTestState | null }
+  | { type: 'batteryTestSample'; sample: BatteryTestSample }
+  | { type: 'batteryTestHistory'; samples: BatteryTestSample[] }
   // Trigger script responses - library
   | { type: 'triggerScriptLibrary'; scripts: TriggerScript[]; activeState: TriggerScriptState | null }
   | { type: 'triggerScriptLibrarySaved'; scriptId: string }
@@ -555,6 +566,65 @@ export interface SequenceState {
 
   // Error info (if state is 'error')
   error?: string;
+}
+
+// ============ Software Battery Test Types ============
+
+export interface BatteryTestConfig {
+  deviceId: string;
+  minVoltage: number;
+  /** Maximum allowed battery voltage at test start (preflight safety check). */
+  maxVoltage: number;
+  targetCurrent: number;
+  /** Linear current ramp duration. Zero starts at the target immediately. */
+  rampMinutes: number;
+  /** Use the load's remote-sense inputs for voltage measurement and cutoffs. */
+  remoteSensing?: boolean;
+  /** Optional charge-removal cutoff. */
+  cutoffMah?: number;
+  /** Optional energy-removal cutoff. */
+  cutoffWh?: number;
+  /** Optional measured-current safety cutoff. */
+  maxCurrent?: number;
+  /** Optional measured-power safety cutoff. */
+  maxPower?: number;
+}
+
+export type BatteryTestExecutionState = 'running' | 'completed' | 'stopped' | 'error';
+export type BatteryTestTerminationReason =
+  | 'minimum-voltage'
+  | 'charge-limit'
+  | 'energy-limit'
+  | 'current-limit'
+  | 'power-limit'
+  | 'user-stopped'
+  | 'output-disabled'
+  | 'device-disconnected'
+  | 'error';
+
+export interface BatteryTestState {
+  config: BatteryTestConfig;
+  executionState: BatteryTestExecutionState;
+  terminationReason?: BatteryTestTerminationReason;
+  startedAt: number;
+  endedAt?: number;
+  elapsedMs: number;
+  voltage: number;
+  current: number;
+  power: number;
+  commandedCurrent: number;
+  chargeMah: number;
+  energyWh: number;
+  error?: string;
+}
+
+export interface BatteryTestSample {
+  timestamp: number;
+  voltage: number;
+  current: number;
+  power: number;
+  chargeMah: number;
+  energyWh: number;
 }
 
 // ============ Trigger Script Types ============
@@ -714,11 +784,11 @@ export interface SettingsImportResult {
 // ============ Dashboard Layout Types ============
 
 /** Panel types that can be placed on the dashboard */
-export type DashboardPanelType = 'device' | 'sequencer' | 'trigger-scripts';
+export type DashboardPanelType = 'device' | 'sequencer' | 'battery-tester' | 'trigger-scripts';
 
 /** A single panel's layout position and size */
 export interface DashboardLayoutItem {
-  i: string;           // Unique key (e.g., 'device-{id}', 'sequencer', 'trigger-scripts')
+  i: string;           // Unique key (e.g., 'device-{id}', 'sequencer', 'battery-tester')
   x: number;           // Grid column position
   y: number;           // Grid row position
   w: number;           // Width in grid units

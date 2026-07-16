@@ -49,6 +49,7 @@ export interface DeviceDriver {
   setValue(name: string, value: number): Promise<Result<void, Error>>;
   getValue?(name: string): Promise<Result<number, Error>>;
   setOutput(enabled: boolean): Promise<Result<void, Error>>;
+  setRemoteSensing?(enabled: boolean): Promise<Result<void, Error>>;
 
   uploadList?(mode: string, steps: ListStep[], repeat?: number): Promise<Result<void, Error>>;
   startList?(): Promise<Result<void, Error>>;

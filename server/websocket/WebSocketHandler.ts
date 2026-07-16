@@ -14,6 +14,7 @@ import type { TriggerScriptManager } from '../triggers/TriggerScriptManager.js';
 import type { DeviceAliasStore } from '../db/DeviceAliasStore.js';
 import type { SettingsManager } from '../db/SettingsManager.js';
 import type { DashboardLayoutStore } from '../db/DashboardLayoutStore.js';
+import type { BatteryTestManager } from '../battery-tests/BatteryTestManager.js';
 import type { ClientMessage, ServerMessage, DeviceSessionState, SettingsExportData, DashboardLayoutData } from '../../shared/types.js';
 
 export interface WebSocketHandler {
@@ -41,7 +42,8 @@ export function createWebSocketHandler(
   triggerScriptManager?: TriggerScriptManager,
   deviceAliasStore?: DeviceAliasStore,
   settingsManager?: SettingsManager,
-  dashboardLayoutStore?: DashboardLayoutStore
+  dashboardLayoutStore?: DashboardLayoutStore,
+  batteryTestManager?: BatteryTestManager
 ): WebSocketHandler {
   const clients = new Map<WebSocket, ClientState>();
 
@@ -57,6 +59,10 @@ export function createWebSocketHandler(
     triggerScriptManager.subscribe((message) => {
       broadcastToAll(message);
     });
+  }
+
+  if (batteryTestManager) {
+    batteryTestManager.subscribe((message) => broadcastToAll(message));
   }
 
   function broadcastToAll(message: ServerMessage): void {
@@ -115,6 +121,10 @@ export function createWebSocketHandler(
         handleSetOutput(clientState, message.deviceId, message.enabled);
         break;
 
+      case 'setRemoteSensing':
+        handleSetRemoteSensing(clientState, message.deviceId, message.enabled);
+        break;
+
       case 'setValue':
         handleSetValue(clientState, message.deviceId, message.name, message.value, message.immediate ?? false);
         break;
@@ -163,6 +173,19 @@ export function createWebSocketHandler(
 
       case 'sequenceAbort':
         handleSequenceAbort(clientState);
+        break;
+
+      case 'batteryTestStart':
+        handleBatteryTestStart(clientState, message.config);
+        break;
+
+      case 'batteryTestStop':
+        handleBatteryTestStop();
+        break;
+
+      case 'batteryTestGetState':
+        send(clientState.ws, { type: 'batteryTestState', state: batteryTestManager?.getState() ?? null });
+        send(clientState.ws, { type: 'batteryTestHistory', samples: batteryTestManager?.getSamples() ?? [] });
         break;
 
       // Trigger script messages - library
@@ -459,6 +482,18 @@ export function createWebSocketHandler(
     }
   }
 
+  async function handleSetRemoteSensing(clientState: ClientState, deviceId: string, enabled: boolean): Promise<void> {
+    const result = await sessionManager.setRemoteSensing(deviceId, enabled);
+    if (!result.ok) {
+      send(clientState.ws, {
+        type: 'error',
+        deviceId,
+        code: 'SET_REMOTE_SENSING_FAILED',
+        message: result.error.message,
+      });
+    }
+  }
+
   async function handleSetValue(
     clientState: ClientState,
     deviceId: string,
@@ -584,6 +619,9 @@ export function createWebSocketHandler(
       });
       return;
     }
+    if (batteryTestManager?.getState()?.executionState === 'running') {
+      await batteryTestManager.stop();
+    }
     const result = await sequenceManager.run(config);
     if (!result.ok) {
       send(clientState.ws, {
@@ -606,6 +644,27 @@ export function createWebSocketHandler(
     }
     await sequenceManager.abort();
     // Note: abort broadcast is handled by SequenceManager's subscriber
+  }
+
+  async function handleBatteryTestStart(
+    clientState: ClientState,
+    config: Parameters<NonNullable<typeof batteryTestManager>['start']>[0]
+  ): Promise<void> {
+    if (!batteryTestManager) {
+      send(clientState.ws, { type: 'error', code: 'BATTERY_TEST_NOT_AVAILABLE', message: 'Battery test manager not available' });
+      return;
+    }
+    if (sequenceManager?.getActiveState()) {
+      await sequenceManager.abort();
+    }
+    const result = await batteryTestManager.start(config);
+    if (!result.ok) {
+      send(clientState.ws, { type: 'error', deviceId: config.deviceId, code: 'BATTERY_TEST_START_FAILED', message: result.error.message });
+    }
+  }
+
+  async function handleBatteryTestStop(): Promise<void> {
+    await batteryTestManager?.stop();
   }
 
   // Trigger script handlers

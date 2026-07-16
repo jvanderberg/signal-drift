@@ -7,8 +7,9 @@ import { OscilloscopePanel } from './components/OscilloscopePanel';
 import { ToastContainer } from './components/ToastContainer';
 import { DeviceSidebar } from './components/DeviceSidebar';
 import { SequencePanel } from './components/sequencer';
+import { BatteryTestPanel } from './components/BatteryTestPanel';
 import { TriggerScriptPanel } from './components/triggers';
-import { DashboardGrid, getDevicePanelKey, getOscilloscopePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
+import { DashboardGrid, getBatteryTesterPanelKey, getDevicePanelKey, getOscilloscopePanelKey, getSequencerPanelKey, getTriggerScriptsPanelKey } from './components/DashboardGrid';
 import { useState } from 'react';
 import type { PanelDefaults } from './stores';
 
@@ -17,6 +18,7 @@ const PSU_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
 const LOAD_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
 const OSCILLOSCOPE_PANEL_DEFAULTS: PanelDefaults = { height: 20 };  // ~600px - needs room for waveform
 const SEQUENCER_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
+const BATTERY_TESTER_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
 const TRIGGER_SCRIPTS_PANEL_DEFAULTS: PanelDefaults = { height: 12 };  // ~360px
 
 function App() {
@@ -56,6 +58,7 @@ function App() {
 
   // Check if sequencer/trigger scripts are shown
   const showSequencer = useMemo(() => hasPanel(getSequencerPanelKey()), [layouts]);
+  const showBatteryTester = useMemo(() => hasPanel(getBatteryTesterPanelKey()), [layouts]);
   const showTriggerScripts = useMemo(() => hasPanel(getTriggerScriptsPanelKey()), [layouts]);
 
   // Get open devices from the device list
@@ -103,8 +106,18 @@ function App() {
     setSidebarOpen(false);
   }, [addPanel, hasPanel]);
 
+  const handleBatteryTesterClick = useCallback(() => {
+    const key = getBatteryTesterPanelKey();
+    if (!hasPanel(key)) addPanel(key, BATTERY_TESTER_PANEL_DEFAULTS);
+    setSidebarOpen(false);
+  }, [addPanel, hasPanel]);
+
   const handleSequencerClose = useCallback(() => {
     removePanel(getSequencerPanelKey());
+  }, [removePanel]);
+
+  const handleBatteryTesterClose = useCallback(() => {
+    removePanel(getBatteryTesterPanelKey());
   }, [removePanel]);
 
   const handleTriggerScriptsClose = useCallback(() => {
@@ -123,9 +136,11 @@ function App() {
         devices={devices}
         openDeviceIds={openDeviceIds}
         showSequencer={showSequencer}
+        showBatteryTester={showBatteryTester}
         showTriggerScripts={showTriggerScripts}
         onDeviceClick={handleDeviceClick}
         onSequencerClick={handleSequencerClick}
+        onBatteryTesterClick={handleBatteryTesterClick}
         onTriggerScriptsClick={handleTriggerScriptsClick}
         onScan={scan}
         isScanning={isLoading}
@@ -213,6 +228,14 @@ function App() {
               <SequencePanel
                 key={getSequencerPanelKey()}
                 onClose={handleSequencerClose}
+              />
+            )}
+
+            {/* Battery Tester Panel */}
+            {showBatteryTester && (
+              <BatteryTestPanel
+                key={getBatteryTesterPanelKey()}
+                onClose={handleBatteryTesterClose}
               />
             )}
 

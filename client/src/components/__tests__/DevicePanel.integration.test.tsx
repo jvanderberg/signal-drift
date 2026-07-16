@@ -8,11 +8,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import type { ServerMessage } from '../../../../shared/types';
 import {
   createMockDeviceSummary,
   createMockSessionState,
+  createMockLoadCapabilities,
 } from '../../test/testUtils';
 
 // Use vi.hoisted to define mocks before vi.mock hoisting
@@ -248,6 +249,29 @@ describe('DevicePanel Integration', () => {
       await waitFor(() => {
         expect(screen.getByText('ON')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Load Remote Sense', () => {
+    it('shows the capability-gated toggle and sends changes', async () => {
+      const capabilities = createMockLoadCapabilities({ features: { remoteSensing: true } });
+      const device = createMockDeviceSummary({
+        id: 'load-1',
+        info: { id: 'load-1', type: 'electronic-load', manufacturer: 'Rigol', model: 'DL3021' },
+        capabilities,
+      });
+      render(
+        <DevicePanel device={device} onClose={mockOnClose} onError={mockOnError} onSuccess={mockOnSuccess} />
+      );
+      simulateMessage({
+        type: 'subscribed', deviceId: 'load-1',
+        state: createMockSessionState({ info: device.info, capabilities, mode: 'CC', remoteSensing: false }),
+      });
+
+      const toggle = await screen.findByRole('button', { name: 'Enable remote sense' });
+      mockSend.mockClear();
+      fireEvent.click(toggle);
+      expect(mockSend).toHaveBeenCalledWith({ type: 'setRemoteSensing', deviceId: 'load-1', enabled: true });
     });
   });
 

@@ -28,6 +28,7 @@ export interface UseDeviceSocketResult {
   unsubscribe: () => void;
   setMode: (mode: string) => void;
   setOutput: (enabled: boolean) => void;
+  setRemoteSensing: (enabled: boolean) => void;
   setValue: (name: string, value: number, immediate?: boolean) => void;
   clearError: () => void;
 }
@@ -41,6 +42,7 @@ const getActions = () => {
     unsubscribeDevice: store.unsubscribeDevice,
     setMode: store.setMode,
     setOutput: store.setOutput,
+    setRemoteSensing: store.setRemoteSensing,
     setValue: store.setValue,
     clearDeviceError: store.clearDeviceError,
   };
@@ -76,6 +78,10 @@ export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
     getActions().setOutput(deviceId, enabled);
   }, [deviceId]);
 
+  const setRemoteSensing = useCallback((enabled: boolean) => {
+    getActions().setRemoteSensing(deviceId, enabled);
+  }, [deviceId]);
+
   const setValue = useCallback((name: string, value: number, immediate = false) => {
     getActions().setValue(deviceId, name, value, immediate);
   }, [deviceId]);
@@ -93,6 +99,7 @@ export function useDeviceSocket(deviceId: string): UseDeviceSocketResult {
     unsubscribe,
     setMode,
     setOutput,
+    setRemoteSensing,
     setValue,
     clearError,
   };

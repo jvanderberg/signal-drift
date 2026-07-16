@@ -63,6 +63,7 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
     unsubscribe,
     setMode,
     setOutput,
+    setRemoteSensing,
     setValue,
     clearError,
   } = useDeviceSocket(device.id);
@@ -208,6 +209,25 @@ export function DevicePanel({ device, onClose, onError, onSuccess }: DevicePanel
                 mode={status.mode}
                 onToggle={handleOutputToggle}
               />
+
+              {capabilities.features.remoteSensing && (
+                <div className="flex items-center gap-2" title="Enable only when S+ and S− are connected at the device under test">
+                  <span className="text-xs font-medium">Sense</span>
+                  <button
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      state.remoteSensing ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border-dark)]'
+                    }`}
+                    onClick={() => setRemoteSensing(!state.remoteSensing)}
+                    aria-label={state.remoteSensing ? 'Disable remote sense' : 'Enable remote sense'}
+                    aria-pressed={state.remoteSensing ?? false}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-200 ${
+                      state.remoteSensing ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </button>
+                  <span className="text-xs font-medium w-6">{state.remoteSensing ? 'ON' : 'OFF'}</span>
+                </div>
+              )}
 
               <div className="w-px h-8 bg-[var(--color-border-dark)] mx-2" />
 

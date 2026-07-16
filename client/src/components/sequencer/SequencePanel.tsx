@@ -44,7 +44,8 @@ export function SequencePanel({ onClose }: SequencePanelProps) {
   // Set initial mode once library is loaded
   useEffect(() => {
     if (!isLibraryLoading && mode === null) {
-      // Default to edit mode if no sequences, run mode otherwise
+      // Preserve the editor-first empty-library workflow; battery testing is
+      // available from both editor and run headers.
       setMode(library.length === 0 ? 'edit' : 'run');
     }
   }, [library.length, isLibraryLoading, mode]);

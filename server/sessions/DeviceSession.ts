@@ -42,6 +42,7 @@ export interface DeviceSession {
   unsubscribe(clientId: string): void;
   setMode(mode: string): Promise<Result<void, Error>>;
   setOutput(enabled: boolean): Promise<Result<void, Error>>;
+  setRemoteSensing(enabled: boolean): Promise<Result<void, Error>>;
   setValue(name: string, value: number, immediate?: boolean): Promise<Result<void, Error>>;
   reconnect(newDriver: DeviceDriver): Promise<void>;
   stop(): Promise<void>;
@@ -72,6 +73,7 @@ export function createDeviceSession(
   // State
   let mode = '';
   let outputEnabled = false;
+  let remoteSensing = false;
   let setpoints: Record<string, number> = {};
   let measurements: Record<string, number> = {};
   let listRunning = false;
@@ -146,6 +148,8 @@ export function createDeviceSession(
   const PENDING_TIMEOUT_MS = 5000; // Max time to wait for device confirmation
   let outputChangePending = false;
   let outputChangePendingSince = 0;
+  let remoteSensingChangePending = false;
+  let remoteSensingChangePendingSince = 0;
   let modeChangePending = false;
   let modeChangePendingSince = 0;
 
@@ -264,6 +268,32 @@ export function createDeviceSession(
           field: 'outputEnabled',
           value: outputEnabled,
         });
+      }
+
+      if (status.remoteSensing !== undefined) {
+        if (remoteSensingChangePending) {
+          if (status.remoteSensing === remoteSensing) {
+            remoteSensingChangePending = false;
+          } else if (Date.now() - remoteSensingChangePendingSince > PENDING_TIMEOUT_MS) {
+            console.warn(`[Session] Remote sensing change pending timeout for ${driver.info.id}, accepting device state: ${status.remoteSensing}`);
+            remoteSensingChangePending = false;
+            remoteSensing = status.remoteSensing;
+            broadcast({
+              type: 'field',
+              deviceId: driver.info.id,
+              field: 'remoteSensing',
+              value: remoteSensing,
+            });
+          }
+        } else if (status.remoteSensing !== remoteSensing) {
+          remoteSensing = status.remoteSensing;
+          broadcast({
+            type: 'field',
+            deviceId: driver.info.id,
+            field: 'remoteSensing',
+            value: remoteSensing,
+          });
+        }
       }
 
       // Confirm any awaiting-confirmation keys where device now matches
@@ -621,6 +651,37 @@ export function createDeviceSession(
     return Ok();
   }
 
+  async function setRemoteSensingAction(enabled: boolean): Promise<Result<void, Error>> {
+    if (!driver.capabilities.features.remoteSensing || !driver.setRemoteSensing) {
+      return Err(new Error('Remote sensing is not supported by this device'));
+    }
+
+    const oldEnabled = remoteSensing;
+    remoteSensingChangePending = true;
+    remoteSensingChangePendingSince = Date.now();
+    remoteSensing = enabled;
+    broadcast({
+      type: 'field',
+      deviceId: driver.info.id,
+      field: 'remoteSensing',
+      value: enabled,
+    });
+
+    const result = await driver.setRemoteSensing(enabled);
+    if (!result.ok) {
+      remoteSensing = oldEnabled;
+      remoteSensingChangePending = false;
+      broadcast({
+        type: 'field',
+        deviceId: driver.info.id,
+        field: 'remoteSensing',
+        value: oldEnabled,
+      });
+      return result;
+    }
+    return Ok();
+  }
+
   async function setValueAction(name: string, value: number, immediate = false): Promise<Result<void, Error>> {
     if (immediate) {
       // Bypass debounce — execute directly on hardware
@@ -749,6 +810,7 @@ export function createDeviceSession(
       consecutiveErrors,
       mode,
       outputEnabled,
+      remoteSensing,
       setpoints,
       measurements,
       listRunning,
@@ -787,6 +849,7 @@ export function createDeviceSession(
     unsubscribe,
     setMode: setModeAction,
     setOutput: setOutputAction,
+    setRemoteSensing: setRemoteSensingAction,
     setValue: setValueAction,
     reconnect,
     stop,
