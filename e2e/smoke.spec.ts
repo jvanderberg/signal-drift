@@ -228,8 +228,16 @@ test.describe('PSU + Load Smoke Test', () => {
     // Keep clicking + on the Load's current integer digit
     let attempts = 0;
     const maxAttempts = 15;
+    const startTime = Date.now();
+    const timeoutMs = 30000; // 30 second timeout for safety
 
     while (attempts < maxAttempts) {
+      // Safety timeout to prevent infinite loop
+      if (Date.now() - startTime > timeoutMs) {
+        console.log('TIMEOUT: Exceeded 30 second limit waiting for CC mode');
+        break;
+      }
+
       // Check current PSU mode
       psuMode = await modeBadges.first().textContent();
       console.log(`Attempt ${attempts + 1}: PSU mode = ${psuMode}`);
@@ -250,6 +258,11 @@ test.describe('PSU + Load Smoke Test', () => {
       }
 
       attempts++;
+    }
+
+    // Fail-safe: if we exhausted attempts without reaching CC mode, log but don't fail
+    if (attempts >= maxAttempts && psuMode !== 'CC') {
+      console.log(`WARNING: Exhausted ${maxAttempts} attempts without reaching CC mode`);
     }
 
     // Final verification

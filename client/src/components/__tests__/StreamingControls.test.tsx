@@ -18,19 +18,26 @@ describe('StreamingControls', () => {
   describe('Streaming status', () => {
     it('should show "Live" when streaming is active', () => {
       render(<StreamingControls isStreaming />);
-      expect(screen.getByText(/live/i)).toBeInTheDocument();
+      expect(screen.getByText('Live')).toBeInTheDocument();
     });
 
     it('should show "Stopped" when streaming is inactive', () => {
       render(<StreamingControls isStreaming={false} />);
-      const status = screen.getByTestId('streaming-status');
-      expect(status.textContent).toMatch(/stopped/i);
+      expect(screen.getByText('Stopped')).toBeInTheDocument();
     });
 
     it('should show visual indicator for live status', () => {
       render(<StreamingControls isStreaming />);
       const indicator = screen.getByTestId('streaming-indicator');
-      expect(indicator.className).toMatch(/live|pulse|animate/i);
+      expect(indicator).toHaveClass('live');
+      expect(indicator).toHaveClass('animate-pulse');
+    });
+
+    it('should not show live indicator when stopped', () => {
+      render(<StreamingControls isStreaming={false} />);
+      const indicator = screen.getByTestId('streaming-indicator');
+      expect(indicator).not.toHaveClass('live');
+      expect(indicator).not.toHaveClass('animate-pulse');
     });
   });
 
@@ -58,8 +65,10 @@ describe('StreamingControls', () => {
       const ch1 = screen.getByTestId('channel-toggle-CHAN1');
       const ch2 = screen.getByTestId('channel-toggle-CHAN2');
 
-      expect(ch1.className).toMatch(/active|enabled|selected/i);
-      expect(ch2.className).not.toMatch(/active|enabled|selected/i);
+      expect(ch1).toHaveClass('active');
+      expect(ch1).toHaveClass('enabled');
+      expect(ch2).not.toHaveClass('active');
+      expect(ch2).not.toHaveClass('enabled');
     });
 
     it('should call onChannelToggle when channel button clicked', () => {

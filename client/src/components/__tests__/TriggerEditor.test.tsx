@@ -513,4 +513,141 @@ describe('TriggerEditor', () => {
       expect(onDragEnd).toHaveBeenCalled();
     });
   });
+
+  describe('Device/Parameter Cascade on Change', () => {
+    it('should cascade action device when switching to setOutput action', () => {
+      const onChange = vi.fn();
+      render(
+        <TriggerEditor
+          trigger={createValueTrigger()}
+          {...defaultProps}
+          onChange={onChange}
+          defaultExpanded={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({
+            type: 'setOutput',
+            deviceId: expect.any(String),
+          }),
+        })
+      );
+    });
+
+    it('should preserve action device when switching action types if device supports both', () => {
+      const onChange = vi.fn();
+      const trigger: Trigger = {
+        ...createTimeTrigger(),
+        action: { type: 'setOutput', deviceId: 'device-1', enabled: true },
+      };
+      render(
+        <TriggerEditor
+          trigger={trigger}
+          {...defaultProps}
+          onChange={onChange}
+          defaultExpanded={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Set Value' }));
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({
+            type: 'setValue',
+            deviceId: 'device-1',
+          }),
+        })
+      );
+    });
+
+    it('should cascade sequence selection when switching to startSequence action', () => {
+      const onChange = vi.fn();
+      render(
+        <TriggerEditor
+          trigger={createTimeTrigger()}
+          {...defaultProps}
+          onChange={onChange}
+          defaultExpanded={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start Seq' }));
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({
+            type: 'startSequence',
+            sequenceId: expect.any(String),
+          }),
+        })
+      );
+    });
+
+    it('should cascade operator and value when switching condition type', () => {
+      const onChange = vi.fn();
+      render(
+        <TriggerEditor
+          trigger={createTimeTrigger()}
+          {...defaultProps}
+          onChange={onChange}
+          defaultExpanded={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Value' }));
+
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          condition: expect.objectContaining({
+            type: 'value',
+            operator: expect.stringMatching(/^[<>=!]+$/),
+            value: expect.any(Number),
+          }),
+        })
+      );
+    });
+
+    it('should show parameter options for the selected device', () => {
+      render(
+        <TriggerEditor
+          trigger={createValueTrigger()}
+          {...defaultProps}
+          defaultExpanded={true}
+        />
+      );
+
+      const parameterOptions = screen.getAllByRole('option');
+      const hasVoltageOption = parameterOptions.some(opt => opt.textContent?.toLowerCase().includes('voltage'));
+      expect(hasVoltageOption).toBe(true);
+    });
+
+    it('should update action mode options based on selected device capabilities', () => {
+      const onChange = vi.fn();
+      const trigger: Trigger = {
+        ...createTimeTrigger(),
+        action: { type: 'setMode', deviceId: 'device-1', mode: 'CV' },
+      };
+      render(
+        <TriggerEditor
+          trigger={trigger}
+          {...defaultProps}
+          onChange={onChange}
+          defaultExpanded={true}
+        />
+      );
+
+      const modeSelect = screen.getByDisplayValue('CV');
+      expect(modeSelect).toBeInTheDocument();
+
+      const options = modeSelect.querySelectorAll('option');
+      const modeValues = Array.from(options).map(opt => opt.textContent);
+      expect(modeValues).toContain('CC');
+      expect(modeValues).toContain('CV');
+    });
+  });
 });

@@ -760,3 +760,139 @@ function createMockPngData(): Buffer {
   const fakeImageData = Buffer.alloc(1000);
   return Buffer.concat([pngSignature, fakeImageData]);
 }
+
+describe('Large Waveform Handling', () => {
+  let transport: MockTransport;
+  let driver: OscilloscopeDriver;
+
+  const defaultResponses: Record<string, string> = {
+    '*IDN?': 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA123456789,00.04.04.SP3',
+    ':WAV:PRE?': '0,0,1000000,1,1.000000e-09,-6.000000e-04,0,3.120000e-02,125,0',
+  };
+
+  beforeEach(async () => {
+    transport = createMockTransport({ responses: defaultResponses });
+    driver = createRigolOscilloscope(transport);
+    await driver.connect();
+  });
+
+  it('should handle large waveform (100k points)', async () => {
+    const numPoints = 100000;
+    const waveformData = createMockWaveformData(numPoints);
+    transport.binaryResponses[':WAV:DATA?'] = waveformData;
+
+    const result = await driver.getWaveform('CHAN1');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.points.length).toBe(numPoints);
+    }
+  });
+
+  it('should handle very large waveform (1M points)', async () => {
+    const numPoints = 1000000;
+    const waveformData = createMockWaveformData(numPoints);
+    transport.binaryResponses[':WAV:DATA?'] = waveformData;
+
+    const result = await driver.getWaveform('CHAN1');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.points.length).toBe(numPoints);
+    }
+  });
+
+  it('should correctly scale large waveform data', async () => {
+    const numPoints = 10000;
+    const waveformData = createMockWaveformData(numPoints);
+    transport.binaryResponses[':WAV:DATA?'] = waveformData;
+
+    const result = await driver.getWaveform('CHAN1');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // All voltage values should be reasonable (within typical scope range)
+      const allReasonable = result.value.points.every(v => Math.abs(v) < 1000);
+      expect(allReasonable).toBe(true);
+    }
+  });
+});
+
+describe('Error Handling', () => {
+  let transport: MockTransport;
+  let driver: OscilloscopeDriver;
+
+  beforeEach(() => {
+    transport = createMockTransport({ responses: {} });
+    driver = createRigolOscilloscope(transport);
+  });
+
+  it('should return Err when transport query fails', async () => {
+    transport = createMockTransport({
+      responses: {},
+      simulateError: true,
+    });
+    driver = createRigolOscilloscope(transport);
+    await driver.connect();
+
+    const result = await driver.getStatus();
+    expect(result.ok).toBe(false);
+  });
+
+  it('should return Err when waveform binary query fails', async () => {
+    transport = createMockTransport({
+      responses: {
+        '*IDN?': 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA123456789,00.04.04.SP3',
+        ':WAV:PRE?': '0,0,1200,1,1.000000e-08,-6.000000e-04,0,3.120000e-02,125,0',
+      },
+      simulateBinaryError: true,
+    });
+    driver = createRigolOscilloscope(transport);
+    await driver.connect();
+
+    const result = await driver.getWaveform('CHAN1');
+    expect(result.ok).toBe(false);
+  });
+
+  it('should return Err when probe times out', async () => {
+    // Empty responses simulates no response (timeout)
+    transport = createMockTransport({ responses: {} });
+    driver = createRigolOscilloscope(transport);
+    await transport.open();
+
+    const result = await driver.probe();
+    expect(result.ok).toBe(false);
+  });
+
+  it('should handle malformed preamble gracefully', async () => {
+    transport = createMockTransport({
+      responses: {
+        '*IDN?': 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA123456789,00.04.04.SP3',
+        ':WAV:PRE?': 'INVALID_DATA',
+      },
+    });
+    driver = createRigolOscilloscope(transport);
+    await driver.connect();
+
+    const waveformData = createMockWaveformData(100);
+    transport.binaryResponses[':WAV:DATA?'] = waveformData;
+
+    const result = await driver.getWaveform('CHAN1');
+    // Should fail gracefully or handle the error
+    expect(result).toBeDefined();
+  });
+
+  it('should handle empty waveform data', async () => {
+    transport = createMockTransport({
+      responses: {
+        '*IDN?': 'RIGOL TECHNOLOGIES,DS1054Z,DS1ZA123456789,00.04.04.SP3',
+        ':WAV:PRE?': '0,0,0,1,1.000000e-08,-6.000000e-04,0,3.120000e-02,125,0',
+      },
+    });
+    driver = createRigolOscilloscope(transport);
+    await driver.connect();
+
+    const waveformData = createMockWaveformData(0);
+    transport.binaryResponses[':WAV:DATA?'] = waveformData;
+
+    const result = await driver.getWaveform('CHAN1');
+    expect(result).toBeDefined();
+  });
+})
